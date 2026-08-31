@@ -5,6 +5,7 @@ import com.biletflow.biletflow.config.DatabaseTestcontainer;
 import com.biletflow.biletflow.config.ElasticsearchTestConfiguration;
 import com.biletflow.biletflow.config.ElasticsearchTestContainer;
 import com.biletflow.biletflow.config.RedisTestContainer;
+import com.biletflow.biletflow.shared.config.JacksonHibernateConfiguration;
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -20,7 +21,7 @@ import org.springframework.boot.test.context.SpringBootTest;
     classes = {
         BiletFlowApp.class,
         AsyncSyncConfiguration.class,
-        com.biletflow.biletflow.config.JacksonHibernateConfiguration.class,
+        JacksonHibernateConfiguration.class,
         DatabaseTestcontainer.class,
         ElasticsearchTestContainer.class,
         ElasticsearchTestConfiguration.class,

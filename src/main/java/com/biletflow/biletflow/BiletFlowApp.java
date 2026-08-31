@@ -1,7 +1,7 @@
 package com.biletflow.biletflow;
 
-import com.biletflow.biletflow.config.ApplicationProperties;
-import com.biletflow.biletflow.config.CRLFLogConverter;
+import com.biletflow.biletflow.shared.config.ApplicationProperties;
+import com.biletflow.biletflow.shared.config.CRLFLogConverter;
 import jakarta.annotation.PostConstruct;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -22,7 +22,7 @@ import tech.jhipster.config.JHipsterConstants;
 
 @SpringBootApplication()
 @EnableConfigurationProperties({ LiquibaseProperties.class, ApplicationProperties.class })
-@EnableElasticsearchRepositories("com.biletflow.biletflow.repository.search")
+@EnableElasticsearchRepositories("com.biletflow.biletflow.iam.repository.search")
 public class BiletFlowApp {
 
     private static final Logger LOG = LoggerFactory.getLogger(BiletFlowApp.class);

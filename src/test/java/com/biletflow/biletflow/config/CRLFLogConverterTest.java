@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import com.biletflow.biletflow.shared.config.CRLFLogConverter;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Marker;
