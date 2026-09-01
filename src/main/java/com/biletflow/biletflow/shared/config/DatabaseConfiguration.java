@@ -1,12 +1,14 @@
 package com.biletflow.biletflow.shared.config;
 
+import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 @Configuration
-@EnableJpaRepositories({ "com.biletflow.biletflow.iam.repository" })
+@EnableJpaRepositories({ "com.biletflow.biletflow" })
+@EntityScan(basePackages = { "com.biletflow.biletflow" })
 @EnableJpaAuditing(auditorAwareRef = "springSecurityAuditorAware")
 @EnableTransactionManagement
 public class DatabaseConfiguration {}

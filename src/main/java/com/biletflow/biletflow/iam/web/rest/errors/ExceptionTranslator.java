@@ -2,6 +2,7 @@ package com.biletflow.biletflow.iam.web.rest.errors;
 
 import static org.springframework.core.annotation.AnnotatedElementUtils.findMergedAnnotation;
 
+import com.biletflow.biletflow.iam.security.UserNotActivatedException;
 import com.biletflow.biletflow.iam.service.UsernameAlreadyUsedException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
@@ -19,10 +20,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -270,5 +268,14 @@ public class ExceptionTranslator extends ResponseEntityExceptionHandler {
             "de.",
             "com.biletflow.biletflow"
         );
+    }
+
+    @ExceptionHandler(UserNotActivatedException.class)
+    public ResponseEntity<ProblemDetail> handleUserNotActivatedException(UserNotActivatedException ex, NativeWebRequest request) {
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, ex.getMessage());
+        problemDetail.setTitle("User Not Activated");
+        problemDetail.setProperty("errorKey", "usernotactivated");
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(problemDetail);
     }
 }

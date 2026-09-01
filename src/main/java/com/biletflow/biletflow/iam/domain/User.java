@@ -187,7 +187,7 @@ public class User extends AbstractAuditingEntity<Long> implements Serializable {
     }
 
     public String getLangKey() {
-        return langKey;
+        return langKey != null ? langKey : "en";
     }
 
     public void setLangKey(String langKey) {

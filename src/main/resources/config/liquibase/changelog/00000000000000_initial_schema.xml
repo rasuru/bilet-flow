@@ -102,6 +102,125 @@
             <column name="user_id" type="numeric"/>
         </loadData>
         <dropDefaultValue tableName="jhi_user" columnName="created_date" columnDataType="${datetimeType}"/>
+
+      <!-- Main Social Event Table -->
+      <createTable tableName="social_event">
+        <column name="id" type="UUID">
+          <constraints primaryKey="true" nullable="false"/>
+        </column>
+        <column name="organizer_id" type="BIGINT">
+          <constraints nullable="false"/>
+        </column>
+        <column name="title" type="VARCHAR(255)">
+          <constraints nullable="false"/>
+        </column>
+        <column name="description" type="TEXT"/>
+        <column name="category" type="VARCHAR(100)">
+          <constraints nullable="false"/>
+        </column>
+        <column name="image_url" type="VARCHAR(512)"/>
+        <column name="status" type="VARCHAR(50)">
+          <constraints nullable="false"/>
+        </column>
+        <column name="visibility" type="VARCHAR(50)">
+          <constraints nullable="false"/>
+        </column>
+        <column name="start_at" type="TIMESTAMP WITH TIME ZONE">
+          <constraints nullable="false"/>
+        </column>
+        <column name="end_at" type="TIMESTAMP WITH TIME ZONE">
+          <constraints nullable="false"/>
+        </column>
+        <column name="reg_window_type" type="VARCHAR(50)">
+          <constraints nullable="false"/>
+        </column>
+        <column name="reg_window_start" type="TIMESTAMP WITH TIME ZONE"/>
+        <column name="reg_window_end" type="TIMESTAMP WITH TIME ZONE"/>
+        <column name="venue_name" type="VARCHAR(255)"/>
+        <column name="venue_address" type="VARCHAR(255)"/>
+        <column name="venue_capacity" type="INTEGER"/>
+        <column name="venue_seating_type" type="VARCHAR(50)"/>
+        <column name="venue_layout_id" type="VARCHAR(255)"/>
+      </createTable>
+
+      <!-- Ticket Types Table -->
+      <createTable tableName="ticket_type">
+        <column name="id" type="UUID">
+          <constraints primaryKey="true" nullable="false"/>
+        </column>
+        <column name="event_id" type="UUID">
+          <constraints nullable="false" foreignKeyName="fk_ticket_type_event" references="social_event(id)"/>
+        </column>
+        <column name="name" type="VARCHAR(255)">
+          <constraints nullable="false"/>
+        </column>
+        <column name="description" type="TEXT"/>
+        <column name="pricing_type" type="VARCHAR(50)">
+          <constraints nullable="false"/>
+        </column>
+        <column name="price_amount" type="NUMERIC(12, 2)"/>
+        <column name="price_currency" type="VARCHAR(3)"/>
+        <column name="total_quantity" type="INTEGER">
+          <constraints nullable="false"/>
+        </column>
+        <column name="sales_start" type="TIMESTAMP WITH TIME ZONE">
+          <constraints nullable="false"/>
+        </column>
+        <column name="sales_end" type="TIMESTAMP WITH TIME ZONE">
+          <constraints nullable="false"/>
+        </column>
+        <column name="max_per_order" type="INTEGER">
+          <constraints nullable="false"/>
+        </column>
+        <column name="hidden" type="BOOLEAN">
+          <constraints nullable="false"/>
+        </column>
+      </createTable>
+
+      <!-- Staff Table -->
+      <createTable tableName="social_event_staff">
+        <column name="event_id" type="UUID">
+          <constraints nullable="false" foreignKeyName="fk_staff_event" references="social_event(id)"/>
+        </column>
+        <column name="user_id" type="BIGINT">
+          <constraints nullable="false"/>
+        </column>
+        <column name="role" type="VARCHAR(50)">
+          <constraints nullable="false"/>
+        </column>
+        <column name="assigned_at" type="TIMESTAMP WITH TIME ZONE">
+          <constraints nullable="false"/>
+        </column>
+      </createTable>
+
+      <!-- Activity Log Table -->
+      <createTable tableName="event_activity_log">
+        <column name="id" type="UUID">
+          <constraints primaryKey="true" nullable="false"/>
+        </column>
+        <column name="event_id" type="UUID">
+          <constraints nullable="false"/>
+        </column>
+        <column name="timestamp" type="TIMESTAMP WITH TIME ZONE">
+          <constraints nullable="false"/>
+        </column>
+        <column name="actor_user_id" type="bigint">
+          <constraints nullable="false"/>
+        </column>
+        <column name="type" type="VARCHAR(100)">
+          <constraints nullable="false"/>
+        </column>
+        <column name="description" type="TEXT">
+          <constraints nullable="false"/>
+        </column>
+      </createTable>
+
+      <createIndex
+        indexName="idx_event_activity_log_event_timestamp"
+        tableName="event_activity_log">
+        <column name="event_id"/>
+        <column name="timestamp" descending="true"/>
+      </createIndex>
     </changeSet>
 
     <changeSet author="jhipster" id="00000000000002" context="test">

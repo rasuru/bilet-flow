@@ -5,6 +5,7 @@ import static com.biletflow.biletflow.iam.security.SecurityUtils.JWT_ALGORITHM;
 import static com.biletflow.biletflow.iam.security.SecurityUtils.USER_ID_CLAIM;
 
 import com.biletflow.biletflow.iam.security.DomainUserDetailsService.UserWithId;
+import com.biletflow.biletflow.iam.security.UserNotActivatedException;
 import com.biletflow.biletflow.iam.web.rest.vm.LoginVM;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
@@ -21,6 +22,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.JwsHeader;
@@ -54,15 +56,21 @@ public class AuthenticateController {
     }
 
     @PostMapping("/authenticate")
-    public ResponseEntity<JWTToken> authorize(@Valid @RequestBody LoginVM loginVM) {
+    public ResponseEntity<?> authorize(@Valid @RequestBody LoginVM loginVM) {
         var authenticationToken = new UsernamePasswordAuthenticationToken(loginVM.getUsername(), loginVM.getPassword());
 
-        var authentication = authenticationManagerBuilder.getObject().authenticate(authenticationToken);
-        SecurityContextHolder.getContext().setAuthentication(authentication);
-        String jwt = this.createToken(authentication, loginVM.isRememberMe());
-        var httpHeaders = new HttpHeaders();
-        httpHeaders.setBearerAuth(jwt);
-        return new ResponseEntity<>(new JWTToken(jwt), httpHeaders, HttpStatus.OK);
+        try {
+            var authentication = authenticationManagerBuilder.getObject().authenticate(authenticationToken);
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+            String jwt = this.createToken(authentication, loginVM.isRememberMe());
+            var httpHeaders = new HttpHeaders();
+            httpHeaders.setBearerAuth(jwt);
+            return new ResponseEntity<>(new JWTToken(jwt), httpHeaders, HttpStatus.OK);
+        } catch (UserNotActivatedException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("User is not activated");
+        } catch (AuthenticationException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Authentication failed");
+        }
     }
 
     /**
