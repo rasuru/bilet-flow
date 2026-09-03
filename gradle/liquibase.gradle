@@ -8,7 +8,10 @@ dependencies {
   // Dependency required to parse options. Refer to https://github.com/liquibase/liquibase-gradle-plugin/tree/Release_2.2.0#news.
   liquibaseRuntime "info.picocli:picocli:4.7.7"
   liquibaseRuntime "org.postgresql:postgresql"
-  liquibaseRuntime "org.liquibase.ext:liquibase-hibernate6:${liquibaseVersion}"
+  liquibaseRuntime "org.liquibase.ext:liquibase-hibernate7:${liquibaseVersion}"
+
+  liquibaseRuntime sourceSets.main.output
+  liquibaseRuntime sourceSets.main.runtimeClasspath
   // jhipster-needle-gradle-dependency - JHipster will add additional dependencies here
 }
 
@@ -32,7 +35,7 @@ liquibase {
       url "jdbc:postgresql://localhost:5432/biletFlow"
       username "biletFlow"
       changelogFile project.ext.diffChangelogFile
-      referenceUrl "hibernate:spring:com.biletflow.biletflow.domain?dialect=org.hibernate.dialect.PostgreSQLDialect&hibernate.physical_naming_strategy=org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy&hibernate.implicit_naming_strategy=org.springframework.boot.hibernate.SpringImplicitNamingStrategy"
+      referenceUrl "hibernate:spring:com.biletflow.biletflow?dialect=org.hibernate.dialect.PostgreSQLDialect&hibernate.physical_naming_strategy=org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy&hibernate.implicit_naming_strategy=org.springframework.boot.hibernate.SpringImplicitNamingStrategy"
       logLevel "debug"
       classpath layout.buildDirectory.dir("classes/java/main").get().asFile.absolutePath
     }

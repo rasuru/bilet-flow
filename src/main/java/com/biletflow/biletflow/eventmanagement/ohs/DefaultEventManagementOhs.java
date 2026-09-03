@@ -1,9 +1,8 @@
-package com.biletflow.biletflow.eventmanagement;
+package com.biletflow.biletflow.eventmanagement.ohs;
 
 import com.biletflow.biletflow.eventmanagement.domain.*;
 import com.biletflow.biletflow.eventmanagement.domain.exceptions.SocialEventNotFoundException;
 import com.biletflow.biletflow.eventmanagement.domain.exceptions.VenueLayoutNotFoundException;
-import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.eventmanagement.ohs.dto.*;
 import java.util.List;
 import java.util.Objects;
@@ -15,12 +14,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Transactional(readOnly = true)
-public class EventManagementFacade implements EventManagementOhs {
+public class DefaultEventManagementOhs implements EventManagementOhs {
 
     private final SocialEventRepository eventRepository;
     private final VenueLayoutRepository layoutRepository;
 
-    public EventManagementFacade(SocialEventRepository eventRepository, VenueLayoutRepository layoutRepository) {
+    public DefaultEventManagementOhs(SocialEventRepository eventRepository, VenueLayoutRepository layoutRepository) {
         this.eventRepository = Objects.requireNonNull(eventRepository);
         this.layoutRepository = Objects.requireNonNull(layoutRepository);
     }

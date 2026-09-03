@@ -1,4 +1,4 @@
-package com.biletflow.biletflow.ticketinventory.application.ohs;
+package com.biletflow.biletflow.ticketinventory.ohs;
 
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.command.HoldInventoryCommand;
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.command.ReleaseHoldCommand;

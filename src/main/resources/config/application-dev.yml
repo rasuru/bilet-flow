@@ -21,6 +21,7 @@ logging:
     com.biletflow.biletflow: DEBUG
     javax.management: INFO
     javax.management.remote.rmi: INFO
+    liquibase: WARN
 
 management:
   health:

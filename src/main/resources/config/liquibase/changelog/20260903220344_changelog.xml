@@ -1,0 +1,433 @@
+<?xml version="1.1" encoding="UTF-8" standalone="no"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog" xmlns:ext="http://www.liquibase.org/xml/ns/dbchangelog-ext" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog-ext http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-ext.xsd http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet author="npc (generated)" id="1788455030868-1">
+        <createSequence incrementBy="50" sequenceName="sequence_generator" startValue="1"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-2">
+        <createTable tableName="event_activity_log">
+            <column name="id" type="UUID">
+                <constraints nullable="false" primaryKey="true" primaryKeyName="event_activity_logPK"/>
+            </column>
+            <column name="actor_user_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="event_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="timestamp" type="TIMESTAMP(6) WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="type" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-3">
+        <createTable tableName="event_management_event">
+            <column name="id" type="UUID">
+                <constraints nullable="false" primaryKey="true" primaryKeyName="event_management_eventPK"/>
+            </column>
+            <column name="category" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="event_end_at" type="TIMESTAMP(6) WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="event_start_at" type="TIMESTAMP(6) WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="image_url" type="VARCHAR(1024)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="organizer_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="registration_end_at" type="TIMESTAMP(6) WITH TIME ZONE"/>
+            <column name="registration_start_at" type="TIMESTAMP(6) WITH TIME ZONE"/>
+            <column name="registration_window_mode" type="VARCHAR(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="seating_mode" type="VARCHAR(32)"/>
+            <column name="status" type="VARCHAR(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="title" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="venue_address" type="VARCHAR(1024)"/>
+            <column name="venue_layout_id" type="UUID"/>
+            <column name="venue_name" type="VARCHAR(255)"/>
+            <column name="venue_total_capacity" type="INTEGER"/>
+            <column name="version" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="visibility" type="VARCHAR(32)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-4">
+        <createTable tableName="event_management_event_staff">
+            <column name="event_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="assigned_at" type="TIMESTAMP(6) WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="role" type="VARCHAR(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="user_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-5">
+        <createTable tableName="event_management_venue_layout">
+            <column name="id" type="UUID">
+                <constraints nullable="false" primaryKey="true" primaryKeyName="event_management_venue_layoutPK"/>
+            </column>
+            <column name="name" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="version" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-6">
+        <createTable tableName="event_management_venue_layout_seat">
+            <column name="layout_id" type="UUID">
+                <constraints nullable="false" primaryKey="true" primaryKeyName="event_management_venue_layout_seatPK"/>
+            </column>
+            <column name="accessible" type="BOOLEAN">
+                <constraints nullable="false"/>
+            </column>
+            <column name="price_category" type="VARCHAR(100)"/>
+            <column name="row_label" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="seat_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="seat_number" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="section_label" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="seat_order" type="INTEGER">
+                <constraints nullable="false" primaryKey="true" primaryKeyName="event_management_venue_layout_seatPK"/>
+            </column>
+        </createTable>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-7">
+        <createTable tableName="jhi_authority">
+            <column name="name" type="VARCHAR(50)">
+                <constraints nullable="false" primaryKey="true" primaryKeyName="jhi_authorityPK"/>
+            </column>
+        </createTable>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-8">
+        <createTable tableName="jhi_user">
+            <column defaultValueComputed="nextval('sequence_generator'::regclass)" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true" primaryKeyName="jhi_userPK"/>
+            </column>
+            <column name="created_by" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_date" type="TIMESTAMP(6) WITH TIME ZONE"/>
+            <column name="last_modified_by" type="VARCHAR(50)"/>
+            <column name="last_modified_date" type="TIMESTAMP(6) WITH TIME ZONE"/>
+            <column name="activated" type="BOOLEAN">
+                <constraints nullable="false"/>
+            </column>
+            <column name="activation_key" type="VARCHAR(20)"/>
+            <column name="email" type="VARCHAR(254)"/>
+            <column name="first_name" type="VARCHAR(50)"/>
+            <column name="image_url" type="VARCHAR(256)"/>
+            <column name="lang_key" type="VARCHAR(10)"/>
+            <column name="last_name" type="VARCHAR(50)"/>
+            <column name="login" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="password_hash" type="VARCHAR(60)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reset_date" type="TIMESTAMP(6) WITH TIME ZONE"/>
+            <column name="reset_key" type="VARCHAR(20)"/>
+        </createTable>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-9">
+        <createTable tableName="jhi_user_authority">
+            <column name="user_id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true" primaryKeyName="jhi_user_authorityPK"/>
+            </column>
+            <column name="authority_name" type="VARCHAR(50)">
+                <constraints nullable="false" primaryKey="true" primaryKeyName="jhi_user_authorityPK"/>
+            </column>
+        </createTable>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-10">
+        <createTable tableName="ticket_inventory_assigned_seat">
+            <column name="event_inventory_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="price_category" type="VARCHAR(100)"/>
+            <column name="seat_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-11">
+        <createTable tableName="ticket_inventory_event_inventory">
+            <column name="id" type="UUID">
+                <constraints nullable="false" primaryKey="true" primaryKeyName="ticket_inventory_event_inventoryPK"/>
+            </column>
+            <column name="event_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="hold_duration_millis" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="inventory_mode" type="VARCHAR(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="version" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-12">
+        <createTable tableName="ticket_inventory_ga_counter">
+            <column name="event_inventory_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reserved" type="INTEGER">
+                <constraints nullable="false"/>
+            </column>
+            <column name="sold" type="INTEGER">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ticket_type_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="total_capacity" type="INTEGER">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-13">
+        <createTable tableName="ticket_inventory_ga_reservation">
+            <column name="event_inventory_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="expires_at" type="TIMESTAMP(6) WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reservation_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="order_id" type="UUID"/>
+            <column name="quantity" type="INTEGER">
+                <constraints nullable="false"/>
+            </column>
+            <column name="session_id" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ticket_type_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-14">
+        <createTable tableName="ticket_inventory_seat_hold">
+            <column name="event_inventory_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="expires_at" type="TIMESTAMP(6) WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="hold_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="order_id" type="UUID"/>
+            <column name="seat_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="session_id" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ticket_type_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-15">
+        <createTable tableName="ticket_inventory_ticket">
+            <column name="id" type="UUID">
+                <constraints nullable="false" primaryKey="true" primaryKeyName="ticket_inventory_ticketPK"/>
+            </column>
+            <column name="attendee_email" type="VARCHAR(320)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="event_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="issued_at" type="TIMESTAMP(6) WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="order_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="owner_user_id" type="BIGINT"/>
+            <column name="seat_id" type="UUID"/>
+            <column name="status" type="VARCHAR(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ticket_code" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ticket_type_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-16">
+        <createTable tableName="ticket_inventory_ticket_type">
+            <column name="id" type="UUID">
+                <constraints nullable="false" primaryKey="true" primaryKeyName="ticket_inventory_ticket_typePK"/>
+            </column>
+            <column name="description" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="event_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="max_per_order" type="INTEGER">
+                <constraints nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="price_amount" type="numeric(19, 2)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="price_category" type="VARCHAR(100)"/>
+            <column name="price_currency" type="VARCHAR(3)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="sales_end_at" type="TIMESTAMP(6) WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="sales_start_at" type="TIMESTAMP(6) WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(32)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-17">
+        <addUniqueConstraint columnNames="email" constraintName="UC_JHI_USEREMAIL_COL" tableName="jhi_user"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-18">
+        <addUniqueConstraint columnNames="login" constraintName="UC_JHI_USERLOGIN_COL" tableName="jhi_user"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-19">
+        <addUniqueConstraint columnNames="event_id, user_id, role" constraintName="uk_event_management_event_staff" tableName="event_management_event_staff"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-20">
+        <addUniqueConstraint columnNames="layout_id, seat_id" constraintName="uk_event_management_layout_seat_id" tableName="event_management_venue_layout_seat"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-21">
+        <addUniqueConstraint columnNames="layout_id, section_label, row_label, seat_number" constraintName="uk_event_management_layout_seat_location" tableName="event_management_venue_layout_seat"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-22">
+        <addUniqueConstraint columnNames="name" constraintName="uk_event_management_venue_layout_name" tableName="event_management_venue_layout"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-23">
+        <addUniqueConstraint columnNames="event_inventory_id, seat_id" constraintName="uk_ticket_inventory_assigned_seat" tableName="ticket_inventory_assigned_seat"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-24">
+        <addUniqueConstraint columnNames="event_id" constraintName="uk_ticket_inventory_event_inventory_event" tableName="ticket_inventory_event_inventory"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-25">
+        <addUniqueConstraint columnNames="event_inventory_id, ticket_type_id" constraintName="uk_ticket_inventory_ga_counter_type" tableName="ticket_inventory_ga_counter"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-26">
+        <addUniqueConstraint columnNames="event_inventory_id, reservation_id" constraintName="uk_ticket_inventory_ga_reservation_id" tableName="ticket_inventory_ga_reservation"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-27">
+        <addUniqueConstraint columnNames="event_inventory_id, hold_id" constraintName="uk_ticket_inventory_seat_hold_id" tableName="ticket_inventory_seat_hold"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-28">
+        <addUniqueConstraint columnNames="ticket_code" constraintName="uk_ticket_inventory_ticket_code" tableName="ticket_inventory_ticket"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-29">
+        <createIndex indexName="idx_event_management_event_organizer" tableName="event_management_event">
+            <column name="organizer_id"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-30">
+        <createIndex indexName="idx_event_management_event_status" tableName="event_management_event">
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-31">
+        <createIndex indexName="idx_ticket_inventory_ticket_event" tableName="ticket_inventory_ticket">
+            <column name="event_id"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-32">
+        <createIndex indexName="idx_ticket_inventory_ticket_order" tableName="ticket_inventory_ticket">
+            <column name="order_id"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-33">
+        <createIndex indexName="idx_ticket_inventory_ticket_owner" tableName="ticket_inventory_ticket">
+            <column name="owner_user_id"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-34">
+        <createIndex indexName="idx_ticket_inventory_ticket_type_event" tableName="ticket_inventory_ticket_type">
+            <column name="event_id"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-35">
+        <addForeignKeyConstraint baseColumnNames="event_inventory_id" baseTableName="ticket_inventory_assigned_seat" constraintName="FK1mg9uau7wv0vkmnldcposddb9" deferrable="false" initiallyDeferred="false" referencedColumnNames="id" referencedTableName="ticket_inventory_event_inventory" validate="true"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-36">
+        <addForeignKeyConstraint baseColumnNames="event_inventory_id" baseTableName="ticket_inventory_ga_counter" constraintName="FK214aj4lx51kq37xg76pt3ytqf" deferrable="false" initiallyDeferred="false" referencedColumnNames="id" referencedTableName="ticket_inventory_event_inventory" validate="true"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-37">
+        <addForeignKeyConstraint baseColumnNames="user_id" baseTableName="jhi_user_authority" constraintName="FK290okww5jujghp4el5i7mgwu0" deferrable="false" initiallyDeferred="false" referencedColumnNames="id" referencedTableName="jhi_user" validate="true"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-38">
+        <addForeignKeyConstraint baseColumnNames="event_id" baseTableName="event_management_event_staff" constraintName="FK4mhk63em1vbxl7mgh0r8nb9w9" deferrable="false" initiallyDeferred="false" referencedColumnNames="id" referencedTableName="event_management_event" validate="true"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-39">
+        <addForeignKeyConstraint baseColumnNames="authority_name" baseTableName="jhi_user_authority" constraintName="FK4psxl0jtx6nr7rhqbynr6itoc" deferrable="false" initiallyDeferred="false" referencedColumnNames="name" referencedTableName="jhi_authority" validate="true"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-40">
+        <addForeignKeyConstraint baseColumnNames="event_inventory_id" baseTableName="ticket_inventory_seat_hold" constraintName="FKeo2i148au9l67fgxgkltab8xx" deferrable="false" initiallyDeferred="false" referencedColumnNames="id" referencedTableName="ticket_inventory_event_inventory" validate="true"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-41">
+        <addForeignKeyConstraint baseColumnNames="layout_id" baseTableName="event_management_venue_layout_seat" constraintName="FKloqixv378cgvnc0c93m8088rk" deferrable="false" initiallyDeferred="false" referencedColumnNames="id" referencedTableName="event_management_venue_layout" validate="true"/>
+    </changeSet>
+    <changeSet author="npc (generated)" id="1788455030868-42">
+        <addForeignKeyConstraint baseColumnNames="event_inventory_id" baseTableName="ticket_inventory_ga_reservation" constraintName="FKmshq8kn5bxcspwho1fv9f1t4v" deferrable="false" initiallyDeferred="false" referencedColumnNames="id" referencedTableName="ticket_inventory_event_inventory" validate="true"/>
+    </changeSet>
+</databaseChangeLog>
