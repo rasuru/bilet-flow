@@ -1,6 +1,6 @@
 package com.biletflow.biletflow.iam.security;
 
-import com.biletflow.biletflow.shared.config.Constants;
+import com.biletflow.biletflow.common.config.Constants;
 import java.util.Optional;
 import org.springframework.data.domain.AuditorAware;
 import org.springframework.stereotype.Component;

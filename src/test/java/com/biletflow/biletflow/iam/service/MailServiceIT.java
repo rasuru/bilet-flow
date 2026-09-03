@@ -6,8 +6,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import com.biletflow.biletflow.IntegrationTest;
+import com.biletflow.biletflow.common.config.Constants;
 import com.biletflow.biletflow.iam.domain.User;
-import com.biletflow.biletflow.shared.config.Constants;
 import jakarta.mail.Multipart;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeBodyPart;

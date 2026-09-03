@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.biletflow.biletflow.IntegrationTest;
+import com.biletflow.biletflow.common.config.Constants;
 import com.biletflow.biletflow.iam.domain.User;
 import com.biletflow.biletflow.iam.repository.AuthorityRepository;
 import com.biletflow.biletflow.iam.repository.UserRepository;
@@ -14,7 +15,6 @@ import com.biletflow.biletflow.iam.service.dto.AdminUserDTO;
 import com.biletflow.biletflow.iam.service.dto.PasswordChangeDTO;
 import com.biletflow.biletflow.iam.web.rest.vm.KeyAndPasswordVM;
 import com.biletflow.biletflow.iam.web.rest.vm.ManagedUserVM;
-import com.biletflow.biletflow.shared.config.Constants;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Stream;

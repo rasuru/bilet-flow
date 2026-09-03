@@ -18,16 +18,16 @@ public record EventDateRange(Instant startAt, Instant endAt) {
         if (startAt.isBefore(now)) {
             throw new IllegalArgumentException("Event start date cannot be in the past");
         }
+
         return new EventDateRange(startAt, endAt);
     }
 
-    // Domain query operations
     public boolean hasStarted(Instant referenceTime) {
-        return !referenceTime.isBefore(this.startAt);
+        return !referenceTime.isBefore(startAt);
     }
 
     public boolean hasEnded(Instant referenceTime) {
-        return referenceTime.isAfter(this.endAt);
+        return referenceTime.isAfter(endAt);
     }
 
     public boolean isCurrentlyActive(Instant referenceTime) {

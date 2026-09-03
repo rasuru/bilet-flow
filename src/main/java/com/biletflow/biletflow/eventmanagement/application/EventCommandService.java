@@ -2,10 +2,13 @@ package com.biletflow.biletflow.eventmanagement.application;
 
 import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditRepository;
 import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditService;
+import com.biletflow.biletflow.eventmanagement.application.dto.*;
 import com.biletflow.biletflow.eventmanagement.domain.*;
 import com.biletflow.biletflow.eventmanagement.domain.exceptions.SocialEventNotFoundException;
 import com.biletflow.biletflow.iam.security.SecurityUtils;
 import jakarta.transaction.Transactional;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Objects;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -14,11 +17,20 @@ import org.springframework.stereotype.Service;
 public class EventCommandService {
 
     private final SocialEventRepository eventRepository;
+    private final VenueLayoutRepository venueLayoutRepository;
     private final EventAuditService auditService;
+    private final Clock clock;
 
-    public EventCommandService(SocialEventRepository eventRepository, EventAuditService auditService) {
-        this.eventRepository = Objects.requireNonNull(eventRepository, "SocialEventRepository cannot be null");
-        this.auditService = Objects.requireNonNull(auditService, "EventAuditService cannot be null");
+    public EventCommandService(
+        SocialEventRepository eventRepository,
+        VenueLayoutRepository venueLayoutRepository,
+        EventAuditService auditService,
+        Clock clock
+    ) {
+        this.eventRepository = Objects.requireNonNull(eventRepository);
+        this.venueLayoutRepository = Objects.requireNonNull(venueLayoutRepository);
+        this.auditService = Objects.requireNonNull(auditService);
+        this.clock = Objects.requireNonNull(clock);
     }
 
     @Transactional
@@ -33,8 +45,7 @@ public class EventCommandService {
             command.imageUrl(),
             command.visibility(),
             command.dateRange(),
-            command.registrationWindow(),
-            currentUserId
+            command.registrationWindow()
         );
 
         SocialEvent savedEvent = eventRepository.save(draftEvent);
@@ -48,11 +59,8 @@ public class EventCommandService {
     public void handle(UpdateEventDetailsCommand command) {
         Long currentUserId = getAuthenticatedUserIdOrThrow();
 
-        SocialEvent event = eventRepository
-            .findById(command.eventId())
-            .orElseThrow(() -> new SocialEventNotFoundException(command.eventId().value().toString()));
-
-        assertCanModifyEvent(event);
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
 
         event.updateDetails(
             command.title(),
@@ -61,8 +69,7 @@ public class EventCommandService {
             command.imageUrl(),
             command.visibility(),
             command.dateRange(),
-            command.registrationWindow(),
-            currentUserId
+            command.registrationWindow()
         );
 
         eventRepository.save(event);
@@ -74,14 +81,10 @@ public class EventCommandService {
     public void handle(PublishSocialEventCommand command) {
         Long currentUserId = getAuthenticatedUserIdOrThrow();
 
-        SocialEvent event = eventRepository
-            .findById(command.eventId())
-            .orElseThrow(() -> new SocialEventNotFoundException(command.eventId().value().toString()));
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
 
-        assertCanModifyEvent(event);
-
-        event.publish(currentUserId);
-
+        event.publish();
         eventRepository.save(event);
 
         auditService.record(event.getId().value(), currentUserId, EventAuditRepository.EventAuditType.PUBLISHED, "Event published");
@@ -91,14 +94,10 @@ public class EventCommandService {
     public void handle(UnpublishEventCommand command) {
         Long currentUserId = getAuthenticatedUserIdOrThrow();
 
-        SocialEvent event = eventRepository
-            .findById(command.eventId())
-            .orElseThrow(() -> new SocialEventNotFoundException(command.eventId().value().toString()));
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
 
-        assertCanModifyEvent(event);
-
-        event.unpublish(currentUserId);
-
+        event.unpublish();
         eventRepository.save(event);
 
         auditService.record(event.getId().value(), currentUserId, EventAuditRepository.EventAuditType.UNPUBLISHED, "Event unpublished");
@@ -108,14 +107,10 @@ public class EventCommandService {
     public void handle(CancelSocialEventCommand command) {
         Long currentUserId = getAuthenticatedUserIdOrThrow();
 
-        SocialEvent event = eventRepository
-            .findById(command.eventId())
-            .orElseThrow(() -> new SocialEventNotFoundException(command.eventId().value().toString()));
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
 
-        assertCanModifyEvent(event);
-
-        event.cancel(command.cancellationTime(), currentUserId);
-
+        event.cancel(command.cancellationTime());
         eventRepository.save(event);
 
         auditService.record(event.getId().value(), currentUserId, EventAuditRepository.EventAuditType.CANCELLED, "Event cancelled");
@@ -125,38 +120,28 @@ public class EventCommandService {
     public SocialEventId handle(DuplicateEventCommand command) {
         Long currentUserId = getAuthenticatedUserIdOrThrow();
 
-        SocialEvent sourceEvent = eventRepository
-            .findById(command.sourceEventId())
-            .orElseThrow(() -> new SocialEventNotFoundException(command.sourceEventId().value().toString()));
+        SocialEvent source = requireEvent(command.sourceEventId());
+        assertCanModifyEvent(source, currentUserId);
 
-        assertCanModifyEvent(sourceEvent);
+        SocialEvent duplicated = source.duplicate(command.newDateRange(), command.newRegistrationWindow());
 
-        SocialEvent duplicatedEvent = sourceEvent.duplicate(
-            command.executionTime(),
-            command.newDateRange(),
-            command.newRegistrationWindow(),
-            currentUserId
-        );
+        SocialEvent saved = eventRepository.save(duplicated);
 
-        SocialEvent savedEvent = eventRepository.save(duplicatedEvent);
+        auditService.record(saved.getId().value(), currentUserId, EventAuditRepository.EventAuditType.CREATED, "Event duplicated");
 
-        auditService.record(savedEvent.getId().value(), currentUserId, EventAuditRepository.EventAuditType.CREATED, "Event duplicated");
-
-        return savedEvent.getId();
+        return saved.getId();
     }
 
     @Transactional
     public void handle(AttachVenueCommand command) {
         Long currentUserId = getAuthenticatedUserIdOrThrow();
 
-        SocialEvent event = eventRepository
-            .findById(command.eventId())
-            .orElseThrow(() -> new SocialEventNotFoundException(command.eventId().value().toString()));
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
 
-        assertCanModifyEvent(event);
+        validateVenueConfiguration(command.venue());
 
-        event.attachVenue(command.venue(), currentUserId);
-
+        event.attachVenue(command.venue());
         eventRepository.save(event);
 
         auditService.record(
@@ -171,13 +156,10 @@ public class EventCommandService {
     public void handle(AssignStaffCommand command) {
         Long currentUserId = getAuthenticatedUserIdOrThrow();
 
-        SocialEvent event = eventRepository
-            .findById(command.eventId())
-            .orElseThrow(() -> new SocialEventNotFoundException(command.eventId().value().toString()));
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
 
-        assertCanModifyEvent(event);
-
-        event.assignStaff(command.staffUserId(), command.role(), currentUserId);
+        event.assignStaff(command.staffUserId(), command.role(), Instant.now(clock));
 
         eventRepository.save(event);
 
@@ -193,14 +175,10 @@ public class EventCommandService {
     public void handle(RemoveStaffCommand command) {
         Long currentUserId = getAuthenticatedUserIdOrThrow();
 
-        SocialEvent event = eventRepository
-            .findById(command.eventId())
-            .orElseThrow(() -> new SocialEventNotFoundException(command.eventId().value().toString()));
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
 
-        assertCanModifyEvent(event);
-
-        event.removeStaff(command.staffUserId(), currentUserId);
-
+        event.removeStaff(command.staffUserId());
         eventRepository.save(event);
 
         auditService.record(
@@ -211,103 +189,22 @@ public class EventCommandService {
         );
     }
 
-    @Transactional
-    public void handle(CreateTicketTypeCommand command) {
-        Long currentUserId = getAuthenticatedUserIdOrThrow();
+    private void validateVenueConfiguration(Venue venue) {
+        if (!(venue.getSeatingConfig() instanceof Venue.AssignedSeating assigned)) {
+            return;
+        }
 
-        SocialEvent event = eventRepository
-            .findById(command.eventId())
-            .orElseThrow(() -> new SocialEventNotFoundException(command.eventId().value().toString()));
+        VenueLayout layout = venueLayoutRepository
+            .findById(assigned.layoutId())
+            .orElseThrow(() -> new IllegalArgumentException("Unknown VenueLayoutId: " + assigned.layoutId().value()));
 
-        assertCanModifyEvent(event);
-
-        event.addTicketType(
-            command.name(),
-            command.description(),
-            command.pricing(),
-            command.quantity(),
-            command.salesWindow(),
-            command.maxPerOrder(),
-            currentUserId
-        );
-
-        eventRepository.save(event);
-
-        auditService.record(
-            event.getId().value(),
-            currentUserId,
-            EventAuditRepository.EventAuditType.TICKET_TYPE_ADDED,
-            "Ticket type added"
-        );
+        if (venue.getTotalCapacity() > layout.getSeats().size()) {
+            throw new IllegalArgumentException("Venue capacity cannot exceed assigned-seating layout size");
+        }
     }
 
-    @Transactional
-    public void handle(UpdateTicketTypeCommand command) {
-        Long currentUserId = getAuthenticatedUserIdOrThrow();
-
-        SocialEvent event = eventRepository
-            .findById(command.eventId())
-            .orElseThrow(() -> new SocialEventNotFoundException(command.eventId().value().toString()));
-
-        assertCanModifyEvent(event);
-
-        TicketType ticketType = event
-            .getTicketTypes()
-            .stream()
-            .filter(tt -> tt.getId().equals(command.ticketTypeId()))
-            .findFirst()
-            .orElseThrow(() -> new IllegalArgumentException("TicketType not found: " + command.ticketTypeId().value()));
-
-        ticketType.updateDetails(command.name(), command.description(), command.salesWindow());
-        ticketType.updateQuantity(command.quantity());
-
-        eventRepository.save(event);
-
-        auditService.record(event.getId().value(), currentUserId, EventAuditRepository.EventAuditType.UPDATED, "Ticket type updated");
-    }
-
-    @Transactional
-    public void handle(HideTicketTypeCommand command) {
-        Long currentUserId = getAuthenticatedUserIdOrThrow();
-
-        SocialEvent event = eventRepository
-            .findById(command.eventId())
-            .orElseThrow(() -> new SocialEventNotFoundException(command.eventId().value().toString()));
-
-        assertCanModifyEvent(event);
-
-        event.hideTicketType(command.ticketTypeId(), currentUserId);
-
-        eventRepository.save(event);
-
-        auditService.record(
-            event.getId().value(),
-            currentUserId,
-            EventAuditRepository.EventAuditType.TICKET_TYPE_HIDDEN,
-            "Ticket type hidden"
-        );
-    }
-
-    @Transactional
-    public void handle(RevealTicketTypeCommand command) {
-        Long currentUserId = getAuthenticatedUserIdOrThrow();
-
-        SocialEvent event = eventRepository
-            .findById(command.eventId())
-            .orElseThrow(() -> new SocialEventNotFoundException(command.eventId().value().toString()));
-
-        assertCanModifyEvent(event);
-
-        event.revealTicketType(command.ticketTypeId(), currentUserId);
-
-        eventRepository.save(event);
-
-        auditService.record(
-            event.getId().value(),
-            currentUserId,
-            EventAuditRepository.EventAuditType.TICKET_TYPE_REVEALED,
-            "Ticket type revealed"
-        );
+    private SocialEvent requireEvent(SocialEventId eventId) {
+        return eventRepository.findById(eventId).orElseThrow(() -> new SocialEventNotFoundException(eventId.value().toString()));
     }
 
     private Long getAuthenticatedUserIdOrThrow() {
@@ -316,12 +213,8 @@ public class EventCommandService {
         );
     }
 
-    private void assertCanModifyEvent(SocialEvent event) {
-        Long currentUserId = getAuthenticatedUserIdOrThrow();
-
-        boolean isOrganizer = event.getOrganizerId().equals(currentUserId);
-
-        if (!isOrganizer) {
+    private void assertCanModifyEvent(SocialEvent event, Long currentUserId) {
+        if (!event.getOrganizerId().equals(currentUserId)) {
             throw new AccessDeniedException("User is not authorized to modify event: " + event.getId().value());
         }
     }

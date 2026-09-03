@@ -1,7 +1,7 @@
 package com.biletflow.biletflow;
 
-import com.biletflow.biletflow.shared.config.ApplicationProperties;
-import com.biletflow.biletflow.shared.config.CRLFLogConverter;
+import com.biletflow.biletflow.common.config.ApplicationProperties;
+import com.biletflow.biletflow.common.config.CRLFLogConverter;
 import jakarta.annotation.PostConstruct;
 import java.net.InetAddress;
 import java.net.UnknownHostException;

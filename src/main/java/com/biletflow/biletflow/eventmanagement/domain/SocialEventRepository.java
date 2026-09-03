@@ -2,7 +2,6 @@ package com.biletflow.biletflow.eventmanagement.domain;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 public interface SocialEventRepository {
     SocialEvent save(SocialEvent socialEvent);

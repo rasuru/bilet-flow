@@ -1,7 +1,7 @@
 package com.biletflow.biletflow.iam.config;
 
+import com.biletflow.biletflow.common.config.security.EndpointSecurityConfigurer;
 import com.biletflow.biletflow.iam.security.AuthoritiesConstants;
-import com.biletflow.biletflow.shared.config.security.EndpointSecurityConfigurer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;

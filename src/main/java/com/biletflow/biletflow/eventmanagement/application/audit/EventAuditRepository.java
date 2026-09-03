@@ -15,9 +15,6 @@ public interface EventAuditRepository {
         UNPUBLISHED,
         CANCELLED,
         VENUE_ATTACHED,
-        TICKET_TYPE_ADDED,
-        TICKET_TYPE_HIDDEN,
-        TICKET_TYPE_REVEALED,
         STAFF_ASSIGNED,
         STAFF_REMOVED,
     }

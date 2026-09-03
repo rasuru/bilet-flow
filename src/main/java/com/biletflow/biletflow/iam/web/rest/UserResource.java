@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.iam.web.rest;
 
+import com.biletflow.biletflow.common.config.Constants;
 import com.biletflow.biletflow.iam.domain.User;
 import com.biletflow.biletflow.iam.repository.UserRepository;
 import com.biletflow.biletflow.iam.security.AuthoritiesConstants;
@@ -9,7 +10,6 @@ import com.biletflow.biletflow.iam.service.dto.AdminUserDTO;
 import com.biletflow.biletflow.iam.web.rest.errors.BadRequestAlertException;
 import com.biletflow.biletflow.iam.web.rest.errors.EmailAlreadyUsedException;
 import com.biletflow.biletflow.iam.web.rest.errors.LoginAlreadyUsedException;
-import com.biletflow.biletflow.shared.config.Constants;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
 import java.net.URI;

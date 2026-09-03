@@ -1,6 +1,6 @@
 package com.biletflow.biletflow.eventmanagement.infrastructure.config;
 
-import com.biletflow.biletflow.shared.config.security.EndpointSecurityConfigurer;
+import com.biletflow.biletflow.common.config.security.EndpointSecurityConfigurer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;

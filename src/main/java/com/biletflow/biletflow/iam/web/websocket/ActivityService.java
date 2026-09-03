@@ -1,6 +1,6 @@
 package com.biletflow.biletflow.iam.web.websocket;
 
-import static com.biletflow.biletflow.shared.config.WebsocketConfiguration.IP_ADDRESS;
+import static com.biletflow.biletflow.common.config.WebsocketConfiguration.IP_ADDRESS;
 
 import com.biletflow.biletflow.iam.web.websocket.dto.ActivityDTO;
 import java.security.Principal;

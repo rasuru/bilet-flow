@@ -1,8 +1,8 @@
 package com.biletflow.biletflow.iam.service.dto;
 
+import com.biletflow.biletflow.common.config.Constants;
 import com.biletflow.biletflow.iam.domain.Authority;
 import com.biletflow.biletflow.iam.domain.User;
-import com.biletflow.biletflow.shared.config.Constants;
 import jakarta.validation.constraints.*;
 import java.io.Serial;
 import java.io.Serializable;

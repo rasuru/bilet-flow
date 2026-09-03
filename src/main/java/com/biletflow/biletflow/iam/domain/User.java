@@ -1,6 +1,6 @@
 package com.biletflow.biletflow.iam.domain;
 
-import com.biletflow.biletflow.shared.config.Constants;
+import com.biletflow.biletflow.common.config.Constants;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Email;

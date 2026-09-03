@@ -3,7 +3,7 @@ package com.biletflow.biletflow.eventmanagement.domain;
 import java.util.Objects;
 
 /**
- * Value Object representing a specific seat within a venue layout.
+ * Value object representing the human-readable address of a seat.
  */
 public record SeatLocation(String section, String row, String seatNumber) {
     public SeatLocation {
@@ -21,15 +21,11 @@ public record SeatLocation(String section, String row, String seatNumber) {
             throw new IllegalArgumentException("Seat number cannot be empty");
         }
 
-        // Normalize text attributes to maintain consistent value equality
         section = section.trim().toUpperCase();
         row = row.trim().toUpperCase();
         seatNumber = seatNumber.trim().toUpperCase();
     }
 
-    /**
-     * Helper to present the location in a readable standard format (e.g., "SEC A - ROW 12 - SEAT 4").
-     */
     public String toLabel() {
         return String.format("SEC %s - ROW %s - SEAT %s", section, row, seatNumber);
     }

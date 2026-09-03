@@ -9,6 +9,7 @@ public sealed interface RegistrationWindow {
     record AlwaysOpen() implements RegistrationWindow {
         @Override
         public boolean isOpenAt(Instant now) {
+            Objects.requireNonNull(now, "now cannot be null");
             return true;
         }
     }
@@ -20,6 +21,7 @@ public sealed interface RegistrationWindow {
 
         @Override
         public boolean isOpenAt(Instant now) {
+            Objects.requireNonNull(now, "now cannot be null");
             return !now.isBefore(start);
         }
     }
@@ -28,6 +30,7 @@ public sealed interface RegistrationWindow {
         public Bounded {
             Objects.requireNonNull(start, "Start instant cannot be null");
             Objects.requireNonNull(end, "End instant cannot be null");
+
             if (end.isBefore(start)) {
                 throw new IllegalArgumentException("Registration end cannot be before start");
             }
@@ -35,6 +38,8 @@ public sealed interface RegistrationWindow {
 
         @Override
         public boolean isOpenAt(Instant now) {
+            Objects.requireNonNull(now, "now cannot be null");
+
             return !now.isBefore(start) && !now.isAfter(end);
         }
     }

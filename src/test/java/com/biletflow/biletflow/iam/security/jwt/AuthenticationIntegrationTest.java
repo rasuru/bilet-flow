@@ -1,10 +1,10 @@
 package com.biletflow.biletflow.iam.security.jwt;
 
+import com.biletflow.biletflow.common.config.WebConfigurer;
+import com.biletflow.biletflow.common.config.security.SecurityConfiguration;
+import com.biletflow.biletflow.common.config.security.SecurityJwtConfiguration;
 import com.biletflow.biletflow.iam.management.SecurityMetersService;
 import com.biletflow.biletflow.iam.web.rest.AuthenticateController;
-import com.biletflow.biletflow.shared.config.WebConfigurer;
-import com.biletflow.biletflow.shared.config.security.SecurityConfiguration;
-import com.biletflow.biletflow.shared.config.security.SecurityJwtConfiguration;
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;

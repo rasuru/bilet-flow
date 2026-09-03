@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.iam.service;
 
+import com.biletflow.biletflow.common.config.Constants;
 import com.biletflow.biletflow.iam.domain.Authority;
 import com.biletflow.biletflow.iam.domain.User;
 import com.biletflow.biletflow.iam.repository.AuthorityRepository;
@@ -9,7 +10,6 @@ import com.biletflow.biletflow.iam.security.AuthoritiesConstants;
 import com.biletflow.biletflow.iam.security.SecurityUtils;
 import com.biletflow.biletflow.iam.service.dto.AdminUserDTO;
 import com.biletflow.biletflow.iam.service.dto.UserDTO;
-import com.biletflow.biletflow.shared.config.Constants;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
