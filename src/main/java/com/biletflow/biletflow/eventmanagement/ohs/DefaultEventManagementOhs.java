@@ -80,6 +80,12 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
         return new EventSeatMapView(eventId, layout.getId().value(), seats);
     }
 
+    @Override
+    public boolean canManageTicketing(UUID eventId, Long userId) {
+        SocialEvent event = requireEvent(eventId);
+        return event.canBeManagedBy(userId);
+    }
+
     private SocialEvent requireEvent(UUID eventId) {
         Objects.requireNonNull(eventId, "eventId cannot be null");
 

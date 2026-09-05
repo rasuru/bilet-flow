@@ -36,4 +36,9 @@ public class EventManagementAcl implements EventManagementPort {
                 .collect(Collectors.toUnmodifiableMap(seat -> seat.seatId(), seat -> seat.priceCategory()))
         );
     }
+
+    @Override
+    public boolean canManageTicketing(UUID eventId, Long userId) {
+        return eventManagementOhs.canManageTicketing(eventId, userId);
+    }
 }

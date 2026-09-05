@@ -19,4 +19,6 @@ public interface EventManagementOhs {
      * Transactional seat availability still belongs to Ticket Inventory.
      */
     EventSeatMapView getSeatMap(UUID eventId);
+
+    public boolean canManageTicketing(UUID eventId, Long userId);
 }
