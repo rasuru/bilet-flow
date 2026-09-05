@@ -12,10 +12,10 @@ public class EventManagementEndpointSecurityConfiguration {
     EndpointSecurityConfigurer configureEventManagementSecurity() {
         return authz ->
             authz
-                // Public read access for browsing events
-                .requestMatchers(HttpMethod.GET, "/api/events", "/api/events/*")
+                .requestMatchers(HttpMethod.GET, "/api/events/mine", "/api/events/*/manage")
+                .authenticated()
+                .requestMatchers(HttpMethod.GET, "/api/events", "/api/events/*", "/api/venue-layouts", "/api/venue-layouts/*")
                 .permitAll()
-                // All state mutation (creation, publishing, cancellations, ticket management) requires authentication
                 .requestMatchers("/api/events", "/api/events/**")
                 .authenticated();
     }

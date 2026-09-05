@@ -10,6 +10,8 @@ public interface SocialEventRepository {
 
     List<SocialEvent> findByOrganizerId(Long organizerId);
 
+    List<SocialEvent> findByStatusAndVisibility(SocialEventStatus status, EventVisibility visibility);
+
     boolean existsById(SocialEventId id);
 
     void deleteById(SocialEventId id);

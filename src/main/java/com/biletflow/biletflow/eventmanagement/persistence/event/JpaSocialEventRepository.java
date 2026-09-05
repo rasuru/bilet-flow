@@ -61,6 +61,14 @@ public class JpaSocialEventRepository implements SocialEventRepository {
     }
 
     @Override
+    public List<SocialEvent> findByStatusAndVisibility(SocialEventStatus status, EventVisibility visibility) {
+        Objects.requireNonNull(status, "status cannot be null");
+        Objects.requireNonNull(visibility, "visibility cannot be null");
+
+        return springDataRepository.findAllByStatusAndVisibility(status, visibility).stream().map(mapper::toDomain).toList();
+    }
+
+    @Override
     public boolean existsById(SocialEventId id) {
         Objects.requireNonNull(id, "id cannot be null");
 

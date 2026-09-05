@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.eventmanagement.application.socialevent;
 
+import com.biletflow.biletflow.common.application.AuthorizationException;
 import com.biletflow.biletflow.common.security.CurrentActor;
 import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditRepository;
 import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditService;
@@ -10,7 +11,6 @@ import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -230,7 +230,7 @@ public class EventService {
 
     private void assertCanModifyEvent(SocialEvent event, Long currentUserId) {
         if (!event.canBeManagedBy(currentUserId)) {
-            throw new AccessDeniedException("User is not authorized to modify event: " + event.getId().value());
+            throw new AuthorizationException("User is not authorized to modify event: " + event.getId().value());
         }
     }
 }
