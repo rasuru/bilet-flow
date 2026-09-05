@@ -7,8 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.biletflow.biletflow.IntegrationTest;
-import com.biletflow.biletflow.iam.web.rest.errors.ErrorConstants;
-import com.biletflow.biletflow.iam.web.rest.errors.ExceptionTranslator;
+import com.biletflow.biletflow.iam.rest.errors.ErrorConstants;
+import com.biletflow.biletflow.iam.rest.errors.ExceptionTranslator;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;

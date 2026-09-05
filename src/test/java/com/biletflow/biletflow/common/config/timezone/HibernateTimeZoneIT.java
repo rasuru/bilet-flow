@@ -3,8 +3,8 @@ package com.biletflow.biletflow.common.config.timezone;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.biletflow.biletflow.IntegrationTest;
-import com.biletflow.biletflow.iam.repository.timezone.DateTimeWrapper;
-import com.biletflow.biletflow.iam.repository.timezone.DateTimeWrapperRepository;
+import com.biletflow.biletflow.iam.persistence.timezone.DateTimeWrapper;
+import com.biletflow.biletflow.iam.persistence.timezone.DateTimeWrapperRepository;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import org.junit.jupiter.api.BeforeEach;

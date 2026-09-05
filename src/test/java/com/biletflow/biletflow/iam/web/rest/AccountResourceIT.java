@@ -6,15 +6,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.biletflow.biletflow.IntegrationTest;
 import com.biletflow.biletflow.common.config.Constants;
+import com.biletflow.biletflow.iam.application.UserService;
+import com.biletflow.biletflow.iam.application.dto.AdminUserDTO;
+import com.biletflow.biletflow.iam.application.dto.PasswordChangeDTO;
 import com.biletflow.biletflow.iam.domain.User;
-import com.biletflow.biletflow.iam.repository.AuthorityRepository;
-import com.biletflow.biletflow.iam.repository.UserRepository;
+import com.biletflow.biletflow.iam.persistence.AuthorityRepository;
+import com.biletflow.biletflow.iam.persistence.UserRepository;
+import com.biletflow.biletflow.iam.rest.AccountResource;
+import com.biletflow.biletflow.iam.rest.vm.KeyAndPasswordVM;
+import com.biletflow.biletflow.iam.rest.vm.ManagedUserVM;
 import com.biletflow.biletflow.iam.security.AuthoritiesConstants;
-import com.biletflow.biletflow.iam.service.UserService;
-import com.biletflow.biletflow.iam.service.dto.AdminUserDTO;
-import com.biletflow.biletflow.iam.service.dto.PasswordChangeDTO;
-import com.biletflow.biletflow.iam.web.rest.vm.KeyAndPasswordVM;
-import com.biletflow.biletflow.iam.web.rest.vm.ManagedUserVM;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Stream;

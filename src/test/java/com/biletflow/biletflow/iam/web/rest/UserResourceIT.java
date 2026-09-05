@@ -6,13 +6,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.biletflow.biletflow.IntegrationTest;
+import com.biletflow.biletflow.iam.application.UserService;
+import com.biletflow.biletflow.iam.application.dto.AdminUserDTO;
+import com.biletflow.biletflow.iam.application.mapper.UserMapper;
 import com.biletflow.biletflow.iam.domain.User;
-import com.biletflow.biletflow.iam.repository.UserRepository;
-import com.biletflow.biletflow.iam.repository.search.UserSearchRepository;
+import com.biletflow.biletflow.iam.persistence.UserRepository;
+import com.biletflow.biletflow.iam.persistence.search.UserSearchRepository;
+import com.biletflow.biletflow.iam.rest.UserResource;
 import com.biletflow.biletflow.iam.security.AuthoritiesConstants;
-import com.biletflow.biletflow.iam.service.UserService;
-import com.biletflow.biletflow.iam.service.dto.AdminUserDTO;
-import com.biletflow.biletflow.iam.service.mapper.UserMapper;
 import jakarta.persistence.EntityManager;
 import java.util.*;
 import java.util.function.Consumer;

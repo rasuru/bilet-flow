@@ -5,11 +5,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.biletflow.biletflow.IntegrationTest;
+import com.biletflow.biletflow.iam.application.UserService;
 import com.biletflow.biletflow.iam.domain.User;
-import com.biletflow.biletflow.iam.repository.UserRepository;
-import com.biletflow.biletflow.iam.repository.search.UserSearchRepository;
+import com.biletflow.biletflow.iam.persistence.UserRepository;
+import com.biletflow.biletflow.iam.persistence.search.UserSearchRepository;
+import com.biletflow.biletflow.iam.rest.PublicUserResource;
 import com.biletflow.biletflow.iam.security.AuthoritiesConstants;
-import com.biletflow.biletflow.iam.service.UserService;
 import java.util.Objects;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
@@ -41,7 +42,7 @@ class PublicUserResourceIT {
     /**
      * This repository is mocked in the com.biletflow.biletflow.repository.search test package.
      *
-     * @see com.biletflow.biletflow.iam.repository.search.UserSearchRepositoryMockConfiguration
+     * @see com.biletflow.biletflow.iam.persistence.search.UserSearchRepositoryMockConfiguration
      */
     @Autowired
     private UserSearchRepository mockUserSearchRepository;

@@ -8,7 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.biletflow.biletflow.IntegrationTest;
 import com.biletflow.biletflow.iam.domain.Authority;
-import com.biletflow.biletflow.iam.repository.AuthorityRepository;
+import com.biletflow.biletflow.iam.persistence.AuthorityRepository;
+import com.biletflow.biletflow.iam.rest.AuthorityResource;
 import jakarta.persistence.EntityManager;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;

@@ -2,7 +2,7 @@ package com.biletflow.biletflow.iam.management;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.biletflow.biletflow.iam.management.SecurityMetersService;
+import com.biletflow.biletflow.iam.security.SecurityMetersService;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;

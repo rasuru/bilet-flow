@@ -11,9 +11,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.biletflow.biletflow.IntegrationTest;
 import com.biletflow.biletflow.iam.domain.User;
-import com.biletflow.biletflow.iam.repository.UserRepository;
-import com.biletflow.biletflow.iam.web.rest.AuthenticateController;
-import com.biletflow.biletflow.iam.web.rest.vm.LoginVM;
+import com.biletflow.biletflow.iam.persistence.UserRepository;
+import com.biletflow.biletflow.iam.rest.AuthenticateController;
+import com.biletflow.biletflow.iam.rest.vm.LoginVM;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;

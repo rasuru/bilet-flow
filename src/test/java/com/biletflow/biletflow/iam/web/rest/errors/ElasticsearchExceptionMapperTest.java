@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import co.elastic.clients.elasticsearch._types.ElasticsearchException;
 import co.elastic.clients.elasticsearch._types.ErrorCause;
 import co.elastic.clients.elasticsearch._types.ErrorResponse;
-import com.biletflow.biletflow.iam.web.rest.errors.ElasticsearchExceptionMapper;
-import com.biletflow.biletflow.iam.web.rest.errors.QuerySyntaxException;
+import com.biletflow.biletflow.iam.rest.errors.ElasticsearchExceptionMapper;
+import com.biletflow.biletflow.iam.rest.errors.QuerySyntaxException;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.elasticsearch.UncategorizedElasticsearchException;
 

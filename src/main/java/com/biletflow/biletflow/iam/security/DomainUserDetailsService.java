@@ -2,7 +2,7 @@ package com.biletflow.biletflow.iam.security;
 
 import com.biletflow.biletflow.iam.domain.Authority;
 import com.biletflow.biletflow.iam.domain.User;
-import com.biletflow.biletflow.iam.repository.UserRepository;
+import com.biletflow.biletflow.iam.persistence.UserRepository;
 import java.util.*;
 import org.hibernate.validator.internal.constraintvalidators.bv.EmailValidator;
 import org.slf4j.Logger;

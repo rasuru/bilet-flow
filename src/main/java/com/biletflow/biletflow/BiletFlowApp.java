@@ -22,7 +22,7 @@ import tech.jhipster.config.JHipsterConstants;
 
 @SpringBootApplication()
 @EnableConfigurationProperties({ LiquibaseProperties.class, ApplicationProperties.class })
-@EnableElasticsearchRepositories("com.biletflow.biletflow.iam.repository.search")
+@EnableElasticsearchRepositories("com.biletflow.biletflow.iam.persistence.search")
 public class BiletFlowApp {
 
     private static final Logger LOG = LoggerFactory.getLogger(BiletFlowApp.class);

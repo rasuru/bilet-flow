@@ -1,6 +1,6 @@
 package com.biletflow.biletflow.common.config;
 
-import com.biletflow.biletflow.common.aop.logging.LoggingAspect;
+import com.biletflow.biletflow.common.logging.LoggingAspect;
 import org.springframework.context.annotation.*;
 import org.springframework.core.env.Environment;
 import tech.jhipster.config.JHipsterConstants;

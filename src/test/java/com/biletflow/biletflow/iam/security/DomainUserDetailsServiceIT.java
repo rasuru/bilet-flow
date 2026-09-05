@@ -4,11 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 import com.biletflow.biletflow.IntegrationTest;
+import com.biletflow.biletflow.iam.application.UserService;
 import com.biletflow.biletflow.iam.domain.User;
-import com.biletflow.biletflow.iam.repository.UserRepository;
-import com.biletflow.biletflow.iam.security.DomainUserDetailsService;
-import com.biletflow.biletflow.iam.security.UserNotActivatedException;
-import com.biletflow.biletflow.iam.service.UserService;
+import com.biletflow.biletflow.iam.persistence.UserRepository;
 import java.util.Locale;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.junit.jupiter.api.AfterEach;

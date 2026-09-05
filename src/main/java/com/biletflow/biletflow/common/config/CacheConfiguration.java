@@ -2,7 +2,7 @@ package com.biletflow.biletflow.common.config;
 
 import com.biletflow.biletflow.iam.domain.Authority;
 import com.biletflow.biletflow.iam.domain.User;
-import com.biletflow.biletflow.iam.repository.UserRepository;
+import com.biletflow.biletflow.iam.persistence.UserRepository;
 import java.net.URI;
 import java.util.concurrent.TimeUnit;
 import javax.cache.configuration.MutableConfiguration;

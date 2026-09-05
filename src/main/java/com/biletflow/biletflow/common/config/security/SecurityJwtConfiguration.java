@@ -2,7 +2,7 @@ package com.biletflow.biletflow.common.config.security;
 
 import static com.biletflow.biletflow.iam.security.SecurityUtils.JWT_ALGORITHM;
 
-import com.biletflow.biletflow.iam.management.SecurityMetersService;
+import com.biletflow.biletflow.iam.security.SecurityMetersService;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.nimbusds.jose.util.Base64;
 import javax.crypto.SecretKey;
