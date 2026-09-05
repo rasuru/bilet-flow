@@ -12,11 +12,30 @@ public class EventManagementEndpointSecurityConfiguration {
     EndpointSecurityConfigurer configureEventManagementSecurity() {
         return authz ->
             authz
+                // Organizer reads must come before /api/events/*
                 .requestMatchers(HttpMethod.GET, "/api/events/mine", "/api/events/*/manage")
                 .authenticated()
+
+                // Public Event Management reads
                 .requestMatchers(HttpMethod.GET, "/api/events", "/api/events/*", "/api/venue-layouts", "/api/venue-layouts/*")
                 .permitAll()
-                .requestMatchers("/api/events", "/api/events/**")
+
+                // Event Management mutations only
+                .requestMatchers(HttpMethod.POST, "/api/events")
+                .authenticated()
+                .requestMatchers(HttpMethod.PUT, "/api/events/*")
+                .authenticated()
+                .requestMatchers(
+                    HttpMethod.POST,
+                    "/api/events/*/publish",
+                    "/api/events/*/unpublish",
+                    "/api/events/*/cancel",
+                    "/api/events/*/duplicate",
+                    "/api/events/*/venue",
+                    "/api/events/*/staff"
+                )
+                .authenticated()
+                .requestMatchers(HttpMethod.DELETE, "/api/events/*/staff/*")
                 .authenticated();
     }
 }
