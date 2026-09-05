@@ -1,6 +1,6 @@
 package com.biletflow.biletflow.ticketinventory.ohs;
 
-import com.biletflow.biletflow.ticketinventory.application.ticket.TicketApplicationService;
+import com.biletflow.biletflow.ticketinventory.application.ticket.TicketService;
 import com.biletflow.biletflow.ticketinventory.application.ticket.command.CheckInTicketCommand;
 import com.biletflow.biletflow.ticketinventory.application.ticket.command.ReverseCheckInCommand;
 import com.biletflow.biletflow.ticketinventory.application.ticket.view.TicketValidationResult;
@@ -12,9 +12,9 @@ import org.springframework.stereotype.Service;
 @Service
 public class DefaultCheckInTicketInventoryOhs implements CheckInTicketInventoryOhs {
 
-    private final TicketApplicationService ticketService;
+    private final TicketService ticketService;
 
-    public DefaultCheckInTicketInventoryOhs(TicketApplicationService ticketService) {
+    public DefaultCheckInTicketInventoryOhs(TicketService ticketService) {
         this.ticketService = Objects.requireNonNull(ticketService);
     }
 

@@ -7,7 +7,7 @@ import static org.mockito.Mockito.*;
 
 import com.biletflow.biletflow.IntegrationTest;
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.command.SeatHoldReference;
-import com.biletflow.biletflow.ticketinventory.application.sale.TicketSaleApplicationService;
+import com.biletflow.biletflow.ticketinventory.application.sale.TicketSaleService;
 import com.biletflow.biletflow.ticketinventory.application.sale.command.CompleteSaleCommand;
 import com.biletflow.biletflow.ticketinventory.application.ticket.command.IssueTicketItem;
 import com.biletflow.biletflow.ticketinventory.domain.common.HoldExpiry;
@@ -58,7 +58,7 @@ class TicketInventoryPersistenceIntegrationTest {
     private EventInventoryRepository inventoryRepository;
 
     @Autowired
-    private TicketSaleApplicationService ticketSaleApplicationService;
+    private TicketSaleService ticketSaleApplicationService;
 
     @Autowired
     private PlatformTransactionManager transactionManager;

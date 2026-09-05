@@ -1,10 +1,10 @@
 package com.biletflow.biletflow.ticketinventory.ohs;
 
-import com.biletflow.biletflow.ticketinventory.application.eventinventory.EventInventoryApplicationService;
+import com.biletflow.biletflow.ticketinventory.application.eventinventory.EventInventoryService;
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.command.HoldInventoryCommand;
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.command.ReleaseHoldCommand;
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.result.HoldInventoryResult;
-import com.biletflow.biletflow.ticketinventory.application.sale.TicketSaleApplicationService;
+import com.biletflow.biletflow.ticketinventory.application.sale.TicketSaleService;
 import com.biletflow.biletflow.ticketinventory.application.sale.command.CompleteSaleCommand;
 import com.biletflow.biletflow.ticketinventory.application.ticket.view.TicketView;
 import java.util.List;
@@ -14,10 +14,10 @@ import org.springframework.stereotype.Service;
 @Service
 public class DefaultTicketInventoryOhs implements TicketInventoryOhs {
 
-    private final EventInventoryApplicationService inventoryService;
-    private final TicketSaleApplicationService saleService;
+    private final EventInventoryService inventoryService;
+    private final TicketSaleService saleService;
 
-    public DefaultTicketInventoryOhs(EventInventoryApplicationService inventoryService, TicketSaleApplicationService saleService) {
+    public DefaultTicketInventoryOhs(EventInventoryService inventoryService, TicketSaleService saleService) {
         this.inventoryService = Objects.requireNonNull(inventoryService);
         this.saleService = Objects.requireNonNull(saleService);
     }

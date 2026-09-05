@@ -7,10 +7,12 @@ import java.util.UUID;
  *
  * Infrastructure implements this port with an Anti-Corruption Layer that calls
  * Event Management's synchronous OHS and translates its published contract into
- * EventTicketingConfiguration.
+ * Ticket Inventory's application model.
  *
  * Ticket Inventory must not import Event Management domain objects.
  */
 public interface EventManagementPort {
     EventTicketingConfiguration getTicketingConfiguration(UUID eventId);
+
+    boolean canManageTicketing(UUID eventId, Long userId);
 }

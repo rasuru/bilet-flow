@@ -75,11 +75,27 @@ public final class SecurityUtils {
      * @return the Id of the current user.
      */
     public static Optional<Long> getCurrentUserId() {
-        SecurityContext securityContext = SecurityContextHolder.getContext();
-        return Optional.ofNullable(securityContext.getAuthentication())
-            .filter(authentication -> authentication.getPrincipal() instanceof ClaimAccessor)
-            .map(authentication -> (ClaimAccessor) authentication.getPrincipal())
-            .map(principal -> principal.getClaim(USER_ID_CLAIM));
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+
+        if (authentication == null || authentication instanceof AnonymousAuthenticationToken) {
+            return Optional.empty();
+        }
+
+        Object principal = authentication.getPrincipal();
+
+        if (principal instanceof DomainUserDetailsService.UserWithId user) {
+            return Optional.ofNullable(user.getId());
+        }
+
+        if (principal instanceof ClaimAccessor claims) {
+            Object userId = claims.getClaim(USER_ID_CLAIM);
+
+            if (userId instanceof Number number) {
+                return Optional.of(number.longValue());
+            }
+        }
+
+        return Optional.empty();
     }
 
     /**

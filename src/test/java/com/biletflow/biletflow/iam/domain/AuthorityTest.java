@@ -3,7 +3,7 @@ package com.biletflow.biletflow.iam.domain;
 import static com.biletflow.biletflow.iam.domain.AuthorityTestSamples.*;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.biletflow.biletflow.iam.web.rest.TestUtil;
+import com.biletflow.biletflow.iam.rest.TestUtil;
 import org.junit.jupiter.api.Test;
 
 class AuthorityTest {

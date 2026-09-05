@@ -234,6 +234,11 @@ public class SocialEvent {
         return copy;
     }
 
+    public boolean canBeManagedBy(Long userId) {
+        Objects.requireNonNull(userId, "userId cannot be null");
+        return organizerId.equals(userId);
+    }
+
     private void ensureNotCancelled() {
         if (status == SocialEventStatus.CANCELLED) {
             throw new InvalidEventStateException("Cannot modify a cancelled event");
