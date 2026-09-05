@@ -51,7 +51,15 @@ spring:
     contexts: dev, faker
   mail:
     host: localhost
-    port: 25
+    port: 1025
+    username:
+    password:
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
   messages:
     cache-duration: PT1S # 1 second, see the ISO 8601 standard
   thymeleaf:
