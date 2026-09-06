@@ -1,15 +1,24 @@
 package com.biletflow.biletflow.iam.rest.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.Set;
 
 public record AccountResponse(
-    Long id,
-    String login,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED) Long id,
+
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String login,
+
     String firstName,
+
     String lastName,
+
     String email,
+
     String imageUrl,
-    boolean activated,
+
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED) boolean activated,
+
     String langKey,
-    Set<String> authorities
+
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED) Set<String> authorities
 ) {}

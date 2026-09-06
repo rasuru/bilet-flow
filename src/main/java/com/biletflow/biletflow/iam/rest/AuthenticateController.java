@@ -7,6 +7,10 @@ import static com.biletflow.biletflow.iam.security.SecurityUtils.USER_ID_CLAIM;
 import com.biletflow.biletflow.iam.rest.dto.AuthenticateRequest;
 import com.biletflow.biletflow.iam.rest.dto.AuthenticateResponse;
 import com.biletflow.biletflow.iam.security.DomainUserDetailsService.UserWithId;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
 import java.security.Principal;
 import java.time.Instant;
@@ -17,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
@@ -28,6 +33,7 @@ import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.web.bind.annotation.*;
+import tech.jhipster.web.rest.errors.ProblemDetailWithCause;
 
 @RestController
 @RequestMapping("/api")
@@ -51,6 +57,29 @@ public class AuthenticateController {
     }
 
     @PostMapping("/authenticate")
+    @ApiResponses({
+        @ApiResponse(
+            responseCode = "200",
+            description = "Authentication successful",
+            content = @Content(schema = @Schema(implementation = AuthenticateResponse.class))
+        ),
+        @ApiResponse(
+            responseCode = "400",
+            description = "Invalid authentication request",
+            content = @Content(
+                mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                schema = @Schema(implementation = ProblemDetailWithCause.class)
+            )
+        ),
+        @ApiResponse(
+            responseCode = "401",
+            description = "Invalid credentials or account is not activated",
+            content = @Content(
+                mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                schema = @Schema(implementation = ProblemDetailWithCause.class)
+            )
+        ),
+    })
     public ResponseEntity<AuthenticateResponse> authorize(@Valid @RequestBody AuthenticateRequest request) {
         var authenticationToken = new UsernamePasswordAuthenticationToken(request.username(), request.password());
 
@@ -66,6 +95,10 @@ public class AuthenticateController {
     }
 
     @GetMapping("/authenticate")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "User is authenticated"),
+        @ApiResponse(responseCode = "401", description = "User is not authenticated"),
+    })
     public ResponseEntity<Void> isAuthenticated(Principal principal) {
         LOG.debug("REST request to check if the current user is authenticated");
         return ResponseEntity.status(principal == null ? HttpStatus.UNAUTHORIZED : HttpStatus.NO_CONTENT).build();

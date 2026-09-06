@@ -12,17 +12,22 @@ import com.biletflow.biletflow.iam.rest.dto.PasswordResetInitRequest;
 import com.biletflow.biletflow.iam.rest.dto.RegisterRequest;
 import com.biletflow.biletflow.iam.rest.dto.UpdateAccountRequest;
 import com.biletflow.biletflow.iam.rest.errors.EmailAlreadyUsedException;
-import com.biletflow.biletflow.iam.rest.errors.LoginAlreadyUsedException;
 import com.biletflow.biletflow.iam.security.SecurityUtils;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
 import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import tech.jhipster.web.rest.errors.ProblemDetailWithCause;
 
 @RestController
 @RequestMapping("/api")
@@ -58,6 +63,17 @@ public class AccountResource {
 
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
+    @ApiResponses({
+        @ApiResponse(responseCode = "201", description = "Account registered and activation email sent"),
+        @ApiResponse(
+            responseCode = "400",
+            description = "Invalid registration data, login already used, or email already used",
+            content = @Content(
+                mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                schema = @Schema(implementation = ProblemDetailWithCause.class)
+            )
+        ),
+    })
     public void registerAccount(@Valid @RequestBody RegisterRequest request) {
         LOG.debug("REST request to register account");
 
@@ -73,6 +89,17 @@ public class AccountResource {
     }
 
     @GetMapping("/activate")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Account activated"),
+        @ApiResponse(
+            responseCode = "400",
+            description = "Activation key is invalid or no longer resolves to a user",
+            content = @Content(
+                mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                schema = @Schema(implementation = ProblemDetailWithCause.class)
+            )
+        ),
+    })
     public void activateAccount(@RequestParam(value = "key") String key) {
         LOG.debug("REST request to activate account");
 
@@ -83,6 +110,21 @@ public class AccountResource {
     }
 
     @GetMapping("/account")
+    @ApiResponses({
+        @ApiResponse(
+            responseCode = "200",
+            description = "Current account",
+            content = @Content(schema = @Schema(implementation = AccountResponse.class))
+        ),
+        @ApiResponse(
+            responseCode = "401",
+            description = "User is not authenticated",
+            content = @Content(
+                mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                schema = @Schema(implementation = ProblemDetailWithCause.class)
+            )
+        ),
+    })
     public AccountResponse getAccount() {
         LOG.debug("REST request to get account");
 
@@ -95,6 +137,25 @@ public class AccountResource {
     }
 
     @PostMapping("/account")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Account updated"),
+        @ApiResponse(
+            responseCode = "400",
+            description = "Invalid account data or email is already used",
+            content = @Content(
+                mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                schema = @Schema(implementation = ProblemDetailWithCause.class)
+            )
+        ),
+        @ApiResponse(
+            responseCode = "401",
+            description = "User is not authenticated",
+            content = @Content(
+                mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                schema = @Schema(implementation = ProblemDetailWithCause.class)
+            )
+        ),
+    })
     public void saveAccount(@Valid @RequestBody UpdateAccountRequest request) {
         LOG.debug("REST request to save account");
 
@@ -116,6 +177,25 @@ public class AccountResource {
     }
 
     @PostMapping("/account/change-password")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Password changed"),
+        @ApiResponse(
+            responseCode = "400",
+            description = "Invalid password data or current password is incorrect",
+            content = @Content(
+                mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                schema = @Schema(implementation = ProblemDetailWithCause.class)
+            )
+        ),
+        @ApiResponse(
+            responseCode = "401",
+            description = "User is not authenticated",
+            content = @Content(
+                mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                schema = @Schema(implementation = ProblemDetailWithCause.class)
+            )
+        ),
+    })
     public void changePassword(@Valid @RequestBody ChangePasswordRequest request) {
         LOG.debug("REST request to change password");
 
@@ -123,6 +203,17 @@ public class AccountResource {
     }
 
     @PostMapping("/account/reset-password/init")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Password reset request accepted"),
+        @ApiResponse(
+            responseCode = "400",
+            description = "Invalid password reset request",
+            content = @Content(
+                mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                schema = @Schema(implementation = ProblemDetailWithCause.class)
+            )
+        ),
+    })
     public void requestPasswordReset(@Valid @RequestBody PasswordResetInitRequest request) {
         LOG.debug("REST request to request password reset");
 
@@ -135,6 +226,17 @@ public class AccountResource {
     }
 
     @PostMapping("/account/reset-password/finish")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Password reset completed"),
+        @ApiResponse(
+            responseCode = "400",
+            description = "Invalid password reset data or reset key",
+            content = @Content(
+                mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                schema = @Schema(implementation = ProblemDetailWithCause.class)
+            )
+        ),
+    })
     public void finishPasswordReset(@Valid @RequestBody PasswordResetFinishRequest request) {
         Optional<User> user = userService.completePasswordReset(request.newPassword(), request.key());
 
