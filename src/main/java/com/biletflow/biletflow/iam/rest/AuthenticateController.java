@@ -4,10 +4,9 @@ import static com.biletflow.biletflow.iam.security.SecurityUtils.AUTHORITIES_CLA
 import static com.biletflow.biletflow.iam.security.SecurityUtils.JWT_ALGORITHM;
 import static com.biletflow.biletflow.iam.security.SecurityUtils.USER_ID_CLAIM;
 
-import com.biletflow.biletflow.iam.rest.vm.LoginVM;
+import com.biletflow.biletflow.iam.rest.dto.AuthenticateRequest;
+import com.biletflow.biletflow.iam.rest.dto.AuthenticateResponse;
 import com.biletflow.biletflow.iam.security.DomainUserDetailsService.UserWithId;
-import com.biletflow.biletflow.iam.security.UserNotActivatedException;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
 import java.security.Principal;
 import java.time.Instant;
@@ -22,7 +21,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.JwsHeader;
@@ -31,9 +29,6 @@ import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.web.bind.annotation.*;
 
-/**
- * Controller to authenticate users.
- */
 @RestController
 @RequestMapping("/api")
 public class AuthenticateController {
@@ -56,29 +51,20 @@ public class AuthenticateController {
     }
 
     @PostMapping("/authenticate")
-    public ResponseEntity<?> authorize(@Valid @RequestBody LoginVM loginVM) {
-        var authenticationToken = new UsernamePasswordAuthenticationToken(loginVM.getUsername(), loginVM.getPassword());
+    public ResponseEntity<AuthenticateResponse> authorize(@Valid @RequestBody AuthenticateRequest request) {
+        var authenticationToken = new UsernamePasswordAuthenticationToken(request.username(), request.password());
 
-        try {
-            var authentication = authenticationManagerBuilder.getObject().authenticate(authenticationToken);
-            SecurityContextHolder.getContext().setAuthentication(authentication);
-            String jwt = this.createToken(authentication, loginVM.isRememberMe());
-            var httpHeaders = new HttpHeaders();
-            httpHeaders.setBearerAuth(jwt);
-            return new ResponseEntity<>(new JWTToken(jwt), httpHeaders, HttpStatus.OK);
-        } catch (UserNotActivatedException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("User is not activated");
-        } catch (AuthenticationException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Authentication failed");
-        }
+        var authentication = authenticationManagerBuilder.getObject().authenticate(authenticationToken);
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        String jwt = createToken(authentication, request.rememberMe());
+
+        var httpHeaders = new HttpHeaders();
+        httpHeaders.setBearerAuth(jwt);
+
+        return ResponseEntity.ok().headers(httpHeaders).body(new AuthenticateResponse(jwt));
     }
 
-    /**
-     * {@code GET /authenticate} : check if the user is authenticated.
-     *
-     * @return the {@link ResponseEntity} with status {@code 204 (No Content)},
-     * or with status {@code 401 (Unauthorized)} if not authenticated.
-     */
     @GetMapping("/authenticate")
     public ResponseEntity<Void> isAuthenticated(Principal principal) {
         LOG.debug("REST request to check if the current user is authenticated");
@@ -96,38 +82,17 @@ public class AuthenticateController {
             validity = now.plus(this.tokenValidityInSeconds, ChronoUnit.SECONDS);
         }
 
-        // @formatter:off
         JwtClaimsSet.Builder builder = JwtClaimsSet.builder()
             .issuedAt(now)
             .expiresAt(validity)
             .subject(authentication.getName())
             .claim(AUTHORITIES_CLAIM, authorities);
+
         if (authentication.getPrincipal() instanceof UserWithId user) {
             builder.claim(USER_ID_CLAIM, user.getId());
         }
 
         JwsHeader jwsHeader = JwsHeader.with(JWT_ALGORITHM).build();
         return this.jwtEncoder.encode(JwtEncoderParameters.from(jwsHeader, builder.build())).getTokenValue();
-    }
-
-    /**
-     * Object to return as body in JWT Authentication.
-     */
-    static class JWTToken {
-
-        private String idToken;
-
-        JWTToken(String idToken) {
-            this.idToken = idToken;
-        }
-
-        @JsonProperty("id_token")
-        String getIdToken() {
-            return idToken;
-        }
-
-        void setIdToken(String idToken) {
-            this.idToken = idToken;
-        }
     }
 }
