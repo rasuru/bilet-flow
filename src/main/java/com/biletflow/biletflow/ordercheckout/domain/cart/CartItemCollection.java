@@ -1,3 +1,5 @@
+package com.biletflow.biletflow.ordercheckout.domain.cart;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -55,6 +57,8 @@ public class CartItemCollection {
                 return;
             }
         }
+
+        throw new IllegalArgumentException("Item not found in the cart");
     }
 
     public void clear() {

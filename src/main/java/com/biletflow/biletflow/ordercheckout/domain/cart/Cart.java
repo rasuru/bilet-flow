@@ -1,3 +1,5 @@
+package com.biletflow.biletflow.ordercheckout.domain.cart;
+
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -16,7 +18,7 @@ public class Cart {
     }
 
     public static Cart createNew(long userId) {
-        return new Cart(new CartId(), userId, CartItemCollection.empty(), Instant.now());
+        return new Cart(new CartId(CartId.generate().value()), userId, CartItemCollection.empty(), Instant.now());
     }
 
     public void addItem(UUID eventId, UUID ticketTypeId, int quantity) {
