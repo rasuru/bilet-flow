@@ -43,6 +43,9 @@ public class CheckoutItemCollection {
         if (res) {
             quantity--;
         }
+        else {
+            throw new IllegalArgumentException("Item does not exist in checkout!");
+        }
     }
 
     // clear
