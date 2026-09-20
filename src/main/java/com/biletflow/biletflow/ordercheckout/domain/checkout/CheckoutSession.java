@@ -1,6 +1,10 @@
 package com.biletflow.biletflow.ordercheckout.domain.checkout;
 
-import enums.*;
+import com.biletflow.biletflow.ordercheckout.domain.common.*;
+import com.biletflow.biletflow.ordercheckout.domain.checkout.enums.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -15,6 +19,7 @@ public class CheckoutSession {
     private final CheckoutItemCollection items;
 
     private UUID promotionId;
+    private PromotionStatus promotionStatus;
     private double discountAmount;
 
     private double totalPrice;  // Total price before discount
@@ -37,6 +42,7 @@ public class CheckoutSession {
         this.eventId = eventId;
         this.inventoryMode = inventoryMode;
         this.items = new CheckoutItemCollection();
+        this.promotionStatus = PromotionStatus.PENDING;
     }
 
     // Cancel the checkout session
@@ -72,7 +78,7 @@ public class CheckoutSession {
             throw new IllegalArgumentException("Item inventory mode does not match checkout session inventory mode!");
         }
 
-        if (inventoryMode == InventoryMode.RESERVED_SEATING && item instanceof GeneralAdmissonCheckoutItem) {
+        if (inventoryMode == InventoryMode.RESERVED_SEATING && item instanceof GeneralAdmissionCheckoutItem) {
             throw new IllegalArgumentException("Item inventory mode does not match checkout session inventory mode!");
         }
 
@@ -136,6 +142,10 @@ public class CheckoutSession {
         return status;
     }
 
+    public InventoryMode getInventoryMode() {
+        return inventoryMode;
+    }
+
     public long getOwnerId() {
         return ownerId;
     }
@@ -144,7 +154,7 @@ public class CheckoutSession {
         return eventId;
     }
 
-    public CheckoutItemCollection getItems() {
+    public List<CheckoutItemMode> getItems() {
         return items.getItems();
     }
 

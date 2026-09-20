@@ -9,6 +9,6 @@ public record CheckoutSessionId(UUID value) {
     }
 
     public static CheckoutSessionId generate() {
-        return return new CheckoutSessionId(UUID.randomUUID());
+        return new CheckoutSessionId(UUID.randomUUID());
     }
 }

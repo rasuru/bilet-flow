@@ -1,13 +1,32 @@
 package com.biletflow.biletflow.ordercheckout.domain.order;
 
+import com.biletflow.biletflow.ordercheckout.domain.order.enums.*;
+import com.biletflow.biletflow.ordercheckout.domain.common.*;
+import com.biletflow.biletflow.ordercheckout.domain.checkout.*;
+import com.biletflow.biletflow.ordercheckout.domain.checkout.enums.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.UUID;
+import java.util.Objects;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+
 public class Order {
-    private final OrderId id;
+    private final OrderId orderId;
+
+    private OrderStatus orderStatus;
 
     private final long ownerId;
     private final UUID eventId;
+    private Instant eventStartTime;
+    private Instant eventEndTime;
+
+    private final Clock clock;
 
     private final InventoryMode inventoryMode;
-    private final OrderItemCollection items;
+    private final List<OrderItemMode> items;
 
     private final UUID promotionId;
     private final double discountAmount;
@@ -16,4 +35,131 @@ public class Order {
     private final double finalPrice;  // Final price after discount
 
     private final UUID paymentId;
+
+    private CancellationReason cancellationReason;
+    private UUID refundId;
+
+    private Order(
+        long ownerId,
+        UUID eventId,
+        InventoryMode inventoryMode,
+        List<OrderItemMode> items,
+        UUID promotionId,
+        double discountAmount,
+        double totalPrice,
+        double finalPrice,
+        UUID paymentId
+
+    ) {
+        this.orderId = OrderId.generate();
+        this.ownerId = ownerId;
+        this.eventId = eventId;
+        this.inventoryMode = inventoryMode;
+        this.items = new ArrayList<>(items);
+        this.promotionId = promotionId;
+        this.discountAmount = discountAmount;
+        this.totalPrice = totalPrice;
+        this.finalPrice = finalPrice;
+        this.paymentId = paymentId;
+
+        this.orderStatus = OrderStatus.IN_PROGRESS;
+        this.clock = Clock.systemUTC();
+    }
+
+    public static Order createFromCheckout(CheckoutSession checkoutSession) {
+        Objects.requireNonNull(checkoutSession, "Checkout Session can not be null");
+
+        if (checkoutSession.getStatus() != CheckoutSessionStatus.COMPLETED) {
+            throw new IllegalStateException("Checkout must be completed!");
+        }
+
+        return new Order(
+            checkoutSession.getOwnerId(),
+            checkoutSession.getEventId(),
+            checkoutSession.getInventoryMode(),
+            checkoutSession.getItems()
+                .stream()
+                .map(OrderItemMode::convertToOrderItem)
+                .toList(),
+            checkoutSession.getPromotionId(),
+            checkoutSession.getDiscountAmount(),
+            checkoutSession.getTotalPrice(),
+            checkoutSession.getFinalPrice(),
+            checkoutSession.getPaymentId()
+        );
+    }
+
+    public void cancelOrderByCustomer() {
+        Instant timeNow = clock.instant();
+
+        if (orderStatus != OrderStatus.COMPLETED) {
+            throw new IllegalStateException("Order can not be cancelled!");
+        }
+
+        if (timeNow.isAfter(eventStartTime.minus(10, ChronoUnit.MINUTES))) {
+            throw new IllegalStateException(
+                "Order cannot be cancelled less than 10 minutes before the event!"
+            );
+        }
+
+        if (items.stream().anyMatch(OrderItemMode::isUsed)) {
+            throw new IllegalStateException(
+                "Order cannot be cancelled because a ticket has been used!"
+            );
+        }
+
+        orderStatus = OrderStatus.CANCELLED;
+        cancellationReason = CancellationReason.CUSTOMER_REQUEST;
+    }
+
+    public void cancelOrderByManager() {
+        if (orderStatus != OrderStatus.COMPLETED) {
+            throw new IllegalStateException("Order can not be cancelled!");
+        }
+
+        orderStatus = OrderStatus.CANCELLED;
+        cancellationReason = CancellationReason.EVENT_CANCELLED;
+    }
+
+
+    // Getters
+    public UUID getId() {
+        return orderId.value();
+    }
+
+    public OrderStatus getStatus() {
+        return orderStatus;
+    }
+
+    public long getOwnerId() {
+        return ownerId;
+    }
+
+    public UUID getEventId() {
+        return eventId;
+    }
+
+    public List<OrderItemMode> getItems() {
+        return items;
+    }
+
+    public UUID getPromotionId() {
+        return promotionId;
+    }
+
+    public double getDiscountAmount() {
+        return discountAmount;
+    }
+
+    public double getTotalPrice() {
+        return totalPrice;
+    }
+
+    public double getFinalPrice() {
+        return finalPrice;
+    }
+
+    public UUID getPaymentId() {
+        return paymentId;
+    }
 }

@@ -1,7 +1,7 @@
 package com.biletflow.biletflow.ordercheckout.domain.checkout;
 
+import com.biletflow.biletflow.ordercheckout.domain.checkout.enums.*;
 import java.util.UUID;
-import enums.*;
 
 public class CheckoutSaga {
     private final UUID checkoutId;
@@ -62,7 +62,7 @@ public class CheckoutSaga {
             throw new IllegalStateException("Cannot complete promotion application at this step!");
         }
         this.currentStep = CheckoutStep.PROCESS_PAYMENT;
-        this.promotionStatus = PromotionStatus.SUCCESS;
+        this.promotionStatus = PromotionStatus.APPLIED;
     }
     
     public void skipPromotion() {
