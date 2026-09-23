@@ -61,6 +61,16 @@ public class EventQueryService {
             .toList();
     }
 
+    public List<PublicEventView> listAssignedForCheckIn() {
+        Long userId = currentActor.requireUserId();
+        return java.util.stream.Stream.concat(repository.findByOrganizerId(userId).stream(), repository.findByStaffUserId(userId).stream())
+            .filter(event -> event.canCheckIn(userId) && event.getStatus() == SocialEventStatus.PUBLISHED)
+            .distinct()
+            .sorted(Comparator.comparing(event -> event.getDateRange().startAt()))
+            .map(this::toPublicView)
+            .toList();
+    }
+
     public ManagedEventView getForManagement(SocialEventId eventId) {
         Long currentUserId = currentActor.requireUserId();
         SocialEvent event = requireEvent(eventId);

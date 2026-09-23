@@ -88,7 +88,7 @@ public class TicketService {
     public TicketView checkIn(CheckInTicketCommand command) {
         Objects.requireNonNull(command, "command cannot be null");
 
-        Ticket ticket = requireTicketByCode(command.ticketCode());
+        Ticket ticket = requireTicketByCodeForUpdate(command.ticketCode());
 
         ensureExpectedEvent(ticket, command.expectedEventId());
 
@@ -101,7 +101,7 @@ public class TicketService {
     public TicketView reverseCheckIn(ReverseCheckInCommand command) {
         Objects.requireNonNull(command, "command cannot be null");
 
-        Ticket ticket = requireTicketByCode(command.ticketCode());
+        Ticket ticket = requireTicketByCodeForUpdate(command.ticketCode());
 
         ensureExpectedEvent(ticket, command.expectedEventId());
 
@@ -184,6 +184,13 @@ public class TicketService {
 
         return ticketRepository
             .findByTicketCode(ticketCode)
+            .orElseThrow(() -> new EntityNotFoundException("Ticket not found for supplied ticket code"));
+    }
+
+    private Ticket requireTicketByCodeForUpdate(UUID rawTicketCode) {
+        Objects.requireNonNull(rawTicketCode, "ticketCode cannot be null");
+        return ticketRepository
+            .findByTicketCodeForUpdate(new TicketCode(rawTicketCode))
             .orElseThrow(() -> new EntityNotFoundException("Ticket not found for supplied ticket code"));
     }
 

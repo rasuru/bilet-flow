@@ -64,6 +64,12 @@ public class JpaTicketRepository implements TicketRepository {
     }
 
     @Override
+    public Optional<Ticket> findByTicketCodeForUpdate(TicketCode ticketCode) {
+        Objects.requireNonNull(ticketCode, "TicketCode cannot be null");
+        return jpaRepository.findByTicketCodeForUpdate(ticketCode.value()).map(mapper::toDomain);
+    }
+
+    @Override
     public List<Ticket> findAllByOrderId(OrderId orderId) {
         Objects.requireNonNull(orderId, "OrderId cannot be null");
         return jpaRepository.findAllByOrderId(orderId.value()).stream().map(mapper::toDomain).toList();

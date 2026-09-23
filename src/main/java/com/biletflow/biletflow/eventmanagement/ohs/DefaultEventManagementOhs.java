@@ -86,6 +86,12 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
         return event.canBeManagedBy(userId);
     }
 
+    @Override
+    public boolean canCheckIn(UUID eventId, Long userId) {
+        SocialEvent event = requireEvent(eventId);
+        return event.getStatus() == SocialEventStatus.PUBLISHED && event.canCheckIn(userId);
+    }
+
     private SocialEvent requireEvent(UUID eventId) {
         Objects.requireNonNull(eventId, "eventId cannot be null");
 

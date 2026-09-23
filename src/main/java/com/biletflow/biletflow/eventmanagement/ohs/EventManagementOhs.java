@@ -21,4 +21,6 @@ public interface EventManagementOhs {
     EventSeatMapView getSeatMap(UUID eventId);
 
     public boolean canManageTicketing(UUID eventId, Long userId);
+
+    boolean canCheckIn(UUID eventId, Long userId);
 }

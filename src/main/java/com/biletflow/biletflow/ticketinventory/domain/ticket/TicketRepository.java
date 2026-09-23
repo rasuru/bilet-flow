@@ -14,6 +14,8 @@ public interface TicketRepository {
 
     Optional<Ticket> findByTicketCode(TicketCode ticketCode);
 
+    Optional<Ticket> findByTicketCodeForUpdate(TicketCode ticketCode);
+
     List<Ticket> findAllByOrderId(OrderId orderId);
 
     List<Ticket> findAllByEventId(UUID eventId);

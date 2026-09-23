@@ -21,6 +21,7 @@ public class TicketInventoryEndpointSecurityConfiguration {
                 )
                 .permitAll()
                 .requestMatchers(
+                    "/api/events/*/check-in/**",
                     "/api/events/*/ticket-types/manage",
                     "/api/events/*/ticket-types/general-admission",
                     "/api/events/*/ticket-types/assigned-seating",

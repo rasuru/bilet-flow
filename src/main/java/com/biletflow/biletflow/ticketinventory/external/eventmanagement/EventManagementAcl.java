@@ -1,5 +1,7 @@
 package com.biletflow.biletflow.ticketinventory.external.eventmanagement;
 
+import com.biletflow.biletflow.common.application.EntityNotFoundException;
+import com.biletflow.biletflow.eventmanagement.domain.exceptions.SocialEventNotFoundException;
 import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.ticketinventory.application.common.InventoryKind;
 import com.biletflow.biletflow.ticketinventory.application.eventmanagement.port.EventManagementPort;
@@ -40,5 +42,14 @@ public class EventManagementAcl implements EventManagementPort {
     @Override
     public boolean canManageTicketing(UUID eventId, Long userId) {
         return eventManagementOhs.canManageTicketing(eventId, userId);
+    }
+
+    @Override
+    public boolean canCheckIn(UUID eventId, Long userId) {
+        try {
+            return eventManagementOhs.canCheckIn(eventId, userId);
+        } catch (SocialEventNotFoundException exception) {
+            throw new EntityNotFoundException("Event not found: " + eventId);
+        }
     }
 }
