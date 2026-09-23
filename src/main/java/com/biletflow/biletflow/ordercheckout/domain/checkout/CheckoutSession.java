@@ -45,6 +45,34 @@ public class CheckoutSession {
         this.promotionStatus = PromotionStatus.PENDING;
     }
 
+    public CheckoutSession(
+        CheckoutSessionId id,
+        CheckoutSessionStatus status,
+        long ownerId,
+        UUID eventId,
+        InventoryMode inventoryMode,
+        CheckoutItemCollection items,
+        UUID promotionId,
+        PromotionStatus promotionStatus,
+        double discountAmount,
+        double totalPrice,
+        double finalPrice,
+        UUID paymentId
+    ) {
+        this.id = id;
+        this.status = status;
+        this.ownerId = ownerId;
+        this.eventId = eventId;
+        this.inventoryMode = inventoryMode;
+        this.items = items;
+        this.promotionId = promotionId;
+        this.promotionStatus = promotionStatus;
+        this.discountAmount = discountAmount;
+        this.totalPrice = totalPrice;
+        this.finalPrice = finalPrice;
+        this.paymentId = paymentId;
+    }
+
     // Cancel the checkout session
     public void cancel() {
         if (status != CheckoutSessionStatus.IN_PROGRESS) {
@@ -160,6 +188,10 @@ public class CheckoutSession {
 
     public UUID getPromotionId() {
         return promotionId;
+    }
+
+    public PromotionStatus getPromotionStatus() {
+        return promotionStatus;
     }
 
     public double getDiscountAmount() {

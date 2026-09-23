@@ -66,6 +66,41 @@ public class Order {
         this.clock = Clock.systemUTC();
     }
 
+    public Order(
+        OrderId orderId,
+        OrderStatus orderStatus,
+        long ownerId,
+        UUID eventId,
+        Instant eventStartTime,
+        Instant eventEndTime,
+        InventoryMode inventoryMode,
+        List<OrderItemMode> items,
+        UUID promotionId,
+        double discountAmount,
+        double totalPrice,
+        double finalPrice,
+        UUID paymentId,
+        CancellationReason cancellationReason,
+        UUID refundId
+    ) {
+        this.orderId = orderId;
+        this.orderStatus = orderStatus;
+        this.ownerId = ownerId;
+        this.eventId = eventId;
+        this.eventStartTime = eventStartTime;
+        this.eventEndTime = eventEndTime;
+        this.inventoryMode = inventoryMode;
+        this.items = new ArrayList<>(items);
+        this.promotionId = promotionId;
+        this.discountAmount = discountAmount;
+        this.totalPrice = totalPrice;
+        this.finalPrice = finalPrice;
+        this.paymentId = paymentId;
+        this.cancellationReason = cancellationReason;
+        this.refundId = refundId;
+        this.clock = Clock.systemUTC();
+    }
+
     public static Order createFromCheckout(CheckoutSession checkoutSession) {
         Objects.requireNonNull(checkoutSession, "Checkout Session can not be null");
 
@@ -161,5 +196,25 @@ public class Order {
 
     public UUID getPaymentId() {
         return paymentId;
+    }
+
+    public Instant getEventStartTime() {
+        return eventStartTime;
+    }
+
+    public Instant getEventEndTime() {
+        return eventEndTime;
+    }
+
+    public InventoryMode getInventoryMode() {
+        return inventoryMode;
+    }
+
+    public CancellationReason getCancellationReason() {
+        return cancellationReason;
+    }
+
+    public UUID getRefundId() {
+        return refundId;
     }
 }
