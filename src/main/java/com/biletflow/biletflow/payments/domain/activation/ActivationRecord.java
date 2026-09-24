@@ -84,11 +84,6 @@ public class ActivationRecord {
         this.suspensionReason = reason;
     }
 
-    /**
-     * SUSPENDED -> ACTIVE. Deliberately does not re-check organizer eligibility
-     * and charges no new fee: the fee was already settled before the original
-     * activation and feePaymentId survives the suspension cycle.
-     */
     public void reinstate(Instant now) {
         Objects.requireNonNull(now, "now cannot be null");
 

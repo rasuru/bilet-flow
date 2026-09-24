@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.payments.domain.payment;
 
+import java.util.Objects;
 import java.util.UUID;
 
 public record RefundId(UUID value) {
