@@ -239,6 +239,16 @@ public class SocialEvent {
         return organizerId.equals(userId);
     }
 
+    public boolean canCheckIn(Long userId) {
+        Objects.requireNonNull(userId, "userId cannot be null");
+        return (
+            organizerId.equals(userId) ||
+            staffAssignments
+                .stream()
+                .anyMatch(assignment -> assignment.userId().equals(userId) && assignment.role() == StaffRole.EVENT_ADMIN)
+        );
+    }
+
     private void ensureNotCancelled() {
         if (status == SocialEventStatus.CANCELLED) {
             throw new InvalidEventStateException("Cannot modify a cancelled event");

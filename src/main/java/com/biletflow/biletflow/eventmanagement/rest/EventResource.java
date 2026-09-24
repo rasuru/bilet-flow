@@ -85,6 +85,12 @@ public class EventResource {
         return eventQueryService.listMine();
     }
 
+    @GetMapping("/assigned-for-check-in")
+    @Operation(summary = "List published events assigned to the current check-in user")
+    public List<PublicEventView> listAssignedForCheckIn() {
+        return eventQueryService.listAssignedForCheckIn();
+    }
+
     @GetMapping("/{eventId}/manage")
     @Operation(
         summary = "Get an event for organizer management",
