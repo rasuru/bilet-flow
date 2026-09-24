@@ -13,4 +13,6 @@ public interface TicketInventoryOhs {
     void releaseHold(ReleaseHoldCommand command);
 
     List<TicketView> completeSale(CompleteSaleCommand command);
+    
+    TicketTypeView getTicketType(UUID ticketTypeId);
 }

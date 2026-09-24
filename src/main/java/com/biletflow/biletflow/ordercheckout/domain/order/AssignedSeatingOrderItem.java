@@ -6,11 +6,11 @@ import java.util.UUID;
 public final class AssignedSeatingOrderItem implements OrderItemMode {
     private final UUID ticketTypeId;
     private final UUID seatId;
-    private final double price;
+    private final Money price;
     private boolean used;
     
     // Constructor
-    public AssignedSeatingOrderItem(UUID ticketTypeId, UUID seatId, double price) {
+    public AssignedSeatingOrderItem(UUID ticketTypeId, UUID seatId, Money price) {
         this.ticketTypeId = Objects.requireNonNull(ticketTypeId, "TicketTypeId can not be null!");
         this.seatId = Objects.requireNonNull(seatId, "SeatId can not be null!");
 
@@ -22,7 +22,7 @@ public final class AssignedSeatingOrderItem implements OrderItemMode {
         this.used = false;
     }
 
-    public AssignedSeatingOrderItem createNew(UUID ticketTypeId, UUID seatId, double price) {
+    public AssignedSeatingOrderItem createNew(UUID ticketTypeId, UUID seatId, Money price) {
         return new AssignedSeatingOrderItem(ticketTypeId, seatId, price);
     }
 
@@ -43,7 +43,7 @@ public final class AssignedSeatingOrderItem implements OrderItemMode {
         return seatId;
     }
 
-    public double getPrice() {
+    public Money getPrice() {
         return price;
     }
 

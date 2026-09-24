@@ -9,17 +9,22 @@ public class CheckoutSessionItemJpaEmbeddable {
     @Column(name = "ticket_type_id", nullable = false)
     private UUID ticketTypeId;
 
-    @Column(name = "price", nullable = false)
-    private double price;
+    @Column(name = "price", nullable = false, precision = 19, scale = 2)
+    private BigDecimal price;
+
+    @Column(name = "price_currency", nullable = false, length = 3)
+    private String priceCurrency;
+
 
     @Column(name = "seat_id")
     private UUID seatId;
 
     protected CheckoutSessionItemJpaEmbeddable() {}
 
-    public CheckoutSessionItemJpaEmbeddable(UUID ticketTypeId, double price, UUID seatId) {
+    public CheckoutSessionItemJpaEmbeddable(UUID ticketTypeId, BigDecimal price, String priceDecimal, UUID seatId) {
         this.ticketTypeId = ticketTypeId;
         this.price = price;
+        this.priceCurrency = priceCurrency;
         this.seatId = seatId;
     }
 
@@ -27,8 +32,12 @@ public class CheckoutSessionItemJpaEmbeddable {
         return ticketTypeId;
     }
 
-    public double getPrice() {
+    public BigDecimal getPrice() {
         return price;
+    }
+
+    public String getPriceCurrency() {
+        return priceCurrency;
     }
 
     public UUID getSeatId() {

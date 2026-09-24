@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.ordercheckout.domain.checkout;
 
+import com.biletflow.biletflow.common.domain.*;
 import com.biletflow.biletflow.ordercheckout.domain.common.*;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.enums.*;
 import java.util.ArrayList;
@@ -20,10 +21,10 @@ public class CheckoutSession {
 
     private UUID promotionId;
     private PromotionStatus promotionStatus;
-    private double discountAmount;
+    private Money discountAmount;
 
-    private double totalPrice;  // Total price before discount
-    private double finalPrice;  // Final price after discount
+    private Money totalPrice;  // Total price before discount
+    private Money finalPrice;  // Final price after discount
 
     private UUID paymentId;
 
@@ -54,9 +55,9 @@ public class CheckoutSession {
         CheckoutItemCollection items,
         UUID promotionId,
         PromotionStatus promotionStatus,
-        double discountAmount,
-        double totalPrice,
-        double finalPrice,
+        Money discountAmount,
+        Money totalPrice,
+        Money finalPrice,
         UUID paymentId
     ) {
         this.id = id;
@@ -111,32 +112,32 @@ public class CheckoutSession {
         }
 
         items.addItem(item);
-        totalPrice += item.getPrice();
+        totalPrice = totalPrice.add(item.getPrice());
         recalculateFinalPrice();
     }
 
     // Remove item from the collection
     public void removeItem(CheckoutItemMode item) {
         items.removeItem(item);
-        totalPrice -= item.getPrice();
+        totalPrice = totalPrice.substract(item.getPrice());
         recalculateFinalPrice();
     }
 
     // Clear the collection
     public void clearItems() {
         items.clear();
-        totalPrice = 0;
+        totalPrice = totalPrice.multiply(0);
         recalculateFinalPrice();
     }
 
     // Recalculate final price after any changes
     private void recalculateFinalPrice() {
-        finalPrice = totalPrice - discountAmount;
+        finalPrice = totalPrice.substract(discountAmount);
     }
 
     // -- Promotion methods
     // Apply promotion
-    public void applyPromotion(UUID promotionId, double discountAmount) {
+    public void applyPromotion(UUID promotionId, Money discountAmount) {
         Objects.requireNonNull(promotionId, "PromotionId cannot be null!");
         if (discountAmount < 0) {
             throw new IllegalArgumentException("Discount amount cannot be negative!");
@@ -194,15 +195,15 @@ public class CheckoutSession {
         return promotionStatus;
     }
 
-    public double getDiscountAmount() {
+    public Money getDiscountAmount() {
         return discountAmount;
     }
 
-    public double getTotalPrice() {
+    public Money getTotalPrice() {
         return totalPrice;
     }
 
-    public double getFinalPrice() {
+    public Money getFinalPrice() {
         return finalPrice;
     }
 

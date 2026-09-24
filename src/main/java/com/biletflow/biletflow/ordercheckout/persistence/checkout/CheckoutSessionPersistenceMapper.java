@@ -1,5 +1,7 @@
 package com.biletflow.biletflow.ordercheckout.persistence.checkout;
 
+import com.biletflow.biletflow.common.domain;
+import java.util.Currency;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.AssignedSeatingCheckoutItem;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutItemCollection;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutItemMode;
@@ -50,9 +52,9 @@ public class CheckoutSessionPersistenceMapper {
             toItems(entity),
             entity.getPromotionId(),
             entity.getPromotionStatus(),
-            entity.getDiscountAmount(),
-            entity.getTotalPrice(),
-            entity.getFinalPrice(),
+            new Money(entity.getDiscountAmount(), Currency.getInstance(entity.getPriceCurrency())),
+            new Money(entity.getTotalPrice(), Currency.getInstance(entity.getPriceCurrency())),
+            new Money(entity.getFinalPrice(), Currency.getInstance(entity.getPriceCurrency())),
             entity.getPaymentId()
         );
     }
@@ -66,9 +68,10 @@ public class CheckoutSessionPersistenceMapper {
             domain.getEventId(),
             domain.getPromotionId(),
             domain.getPromotionStatus(),
-            domain.getDiscountAmount(),
-            domain.getTotalPrice(),
-            domain.getFinalPrice(),
+            domain.getDiscountAmount().amount(),
+            domain.getTotalPrice().amount(),
+            domain.getFinalPrice().amount(),
+            domain.getFinalPrice().currency().getCurrencyCode(),
             domain.getPaymentId(),
             toJpaItems(domain)
         );

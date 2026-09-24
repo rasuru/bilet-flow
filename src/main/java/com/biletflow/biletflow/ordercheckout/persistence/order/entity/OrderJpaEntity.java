@@ -47,14 +47,17 @@ public class OrderJpaEntity {
     @Column(name = "promotion_id", updatable = false)
     private UUID promotionId;
 
-    @Column(name = "discount_amount", nullable = false, updatable = false)
-    private double discountAmount;
+    @Column(name = "discount_amount", nullable = false, precision = 19, scale = 2)
+    private BigDecimal discountAmount;
 
-    @Column(name = "total_price", nullable = false, updatable = false)
-    private double totalPrice;
+    @Column(name = "total_price", nullable = false, precision = 19, scale = 2)
+    private BigDecimal totalPrice;
 
-    @Column(name = "final_price", nullable = false, updatable = false)
-    private double finalPrice;
+    @Column(name = "final_price", nullable = false, precision = 19, scale = 2)
+    private BigDecimal finalPrice;
+    
+    @Column(name = "price_currency", nullable = false, length = 3)
+    private String priceCurrency;
 
     @Column(name = "payment_id", updatable = false)
     private UUID paymentId;
@@ -85,9 +88,10 @@ public class OrderJpaEntity {
         Instant eventEndTime,
         InventoryMode inventoryMode,
         UUID promotionId,
-        double discountAmount,
-        double totalPrice,
-        double finalPrice,
+        BigDecimal discountAmount,
+        BigDecimal totalPrice,
+        BigDecimal finalPrice,
+        String priceCurrency,
         UUID paymentId,
         CancellationReason cancellationReason,
         UUID refundId,
@@ -104,6 +108,7 @@ public class OrderJpaEntity {
         this.discountAmount = discountAmount;
         this.totalPrice = totalPrice;
         this.finalPrice = finalPrice;
+        this.priceCurrency = priceCurrency;
         this.paymentId = paymentId;
         this.cancellationReason = cancellationReason;
         this.refundId = refundId;
@@ -142,16 +147,20 @@ public class OrderJpaEntity {
         return promotionId;
     }
 
-    public double getDiscountAmount() {
+    public BigDecimal getDiscountAmount() {
         return discountAmount;
     }
 
-    public double getTotalPrice() {
+    public BigDecimal getTotalPrice() {
         return totalPrice;
     }
 
-    public double getFinalPrice() {
+    public BigDecimal getFinalPrice() {
         return finalPrice;
+    }
+
+    public String getPriceCurrency() {
+        return priceCurrency;
     }
 
     public UUID getPaymentId() {

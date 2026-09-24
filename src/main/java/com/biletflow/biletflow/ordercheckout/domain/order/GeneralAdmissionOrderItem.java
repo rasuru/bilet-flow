@@ -5,10 +5,10 @@ import java.util.UUID;
 
 public final class GeneralAdmissionOrderItem implements OrderItemMode {
     private final UUID ticketTypeId;
-    private final double price;
+    private final Money price;
     private boolean used;
 
-    public GeneralAdmissionOrderItem(UUID ticketTypeId, double price) {
+    public GeneralAdmissionOrderItem(UUID ticketTypeId, Money price) {
         this.ticketTypeId = Objects.requireNonNull(ticketTypeId, "TicketTypeId should not be null!");
         if (price < 0) {
             throw new IllegalArgumentException("Price must be a positive number!");
@@ -18,7 +18,7 @@ public final class GeneralAdmissionOrderItem implements OrderItemMode {
         this.used = false;
     }
 
-    public GeneralAdmissionOrderItem createNew(UUID ticketTypeId, double price) {
+    public GeneralAdmissionOrderItem createNew(UUID ticketTypeId, Money price) {
         return new GeneralAdmissionOrderItem(ticketTypeId, price);
     }
 
@@ -34,7 +34,7 @@ public final class GeneralAdmissionOrderItem implements OrderItemMode {
         return ticketTypeId;
     }
 
-    public double getPrice() {
+    public Money getPrice() {
         return price;
     }
 

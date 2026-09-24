@@ -1,5 +1,7 @@
 package com.biletflow.biletflow.ordercheckout.persistence.order;
 
+import com.biletflow.biletflow.common.domain.Money;
+import java.util.Currency;
 import com.biletflow.biletflow.ordercheckout.domain.order.AssignedSeatingOrderItem;
 import com.biletflow.biletflow.ordercheckout.domain.order.GeneralAdmissionOrderItem;
 import com.biletflow.biletflow.ordercheckout.domain.order.Order;
@@ -32,9 +34,9 @@ public class OrderPersistenceMapper {
             entity.getInventoryMode(),
             items,
             entity.getPromotionId(),
-            entity.getDiscountAmount(),
-            entity.getTotalPrice(),
-            entity.getFinalPrice(),
+            new Money(entity.getDiscountAmount(), Currency.getInstance(entity.getPriceCurrency())),
+            new Money(entity.getTotalAmount(), Currency.getInstance(entity.getPriceCurrency())),
+            new Money(entity.getFinalAmount(), Currency.getInstance(entity.getPriceCurrency())),
             entity.getPaymentId(),
             entity.getCancellationReason(),
             entity.getRefundId()
@@ -81,9 +83,10 @@ public class OrderPersistenceMapper {
             domain.getEventEndTime(),
             domain.getInventoryMode(),
             domain.getPromotionId(),
-            domain.getDiscountAmount(),
-            domain.getTotalPrice(),
-            domain.getFinalPrice(),
+            domain.getDiscountAmount().amount(),
+            domain.getTotalPrice().amount(),
+            domain.getFinalPrice().amount(),
+            domain.getFinalPrice().currency().getCurrencyCode()
             domain.getPaymentId(),
             domain.getCancellationReason(),
             domain.getRefundId(),

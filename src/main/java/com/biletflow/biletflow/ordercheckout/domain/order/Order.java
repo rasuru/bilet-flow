@@ -29,10 +29,10 @@ public class Order {
     private final List<OrderItemMode> items;
 
     private final UUID promotionId;
-    private final double discountAmount;
+    private final Money discountAmount;
 
-    private final double totalPrice;  // Total price before discount
-    private final double finalPrice;  // Final price after discount
+    private final Money totalPrice;  // Total price before discount
+    private final Money finalPrice;  // Final price after discount
 
     private final UUID paymentId;
 
@@ -45,9 +45,9 @@ public class Order {
         InventoryMode inventoryMode,
         List<OrderItemMode> items,
         UUID promotionId,
-        double discountAmount,
-        double totalPrice,
-        double finalPrice,
+        Money discountAmount,
+        Money totalPrice,
+        Money finalPrice,
         UUID paymentId
 
     ) {
@@ -76,9 +76,9 @@ public class Order {
         InventoryMode inventoryMode,
         List<OrderItemMode> items,
         UUID promotionId,
-        double discountAmount,
-        double totalPrice,
-        double finalPrice,
+        Money discountAmount,
+        Money totalPrice,
+        Money finalPrice,
         UUID paymentId,
         CancellationReason cancellationReason,
         UUID refundId
@@ -182,15 +182,15 @@ public class Order {
         return promotionId;
     }
 
-    public double getDiscountAmount() {
+    public Money getDiscountAmount() {
         return discountAmount;
     }
 
-    public double getTotalPrice() {
+    public Money getTotalPrice() {
         return totalPrice;
     }
 
-    public double getFinalPrice() {
+    public Money getFinalPrice() {
         return finalPrice;
     }
 

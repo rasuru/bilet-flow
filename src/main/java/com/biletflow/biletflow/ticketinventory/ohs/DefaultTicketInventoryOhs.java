@@ -36,4 +36,9 @@ public class DefaultTicketInventoryOhs implements TicketInventoryOhs {
     public List<TicketView> completeSale(CompleteSaleCommand command) {
         return saleService.complete(command);
     }
+
+    @Override
+    public TicketTypeView getTicketType(UUID ticketTypeId) {
+        return ticketTypeService.get(ticketTypeId);
+    }
 }
