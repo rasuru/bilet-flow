@@ -11,16 +11,23 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Aggregate root for the financial record of one charge against one order.
+ * Aggregate root for the financial record of one charge: either an attendee
+ * paying for a ticket order, or an organizer paying the paid-sales activation fee.
  *
- * <p>Owns the invariant that the sum of all refunds can never exceed the amount
- * charged. Refunds live inside this aggregate precisely because that rule spans
- * the payment and all of its refunds.
+ * <p>Owns the invariant that completed refunds plus in-flight refund requests can
+ * never exceed the amount charged. Refunds live inside this aggregate precisely
+ * because that rule spans the payment and all of its refunds.
+ *
+ * <p>Payment and refund outcomes arrive asynchronously from the provider, so both
+ * start pending and are completed or failed later.
  */
 public class Payment {
 
     private final PaymentId id;
+    private final PaymentPurpose purpose;
     private final UUID orderId;
+    private final UUID eventId;
+    private final Long organizerId;
     private final Money amount;
     private PaymentStatus status;
     private String providerReference;
@@ -31,32 +38,56 @@ public class Payment {
 
     public Payment(
         PaymentId id,
+        PaymentPurpose purpose,
         UUID orderId,
+        UUID eventId,
+        Long organizerId,
         Money amount,
         PaymentStatus status,
         String providerReference,
         Instant paidAt,
+        Instant failedAt,
         String failureReason,
         List<Refund> refunds
     ) {
         this.id = Objects.requireNonNull(id, "PaymentId cannot be null");
-        this.orderId = Objects.requireNonNull(orderId, "orderId cannot be null");
+        this.purpose = Objects.requireNonNull(purpose, "purpose cannot be null");
+        if (purpose == PaymentPurpose.TICKET_ORDER) {
+            Objects.requireNonNull(orderId, "orderId cannot be null for a ticket order payment");
+        }
+        this.orderId = orderId;
+        this.eventId = Objects.requireNonNull(eventId, "eventId cannot be null");
+        this.organizerId = Objects.requireNonNull(organizerId, "organizerId cannot be null");
         this.amount = Objects.requireNonNull(amount, "Payment amount cannot be null");
         this.status = Objects.requireNonNull(status, "Status cannot be null");
         this.providerReference = providerReference;
         this.paidAt = paidAt;
+        this.failedAt = failedAt;
         this.failureReason = failureReason;
         this.refunds = new ArrayList<>(refunds == null ? List.of() : refunds);
     }
 
-    public static Payment initiate(UUID orderId, Money amount) {
-        Objects.requireNonNull(amount, "Payment amount cannot be null");
+    public static Payment initiateForOrder(UUID orderId, UUID eventId, Long organizerId, Money amount) {
+        requireChargeable(amount);
+        return new Payment(
+            PaymentId.generate(), PaymentPurpose.TICKET_ORDER, orderId, eventId, organizerId,
+            amount, PaymentStatus.PENDING, null, null, null, null, List.of()
+        );
+    }
 
+    public static Payment initiateActivationFee(UUID eventId, Long organizerId, Money amount) {
+        requireChargeable(amount);
+        return new Payment(
+            PaymentId.generate(), PaymentPurpose.ACTIVATION_FEE, null, eventId, organizerId,
+            amount, PaymentStatus.PENDING, null, null, null, null, List.of()
+        );
+    }
+
+    private static void requireChargeable(Money amount) {
+        Objects.requireNonNull(amount, "Payment amount cannot be null");
         if (amount.isZero()) {
             throw new InvalidPaymentStateException("Cannot initiate a payment for a zero amount");
         }
-
-        return new Payment(PaymentId.generate(), orderId, amount, PaymentStatus.PENDING, null, null, null, List.of());
     }
 
     public void succeed(String providerReference, Instant now) {
@@ -78,7 +109,7 @@ public class Payment {
         this.failedAt = now;
     }
 
-    public Refund refund(Money requested, String reason, String providerReference, Instant now) {
+    public Refund requestRefund(Money requested, String reason, Instant now) {
         Objects.requireNonNull(requested, "Refund amount cannot be null");
         Objects.requireNonNull(now, "now cannot be null");
 
@@ -90,33 +121,68 @@ public class Payment {
             throw new InvalidPaymentStateException("Refund amount must be greater than zero");
         }
 
-        Money newTotal = refundedTotal().add(requested);
-
-        if (newTotal.isGreaterThan(amount)) {
+        if (requested.isGreaterThan(refundableRemaining())) {
             throw new RefundExceedsPaymentException(
-                "Refunding " + requested + " would exceed the charged amount " + amount
+                "Refunding " + requested + " would exceed the refundable remainder " + refundableRemaining()
             );
         }
 
-        Refund refund = Refund.create(requested, reason, now, providerReference);
+        Refund refund = Refund.request(requested, reason, now);
         refunds.add(refund);
-        this.status = amount.subtract(newTotal).isZero() ? PaymentStatus.FULLY_REFUNDED : PaymentStatus.PARTIALLY_REFUNDED;
-
         return refund;
     }
 
+    public void completeRefund(RefundId refundId, String providerReference, Instant now) {
+        findRefund(refundId).complete(providerReference, now);
+        this.status = amount.subtract(refundedTotal()).isZero()
+            ? PaymentStatus.FULLY_REFUNDED
+            : PaymentStatus.PARTIALLY_REFUNDED;
+    }
+
+    public void failRefund(RefundId refundId, String reason, Instant now) {
+        findRefund(refundId).fail(reason, now);
+        // Status unchanged: no money moved, and the reserved amount is freed automatically.
+    }
+
     public Money refundedTotal() {
-        return refunds.stream().map(Refund::getAmount).reduce(Money.zero(amount.currency()), Money::add);
+        return sumRefunds(RefundStatus.COMPLETED);
+    }
+
+    public Money reservedForRefunds() {
+        return sumRefunds(RefundStatus.REQUESTED);
     }
 
     public Money refundableRemaining() {
-        return status.allowsRefund() ? amount.subtract(refundedTotal()) : Money.zero(amount.currency());
+        return status.allowsRefund()
+            ? amount.subtract(refundedTotal()).subtract(reservedForRefunds())
+            : Money.zero(amount.currency());
+    }
+
+    private Money sumRefunds(RefundStatus wanted) {
+        return refunds.stream()
+            .filter(r -> r.getStatus() == wanted)
+            .map(Refund::getAmount)
+            .reduce(Money.zero(amount.currency()), Money::add);
     }
 
     private void ensurePending() {
         if (status != PaymentStatus.PENDING) {
             throw new InvalidPaymentStateException("Payment is no longer pending: " + status);
         }
+    }
+
+    private Refund findRefund(RefundId refundId) {
+        Objects.requireNonNull(refundId, "refundId cannot be null");
+        return refunds.stream()
+            .filter(r -> r.getId().equals(refundId))
+            .findFirst()
+            .orElseThrow(() -> new InvalidPaymentStateException(
+                "Refund " + refundId.value() + " does not belong to payment " + id.value()
+            ));
+    }
+
+    public boolean countsAsOrganizerRevenue() {
+        return purpose == PaymentPurpose.TICKET_ORDER;
     }
 
     public PaymentId getId() {
@@ -149,5 +215,21 @@ public class Payment {
 
     public List<Refund> getRefunds() {
         return Collections.unmodifiableList(refunds);
+    }
+
+    public PaymentPurpose getPurpose() {
+        return purpose;
+    }
+
+    public UUID getEventId() {
+        return eventId;
+    }
+
+    public Long getOrganizerId() {
+        return organizerId;
+    }
+
+    public Instant getFailedAt() {
+        return failedAt;
     }
 }

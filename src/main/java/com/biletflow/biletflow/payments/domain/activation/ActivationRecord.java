@@ -12,6 +12,10 @@ import java.util.UUID;
  * <p>Identified by eventId: activation is event-scoped and there is never more
  * than one record per event. The eventId itself is owned by Event Management and
  * held here only as an opaque foreign identifier.
+ *
+ * <p>The activation checklist (the event exists, belongs to this organizer and
+ * is in a state that allows paid sales) is answered by Event Management and
+ * passed in by the application layer.
  */
 public class ActivationRecord {
 
@@ -46,12 +50,12 @@ public class ActivationRecord {
     }
 
     /**
-     * PENDING -> ACTIVE. Requires both prerequisites: a settled activation-fee
-     * payment, and an organizer who satisfies verification/payout checks.
-     * Organizer eligibility is fetched by the application layer and passed in;
-     * this aggregate owns only the rule, not the fact.
+     * SUSPENDED -> ACTIVE. Deliberately does not re-check the paid-sales checklist
+     * and charges no new fee: the fee was already settled before the original
+     * activation and feePaymentId survives the suspension cycle.
      */
-    public void activate(PaymentId feePaymentId, boolean organizerEligible, Instant now) {
+
+    public void activate(PaymentId feePaymentId, boolean checklistSatisfied, Instant now) {
         Objects.requireNonNull(feePaymentId, "feePaymentId cannot be null — the activation fee must be settled first");
         Objects.requireNonNull(now, "now cannot be null");
 
@@ -59,8 +63,8 @@ public class ActivationRecord {
             throw new ActivationNotAllowedException("Paid sales for this event are already " + status);
         }
 
-        if (!organizerEligible) {
-            throw new ActivationNotAllowedException("Organizer is not verified or payout-ready");
+        if (!checklistSatisfied) {
+            throw new ActivationNotAllowedException("Paid-sales checklist is not satisfied for event " + eventId);
         }
 
         this.feePaymentId = feePaymentId;

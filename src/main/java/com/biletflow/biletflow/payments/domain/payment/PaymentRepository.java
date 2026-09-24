@@ -16,5 +16,7 @@ public interface PaymentRepository {
      */
     Optional<Payment> findSettledByOrderId(UUID orderId);
 
+    Optional<Payment> findByRefundId(RefundId refundId);
+
     List<Payment> findAllByOrderId(UUID orderId);
 }
