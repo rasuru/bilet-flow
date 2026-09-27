@@ -3,6 +3,7 @@ package com.biletflow.biletflow.ordercheckout.persistence.checkoutsession.entity
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 import java.util.UUID;
+import java.math.BigDecimal;
 
 @Embeddable
 public class CheckoutSessionItemJpaEmbeddable {
@@ -14,7 +15,6 @@ public class CheckoutSessionItemJpaEmbeddable {
 
     @Column(name = "price_currency", nullable = false, length = 3)
     private String priceCurrency;
-
 
     @Column(name = "seat_id")
     private UUID seatId;

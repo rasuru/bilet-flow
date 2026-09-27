@@ -10,16 +10,24 @@ import com.biletflow.biletflow.ticketinventory.application.ticket.view.TicketVie
 import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
-
+import java.util.UUID;
+import com.biletflow.biletflow.ticketinventory.application.tickettype.view.TicketTypeView;
+import com.biletflow.biletflow.ticketinventory.application.tickettype.TicketTypeService;
 @Service
 public class DefaultTicketInventoryOhs implements TicketInventoryOhs {
 
     private final EventInventoryService inventoryService;
     private final TicketSaleService saleService;
+    private final TicketTypeService ticketTypeService;
 
-    public DefaultTicketInventoryOhs(EventInventoryService inventoryService, TicketSaleService saleService) {
+    public DefaultTicketInventoryOhs(
+        EventInventoryService inventoryService,
+        TicketSaleService saleService,
+        TicketTypeService ticketTypeService
+    ) {
         this.inventoryService = Objects.requireNonNull(inventoryService);
         this.saleService = Objects.requireNonNull(saleService);
+        this.ticketTypeService = Objects.requireNonNull(ticketTypeService);
     }
 
     @Override

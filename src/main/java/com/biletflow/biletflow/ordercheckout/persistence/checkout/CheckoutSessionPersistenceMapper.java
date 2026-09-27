@@ -1,17 +1,17 @@
 package com.biletflow.biletflow.ordercheckout.persistence.checkout;
 
-import com.biletflow.biletflow.common.domain;
-import java.util.Currency;
+import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.AssignedSeatingCheckoutItem;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutItemCollection;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutItemMode;
-import com.biletflow.biletflow.ordercheckout.domain.checkout.GeneralAdmissionCheckoutItem;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutSession;
-import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutSessionId;
+import com.biletflow.biletflow.ordercheckout.domain.checkout.GeneralAdmissionCheckoutItem;
 import com.biletflow.biletflow.ordercheckout.persistence.checkoutsession.entity.CheckoutSessionItemJpaEmbeddable;
 import com.biletflow.biletflow.ordercheckout.persistence.checkoutsession.entity.CheckoutSessionJpaEntity;
 import org.springframework.stereotype.Component;
+
+import java.util.Currency;
 import java.util.List;
 
 @Component
@@ -23,16 +23,21 @@ public class CheckoutSessionPersistenceMapper {
         for (CheckoutSessionItemJpaEmbeddable item : entity.getItems()) {
             CheckoutItemMode domainItem;
 
+            Money price = new Money(
+                item.getPrice(),
+                Currency.getInstance(item.getPriceCurrency())
+            );
+
             if (item.getSeatId() != null) {
                 domainItem = new AssignedSeatingCheckoutItem(
                     item.getTicketTypeId(),
                     item.getSeatId(),
-                    item.getPrice()
+                    price
                 );
             } else {
                 domainItem = new GeneralAdmissionCheckoutItem(
                     item.getTicketTypeId(),
-                    item.getPrice()
+                    price
                 );
             }
 
@@ -43,6 +48,8 @@ public class CheckoutSessionPersistenceMapper {
     }
 
     public CheckoutSession toDomain(CheckoutSessionJpaEntity entity) {
+        Currency currency = Currency.getInstance(entity.getPriceCurrency());
+
         return new CheckoutSession(
             new CheckoutSessionId(entity.getId()),
             entity.getStatus(),
@@ -52,9 +59,9 @@ public class CheckoutSessionPersistenceMapper {
             toItems(entity),
             entity.getPromotionId(),
             entity.getPromotionStatus(),
-            new Money(entity.getDiscountAmount(), Currency.getInstance(entity.getPriceCurrency())),
-            new Money(entity.getTotalPrice(), Currency.getInstance(entity.getPriceCurrency())),
-            new Money(entity.getFinalPrice(), Currency.getInstance(entity.getPriceCurrency())),
+            new Money(entity.getDiscountAmount(), currency),
+            new Money(entity.getTotalPrice(), currency),
+            new Money(entity.getFinalPrice(), currency),
             entity.getPaymentId()
         );
     }
@@ -92,7 +99,8 @@ public class CheckoutSessionPersistenceMapper {
         if (item instanceof AssignedSeatingCheckoutItem assigned) {
             return new CheckoutSessionItemJpaEmbeddable(
                 assigned.getTicketTypeId(),
-                assigned.getPrice(),
+                assigned.getPrice().amount(),
+                assigned.getPrice().currency().getCurrencyCode(),
                 assigned.getSeatId()
             );
         }
@@ -100,7 +108,8 @@ public class CheckoutSessionPersistenceMapper {
         if (item instanceof GeneralAdmissionCheckoutItem general) {
             return new CheckoutSessionItemJpaEmbeddable(
                 general.getTicketTypeId(),
-                general.getPrice(),
+                general.getPrice().amount(),
+                general.getPrice().currency().getCurrencyCode(),
                 null
             );
         }
@@ -114,6 +123,6 @@ public class CheckoutSessionPersistenceMapper {
         CheckoutSession domain,
         CheckoutSessionJpaEntity entity
     ) {
-        // Only needed if you want to update an existing JPA entity.
+        // TODO
     }
 }

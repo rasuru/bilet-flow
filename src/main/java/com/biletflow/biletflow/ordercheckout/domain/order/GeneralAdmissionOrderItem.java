@@ -2,6 +2,7 @@ package com.biletflow.biletflow.ordercheckout.domain.order;
 
 import java.util.Objects;
 import java.util.UUID;
+import com.biletflow.biletflow.common.domain.Money;
 
 public final class GeneralAdmissionOrderItem implements OrderItemMode {
     private final UUID ticketTypeId;
@@ -9,12 +10,14 @@ public final class GeneralAdmissionOrderItem implements OrderItemMode {
     private boolean used;
 
     public GeneralAdmissionOrderItem(UUID ticketTypeId, Money price) {
-        this.ticketTypeId = Objects.requireNonNull(ticketTypeId, "TicketTypeId should not be null!");
-        if (price < 0) {
-            throw new IllegalArgumentException("Price must be a positive number!");
-        }
-
-        this.price = price;
+        this.ticketTypeId = Objects.requireNonNull(
+            ticketTypeId,
+            "TicketTypeId should not be null!"
+        );
+        this.price = Objects.requireNonNull(
+            price,
+            "Price should not be null!"
+        );
         this.used = false;
     }
 

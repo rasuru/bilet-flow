@@ -4,6 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 
 import java.util.UUID;
+import java.math.BigDecimal;
 
 @Embeddable
 public class OrderItemJpaEmbeddable {
@@ -14,8 +15,8 @@ public class OrderItemJpaEmbeddable {
     @Column(name = "seat_id")
     private UUID seatId;
 
-    @Column(name = "price", nullable = false)
-    private double price;
+    @Column(name = "price", nullable = false, precision = 19, scale = 2)
+    private BigDecimal price;
 
     @Column(name = "used", nullable = false)
     private boolean used;
@@ -26,7 +27,7 @@ public class OrderItemJpaEmbeddable {
     public OrderItemJpaEmbeddable(
         UUID ticketTypeId,
         UUID seatId,
-        double price,
+        BigDecimal price,
         boolean used
     ) {
         this.ticketTypeId = ticketTypeId;
@@ -43,7 +44,7 @@ public class OrderItemJpaEmbeddable {
         return seatId;
     }
 
-    public double getPrice() {
+    public BigDecimal getPrice() {
         return price;
     }
 

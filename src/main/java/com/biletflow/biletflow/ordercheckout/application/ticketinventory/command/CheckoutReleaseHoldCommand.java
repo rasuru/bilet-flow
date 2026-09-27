@@ -1,10 +1,14 @@
-package com.biletflow.biletflow.ordercheckout.application.eventmanagement.command;
+package com.biletflow.biletflow.ordercheckout.application.ticketinventory.command;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-public record CheckoutReleaseHoldCommand(UUID eventId, String sessionId, List<HoldReference> holds) {
+public record CheckoutReleaseHoldCommand(
+    UUID eventId,
+    String sessionId,
+    List<CheckoutHoldReference> holds
+) {
     public CheckoutReleaseHoldCommand {
         Objects.requireNonNull(eventId, "eventId cannot be null");
         Objects.requireNonNull(sessionId, "sessionId cannot be null");

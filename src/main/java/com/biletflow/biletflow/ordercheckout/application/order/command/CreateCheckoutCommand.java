@@ -1,5 +1,8 @@
 package com.biletflow.biletflow.ordercheckout.application.order.command;
 
+import java.util.Objects;
+import java.util.UUID;
+
 public record CreateCheckoutCommand(
     long ownerId,
     UUID eventId

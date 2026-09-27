@@ -1,8 +1,8 @@
 package com.biletflow.biletflow.ordercheckout.external.ticketinventory;
 
 import com.biletflow.biletflow.ordercheckout.application.ticketinventory.command.*;
-import com.biletflow.biletflow.ordercheckout.application.ticketinventory.port.*;
 import com.biletflow.biletflow.ordercheckout.application.ticketinventory.result.*;
+import com.biletflow.biletflow.ordercheckout.application.ticketinventory.port.*;
 import com.biletflow.biletflow.ordercheckout.application.ticketinventory.view.*;
 
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.command.AssignedSeatsSelection;
@@ -20,6 +20,7 @@ import com.biletflow.biletflow.ticketinventory.ohs.TicketInventoryOhs;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 import org.springframework.stereotype.Component;
 

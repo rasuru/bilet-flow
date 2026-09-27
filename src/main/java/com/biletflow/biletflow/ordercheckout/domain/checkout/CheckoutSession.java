@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import com.biletflow.biletflow.common.domain.Money;
 
 public class CheckoutSession {
     private final CheckoutSessionId id;
@@ -43,7 +44,11 @@ public class CheckoutSession {
         this.eventId = eventId;
         this.inventoryMode = inventoryMode;
         this.items = new CheckoutItemCollection();
+
         this.promotionStatus = PromotionStatus.PENDING;
+        this.discountAmount = Money.zeroKzt();
+        this.totalPrice = Money.zeroKzt();
+        this.finalPrice = Money.zeroKzt();
     }
 
     public CheckoutSession(
@@ -103,12 +108,18 @@ public class CheckoutSession {
             throw new IllegalArgumentException("Item cannot be null!");
         }
 
-        if (inventoryMode == InventoryMode.GENERAL_ADMISSION && item instanceof AssignedSeatingCheckoutItem) {
-            throw new IllegalArgumentException("Item inventory mode does not match checkout session inventory mode!");
+        if (inventoryMode == InventoryMode.GENERAL_ADMISSION
+                && item instanceof AssignedSeatingCheckoutItem) {
+            throw new IllegalArgumentException(
+                "Item inventory mode does not match checkout session inventory mode!"
+            );
         }
 
-        if (inventoryMode == InventoryMode.RESERVED_SEATING && item instanceof GeneralAdmissionCheckoutItem) {
-            throw new IllegalArgumentException("Item inventory mode does not match checkout session inventory mode!");
+        if (inventoryMode == InventoryMode.RESERVED_SEATING
+                && item instanceof GeneralAdmissionCheckoutItem) {
+            throw new IllegalArgumentException(
+                "Item inventory mode does not match checkout session inventory mode!"
+            );
         }
 
         items.addItem(item);
@@ -119,29 +130,27 @@ public class CheckoutSession {
     // Remove item from the collection
     public void removeItem(CheckoutItemMode item) {
         items.removeItem(item);
-        totalPrice = totalPrice.substract(item.getPrice());
+        totalPrice = totalPrice.subtract(item.getPrice());
         recalculateFinalPrice();
     }
 
     // Clear the collection
     public void clearItems() {
         items.clear();
-        totalPrice = totalPrice.multiply(0);
+        totalPrice = Money.zeroKzt();
         recalculateFinalPrice();
     }
 
     // Recalculate final price after any changes
     private void recalculateFinalPrice() {
-        finalPrice = totalPrice.substract(discountAmount);
+        finalPrice = totalPrice.subtract(discountAmount);
     }
 
     // -- Promotion methods
     // Apply promotion
     public void applyPromotion(UUID promotionId, Money discountAmount) {
         Objects.requireNonNull(promotionId, "PromotionId cannot be null!");
-        if (discountAmount < 0) {
-            throw new IllegalArgumentException("Discount amount cannot be negative!");
-        }
+        Objects.requireNonNull(discountAmount, "Discount amount cannot be null!");
 
         this.promotionStatus = PromotionStatus.APPLIED;
         this.promotionId = promotionId;
@@ -152,7 +161,8 @@ public class CheckoutSession {
     // Remove promotion
     public void removePromotion() {
         this.promotionId = null;
-        this.discountAmount = 0;
+        this.discountAmount = Money.zeroKzt();
+        this.promotionStatus = PromotionStatus.PENDING;
         recalculateFinalPrice();
     }
 

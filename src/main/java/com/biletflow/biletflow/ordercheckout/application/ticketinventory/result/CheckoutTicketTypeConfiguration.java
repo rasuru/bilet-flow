@@ -1,11 +1,12 @@
-package com.biletflow.biletflow.ordercheckout.application.eventmanagement.result;
+package com.biletflow.biletflow.ordercheckout.application.ticketinventory.result;
 
-import com.biletflow.biletflow.ordercheckout.application.ticketinventory.command.HoldReference;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
+import com.biletflow.biletflow.common.domain.Money;
 
-public record TicketTypeConfiguration(
+public record CheckoutTicketTypeConfiguration(
     UUID ticketTypeId,
     UUID eventId,
     Money price,

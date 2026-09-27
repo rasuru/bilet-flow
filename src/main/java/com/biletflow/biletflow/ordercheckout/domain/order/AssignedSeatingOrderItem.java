@@ -2,27 +2,35 @@ package com.biletflow.biletflow.ordercheckout.domain.order;
 
 import java.util.Objects;
 import java.util.UUID;
+import com.biletflow.biletflow.common.domain.Money;
 
 public final class AssignedSeatingOrderItem implements OrderItemMode {
     private final UUID ticketTypeId;
     private final UUID seatId;
     private final Money price;
     private boolean used;
-    
-    // Constructor
+
     public AssignedSeatingOrderItem(UUID ticketTypeId, UUID seatId, Money price) {
-        this.ticketTypeId = Objects.requireNonNull(ticketTypeId, "TicketTypeId can not be null!");
-        this.seatId = Objects.requireNonNull(seatId, "SeatId can not be null!");
-
-        if (price < 0) {
-            throw new IllegalArgumentException("Price should be a positive number!");
-        }
-
-        this.price = price;
+        this.ticketTypeId = Objects.requireNonNull(
+            ticketTypeId,
+            "TicketTypeId can not be null!"
+        );
+        this.seatId = Objects.requireNonNull(
+            seatId,
+            "SeatId can not be null!"
+        );
+        this.price = Objects.requireNonNull(
+            price,
+            "Price can not be null!"
+        );
         this.used = false;
     }
 
-    public AssignedSeatingOrderItem createNew(UUID ticketTypeId, UUID seatId, Money price) {
+    public AssignedSeatingOrderItem createNew(
+        UUID ticketTypeId,
+        UUID seatId,
+        Money price
+    ) {
         return new AssignedSeatingOrderItem(ticketTypeId, seatId, price);
     }
 
@@ -34,7 +42,6 @@ public final class AssignedSeatingOrderItem implements OrderItemMode {
         used = true;
     }
 
-    // Getters
     public UUID getTicketTypeId() {
         return ticketTypeId;
     }

@@ -13,7 +13,7 @@ public record CheckoutTicketView(
     Long ownerUserId,
     UUID seatId,
     UUID ticketCode,
-    TicketStatus status,
+    CheckoutTicketStatus status,
     Instant issuedAt
 ) {
     public CheckoutTicketView {
