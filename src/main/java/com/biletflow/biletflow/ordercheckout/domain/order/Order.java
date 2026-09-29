@@ -1,17 +1,16 @@
 package com.biletflow.biletflow.ordercheckout.domain.order;
 
-import com.biletflow.biletflow.ordercheckout.domain.order.enums.*;
-import com.biletflow.biletflow.ordercheckout.domain.common.*;
-import com.biletflow.biletflow.ordercheckout.domain.checkout.*;
-import com.biletflow.biletflow.ordercheckout.domain.checkout.enums.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.Objects;
-import java.time.Clock;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
+import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
+import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutSession;
+import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutSessionStatus;
+import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutItem;
+import com.biletflow.biletflow.ordercheckout.domain.checkout.AssignedSeatingCheckoutItem;
+import com.biletflow.biletflow.ordercheckout.domain.checkout.GeneralAdmissionCheckoutItem;
 import com.biletflow.biletflow.common.domain.Money;
 
 public class Order {
@@ -21,13 +20,9 @@ public class Order {
 
     private final long ownerId;
     private final UUID eventId;
-    private Instant eventStartTime;
-    private Instant eventEndTime;
-
-    private final Clock clock;
 
     private final InventoryMode inventoryMode;
-    private final List<OrderItemMode> items;
+    private final List<OrderItem> items;
 
     private final UUID promotionId;
     private final Money discountAmount;
@@ -44,7 +39,7 @@ public class Order {
         long ownerId,
         UUID eventId,
         InventoryMode inventoryMode,
-        List<OrderItemMode> items,
+        List<OrderItem> items,
         UUID promotionId,
         Money discountAmount,
         Money totalPrice,
@@ -56,15 +51,14 @@ public class Order {
         this.ownerId = ownerId;
         this.eventId = eventId;
         this.inventoryMode = inventoryMode;
-        this.items = new ArrayList<>(items);
+        this.items = List.copyOf(items);
         this.promotionId = promotionId;
         this.discountAmount = discountAmount;
         this.totalPrice = totalPrice;
         this.finalPrice = finalPrice;
         this.paymentId = paymentId;
 
-        this.orderStatus = OrderStatus.IN_PROGRESS;
-        this.clock = Clock.systemUTC();
+        this.orderStatus = OrderStatus.COMPLETED;
     }
 
     public Order(
@@ -72,10 +66,8 @@ public class Order {
         OrderStatus orderStatus,
         long ownerId,
         UUID eventId,
-        Instant eventStartTime,
-        Instant eventEndTime,
         InventoryMode inventoryMode,
-        List<OrderItemMode> items,
+        List<OrderItem> items,
         UUID promotionId,
         Money discountAmount,
         Money totalPrice,
@@ -88,10 +80,8 @@ public class Order {
         this.orderStatus = orderStatus;
         this.ownerId = ownerId;
         this.eventId = eventId;
-        this.eventStartTime = eventStartTime;
-        this.eventEndTime = eventEndTime;
         this.inventoryMode = inventoryMode;
-        this.items = new ArrayList<>(items);
+        this.items = List.copyOf(items);
         this.promotionId = promotionId;
         this.discountAmount = discountAmount;
         this.totalPrice = totalPrice;
@@ -99,7 +89,6 @@ public class Order {
         this.paymentId = paymentId;
         this.cancellationReason = cancellationReason;
         this.refundId = refundId;
-        this.clock = Clock.systemUTC();
     }
 
     public static Order createFromCheckout(CheckoutSession checkoutSession) {
@@ -109,14 +98,16 @@ public class Order {
             throw new IllegalStateException("Checkout must be completed!");
         }
 
+        List<OrderItem> orderItems = checkoutSession.getItems()
+            .stream()
+            .map(Order::convertToOrderItem)
+            .toList();
+
         return new Order(
             checkoutSession.getOwnerId(),
             checkoutSession.getEventId(),
             checkoutSession.getInventoryMode(),
-            checkoutSession.getItems()
-                .stream()
-                .map(OrderItemMode::convertToOrderItem)
-                .toList(),
+            orderItems,
             checkoutSession.getPromotionId(),
             checkoutSession.getDiscountAmount(),
             checkoutSession.getTotalPrice(),
@@ -125,23 +116,28 @@ public class Order {
         );
     }
 
-    public void cancelOrderByCustomer() {
-        Instant timeNow = clock.instant();
+    private static OrderItem convertToOrderItem(CheckoutItem item) {
+        if (item instanceof AssignedSeatingCheckoutItem assigned) {
+            return new AssignedSeatingOrderItem(
+                assigned.getTicketTypeId(),
+                assigned.getSeatId(),
+                assigned.getPrice()
+            );
+        }
 
+        if (item instanceof GeneralAdmissionCheckoutItem general) {
+            return new GeneralAdmissionOrderItem(
+                general.getTicketTypeId(),
+                general.getPrice()
+            );
+        }
+
+        throw new IllegalArgumentException("Unsupported checkout item type");
+    }
+
+    public void cancelOrderByCustomer() {
         if (orderStatus != OrderStatus.COMPLETED) {
             throw new IllegalStateException("Order can not be cancelled!");
-        }
-
-        if (timeNow.isAfter(eventStartTime.minus(10, ChronoUnit.MINUTES))) {
-            throw new IllegalStateException(
-                "Order cannot be cancelled less than 10 minutes before the event!"
-            );
-        }
-
-        if (items.stream().anyMatch(OrderItemMode::isUsed)) {
-            throw new IllegalStateException(
-                "Order cannot be cancelled because a ticket has been used!"
-            );
         }
 
         orderStatus = OrderStatus.CANCELLED;
@@ -155,6 +151,16 @@ public class Order {
 
         orderStatus = OrderStatus.CANCELLED;
         cancellationReason = CancellationReason.EVENT_CANCELLED;
+    }
+
+    public void markRefunded(UUID refundId) {
+        Objects.requireNonNull(refundId, "RefundId cannot be null");
+
+        if (orderStatus != OrderStatus.CANCELLED) {
+            throw new IllegalStateException("Only cancelled orders can be refunded!");
+        }
+
+        this.refundId = refundId;
     }
 
 
@@ -175,8 +181,8 @@ public class Order {
         return eventId;
     }
 
-    public List<OrderItemMode> getItems() {
-        return items;
+    public List<OrderItem> getItems() {
+        return Collections.unmodifiableList(items);
     }
 
     public UUID getPromotionId() {
@@ -197,14 +203,6 @@ public class Order {
 
     public UUID getPaymentId() {
         return paymentId;
-    }
-
-    public Instant getEventStartTime() {
-        return eventStartTime;
-    }
-
-    public Instant getEventEndTime() {
-        return eventEndTime;
     }
 
     public InventoryMode getInventoryMode() {

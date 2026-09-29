@@ -1,4 +1,4 @@
-package com.biletflow.biletflow.ordercheckout.domain.checkout.enums;
+package com.biletflow.biletflow.ordercheckout.domain.checkout;
 
 public enum CheckoutSessionStatus {
     IN_PROGRESS,

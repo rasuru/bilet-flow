@@ -1,14 +1,12 @@
 package com.biletflow.biletflow.ordercheckout.domain.checkout;
 
-import com.biletflow.biletflow.common.domain.*;
-import com.biletflow.biletflow.ordercheckout.domain.common.*;
-import com.biletflow.biletflow.ordercheckout.domain.checkout.enums.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import com.biletflow.biletflow.common.domain.Money;
+import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
 
 public class CheckoutSession {
     private final CheckoutSessionId id;
@@ -21,7 +19,6 @@ public class CheckoutSession {
     private final CheckoutItemCollection items;
 
     private UUID promotionId;
-    private PromotionStatus promotionStatus;
     private Money discountAmount;
 
     private Money totalPrice;  // Total price before discount
@@ -29,7 +26,6 @@ public class CheckoutSession {
 
     private UUID paymentId;
 
-    // Constructor
     public CheckoutSession(CheckoutSessionId id, long ownerId, UUID eventId, InventoryMode inventoryMode) {
         Objects.requireNonNull(id, "CheckoutSessionId can not be null!");
         if (ownerId <= 0) {
@@ -45,7 +41,6 @@ public class CheckoutSession {
         this.inventoryMode = inventoryMode;
         this.items = new CheckoutItemCollection();
 
-        this.promotionStatus = PromotionStatus.PENDING;
         this.discountAmount = Money.zeroKzt();
         this.totalPrice = Money.zeroKzt();
         this.finalPrice = Money.zeroKzt();
@@ -59,7 +54,6 @@ public class CheckoutSession {
         InventoryMode inventoryMode,
         CheckoutItemCollection items,
         UUID promotionId,
-        PromotionStatus promotionStatus,
         Money discountAmount,
         Money totalPrice,
         Money finalPrice,
@@ -72,14 +66,12 @@ public class CheckoutSession {
         this.inventoryMode = inventoryMode;
         this.items = items;
         this.promotionId = promotionId;
-        this.promotionStatus = promotionStatus;
         this.discountAmount = discountAmount;
         this.totalPrice = totalPrice;
         this.finalPrice = finalPrice;
         this.paymentId = paymentId;
     }
 
-    // Cancel the checkout session
     public void cancel() {
         if (status != CheckoutSessionStatus.IN_PROGRESS) {
             throw new IllegalStateException("Only in-progress sessions can be cancelled!");
@@ -88,7 +80,6 @@ public class CheckoutSession {
         this.status = CheckoutSessionStatus.CANCELLED;
     }
 
-    // Complete the checkout session
     public void complete() {
         if (status != CheckoutSessionStatus.IN_PROGRESS) {
             throw new IllegalStateException("Only in-progress sessions can be completed!");
@@ -101,9 +92,8 @@ public class CheckoutSession {
         this.status = CheckoutSessionStatus.COMPLETED;
     }
 
-    // -- Collection methods
-    // Add item to the collection
-    public void addItem(CheckoutItemMode item) {
+    public void addItem(CheckoutItem item) {
+        ensureInProgress();
         if (item == null) {
             throw new IllegalArgumentException("Item cannot be null!");
         }
@@ -127,52 +117,61 @@ public class CheckoutSession {
         recalculateFinalPrice();
     }
 
-    // Remove item from the collection
-    public void removeItem(CheckoutItemMode item) {
+    public void removeItem(CheckoutItem item) {
+        ensureInProgress();
         items.removeItem(item);
         totalPrice = totalPrice.subtract(item.getPrice());
         recalculateFinalPrice();
     }
 
-    // Clear the collection
     public void clearItems() {
+        ensureInProgress();
         items.clear();
         totalPrice = Money.zeroKzt();
         recalculateFinalPrice();
     }
 
-    // Recalculate final price after any changes
     private void recalculateFinalPrice() {
         finalPrice = totalPrice.subtract(discountAmount);
     }
 
-    // -- Promotion methods
-    // Apply promotion
     public void applyPromotion(UUID promotionId, Money discountAmount) {
+        ensureInProgress();
         Objects.requireNonNull(promotionId, "PromotionId cannot be null!");
         Objects.requireNonNull(discountAmount, "Discount amount cannot be null!");
 
-        this.promotionStatus = PromotionStatus.APPLIED;
+        if (discountAmount.isGreaterThan(totalPrice)) {
+            throw new IllegalArgumentException(
+                "Discount cannot exceed total price!"
+            );
+        }
+
         this.promotionId = promotionId;
         this.discountAmount = discountAmount;
         recalculateFinalPrice();
     }
 
-    // Remove promotion
     public void removePromotion() {
+        ensureInProgress();
         this.promotionId = null;
         this.discountAmount = Money.zeroKzt();
-        this.promotionStatus = PromotionStatus.PENDING;
         recalculateFinalPrice();
     }
 
-    // Payment methods
     public void setPaymentId(UUID paymentId) {
+        ensureInProgress();
         Objects.requireNonNull(paymentId, "PaymentId cannot be null!");
         this.paymentId = paymentId;
     }
 
-    // Getters
+    private void ensureInProgress() {
+        if (status != CheckoutSessionStatus.IN_PROGRESS) {
+            throw new IllegalStateException(
+                "Checkout session is no longer mutable!"
+            );
+        }
+    }
+
     public CheckoutSessionId getId() {
         return id;
     }
@@ -193,16 +192,12 @@ public class CheckoutSession {
         return eventId;
     }
 
-    public List<CheckoutItemMode> getItems() {
+    public List<CheckoutItem> getItems() {
         return items.getItems();
     }
 
     public UUID getPromotionId() {
         return promotionId;
-    }
-
-    public PromotionStatus getPromotionStatus() {
-        return promotionStatus;
     }
 
     public Money getDiscountAmount() {

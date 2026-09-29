@@ -1,4 +1,4 @@
-package com.biletflow.biletflow.ordercheckout.domain.order.enums;
+package com.biletflow.biletflow.ordercheckout.domain.order;
 
 public enum CancellationReason {
     CUSTOMER_REQUEST,

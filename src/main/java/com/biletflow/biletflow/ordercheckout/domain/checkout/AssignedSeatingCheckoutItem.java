@@ -1,12 +1,10 @@
 package com.biletflow.biletflow.ordercheckout.domain.checkout;
 
-import com.biletflow.biletflow.common.domain.Money;
-import com.biletflow.biletflow.common.domain.*;
 import java.util.Objects;
 import java.util.UUID;
 import com.biletflow.biletflow.common.domain.Money;
 
-public final class AssignedSeatingCheckoutItem implements CheckoutItemMode {
+public final class AssignedSeatingCheckoutItem implements CheckoutItem {
     private final UUID ticketTypeId;
     private final UUID seatId;
     private final Money price;
