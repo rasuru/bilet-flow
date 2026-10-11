@@ -1,10 +1,10 @@
+
 package com.biletflow.biletflow.ordercheckout.domain.checkout;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+
 import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
 
@@ -20,32 +20,35 @@ public class CheckoutSession {
 
     private UUID promotionId;
     private Money discountAmount;
-
-    private Money totalPrice;  // Total price before discount
-    private Money finalPrice;  // Final price after discount
+    private Money totalPrice;
 
     private UUID paymentId;
 
-    public CheckoutSession(CheckoutSessionId id, long ownerId, UUID eventId, InventoryMode inventoryMode) {
-        Objects.requireNonNull(id, "CheckoutSessionId can not be null!");
+    public CheckoutSession(
+        CheckoutSessionId id,
+        long ownerId,
+        UUID eventId,
+        InventoryMode inventoryMode
+    ) {
+        this.id = Objects.requireNonNull(id, "CheckoutSessionId cannot be null!");
+
         if (ownerId <= 0) {
-            throw new IllegalArgumentException("OwnerId must be a positive number!");
+            throw new IllegalArgumentException("OwnerId must be positive!");
         }
-        Objects.requireNonNull(eventId, "EventId can not be null!");
-        Objects.requireNonNull(inventoryMode, "InventoryMode can not be null!");
 
-        this.id = id;
-        this.status = CheckoutSessionStatus.IN_PROGRESS;
         this.ownerId = ownerId;
-        this.eventId = eventId;
-        this.inventoryMode = inventoryMode;
-        this.items = new CheckoutItemCollection();
+        this.eventId = Objects.requireNonNull(eventId, "EventId cannot be null!");
+        this.inventoryMode = Objects.requireNonNull(
+            inventoryMode, "InventoryMode cannot be null!"
+        );
 
+        this.status = CheckoutSessionStatus.IN_PROGRESS;
+        this.items = new CheckoutItemCollection();
         this.discountAmount = Money.zeroKzt();
         this.totalPrice = Money.zeroKzt();
-        this.finalPrice = Money.zeroKzt();
     }
 
+    // Reconstitution constructor
     public CheckoutSession(
         CheckoutSessionId id,
         CheckoutSessionStatus status,
@@ -56,47 +59,82 @@ public class CheckoutSession {
         UUID promotionId,
         Money discountAmount,
         Money totalPrice,
-        Money finalPrice,
         UUID paymentId
     ) {
-        this.id = id;
-        this.status = status;
+        this.id = Objects.requireNonNull(id, "CheckoutSessionId cannot be null!");
+        this.status = Objects.requireNonNull(status, "Status cannot be null!");
+
+        if (ownerId <= 0) {
+            throw new IllegalArgumentException("OwnerId must be positive!");
+        }
+
         this.ownerId = ownerId;
-        this.eventId = eventId;
-        this.inventoryMode = inventoryMode;
-        this.items = items;
+        this.eventId = Objects.requireNonNull(eventId, "EventId cannot be null!");
+        this.inventoryMode = Objects.requireNonNull(
+            inventoryMode, "InventoryMode cannot be null!"
+        );
+        this.items = Objects.requireNonNull(items, "Items cannot be null!");
         this.promotionId = promotionId;
-        this.discountAmount = discountAmount;
-        this.totalPrice = totalPrice;
-        this.finalPrice = finalPrice;
+        this.discountAmount = Objects.requireNonNull(
+            discountAmount, "Discount amount cannot be null!"
+        );
+        this.totalPrice = Objects.requireNonNull(
+            totalPrice, "Total price cannot be null!"
+        );
+
+        validatePricing();
+
         this.paymentId = paymentId;
     }
 
     public void cancel() {
-        if (status != CheckoutSessionStatus.IN_PROGRESS) {
-            throw new IllegalStateException("Only in-progress sessions can be cancelled!");
-        }
-
-        this.status = CheckoutSessionStatus.CANCELLED;
+        ensureInProgress();
+        status = CheckoutSessionStatus.CANCELLED;
     }
 
-    public void complete() {
-        if (status != CheckoutSessionStatus.IN_PROGRESS) {
-            throw new IllegalStateException("Only in-progress sessions can be completed!");
+    public void completeFreeCheckout() {
+        ensureInProgress();
+        ensureHasItems();
+
+        if (!getFinalPrice().equals(Money.zeroKzt())) {
+            throw new IllegalStateException("Checkout is not free!");
         }
 
-        if (items.getItems().isEmpty()) {
-            throw new IllegalStateException("Cannot complete a checkout session with no items!");
+        status = CheckoutSessionStatus.COMPLETED;
+    }
+
+    public void awaitPayment() {
+        ensureInProgress();
+        ensureHasItems();
+
+        if (getFinalPrice().equals(Money.zeroKzt())) {
+            throw new IllegalStateException(
+                "Free checkout does not require payment!"
+            );
         }
 
-        this.status = CheckoutSessionStatus.COMPLETED;
+        status = CheckoutSessionStatus.AWAITING_PAYMENT;
+    }
+
+    /**
+     * Call only after the application layer has verified successful payment.
+     */
+    public void confirmPayment(UUID paymentId) {
+        Objects.requireNonNull(paymentId, "PaymentId cannot be null!");
+
+        if (status != CheckoutSessionStatus.AWAITING_PAYMENT) {
+            throw new IllegalStateException(
+                "Checkout is not awaiting payment!"
+            );
+        }
+
+        this.paymentId = paymentId;
+        status = CheckoutSessionStatus.COMPLETED;
     }
 
     public void addItem(CheckoutItem item) {
         ensureInProgress();
-        if (item == null) {
-            throw new IllegalArgumentException("Item cannot be null!");
-        }
+        Objects.requireNonNull(item, "Item cannot be null!");
 
         if (inventoryMode == InventoryMode.GENERAL_ADMISSION
                 && item instanceof AssignedSeatingCheckoutItem) {
@@ -114,25 +152,70 @@ public class CheckoutSession {
 
         items.addItem(item);
         totalPrice = totalPrice.add(item.getPrice());
-        recalculateFinalPrice();
     }
 
-    public void removeItem(CheckoutItem item) {
+    public void removeAssignedSeat(UUID seatId) {
         ensureInProgress();
+        Objects.requireNonNull(seatId, "SeatId cannot be null!");
+
+        if (inventoryMode != InventoryMode.RESERVED_SEATING) {
+            throw new IllegalStateException(
+                "Cannot remove an assigned seat from a general admission checkout!"
+            );
+        }
+
+        AssignedSeatingCheckoutItem item = items.getItems().stream()
+            .filter(AssignedSeatingCheckoutItem.class::isInstance)
+            .map(AssignedSeatingCheckoutItem.class::cast)
+            .filter(i -> i.getSeatId().equals(seatId))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException(
+                "Assigned seat was not found in checkout!"
+            ));
+
+        removeItemInternal(item);
+    }
+
+    /**
+     * Removes one item matching the ticket type.
+     * If duplicate ticket-type entries are allowed, this removes only the first.
+     */
+    public void removeGeneralAdmissionItem(UUID ticketTypeId) {
+        ensureInProgress();
+        Objects.requireNonNull(ticketTypeId, "TicketTypeId cannot be null!");
+
+        if (inventoryMode != InventoryMode.GENERAL_ADMISSION) {
+            throw new IllegalStateException(
+                "Cannot remove a general admission item from a reserved seating checkout!"
+            );
+        }
+
+        GeneralAdmissionCheckoutItem item = items.getItems().stream()
+            .filter(GeneralAdmissionCheckoutItem.class::isInstance)
+            .map(GeneralAdmissionCheckoutItem.class::cast)
+            .filter(i -> i.getTicketTypeId().equals(ticketTypeId))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException(
+                "General admission item was not found in checkout!"
+            ));
+
+        removeItemInternal(item);
+    }
+
+    private void removeItemInternal(CheckoutItem item) {
         items.removeItem(item);
         totalPrice = totalPrice.subtract(item.getPrice());
-        recalculateFinalPrice();
+
+        if (discountAmount.isGreaterThan(totalPrice)) {
+            removePromotion();
+        }
     }
 
     public void clearItems() {
         ensureInProgress();
         items.clear();
         totalPrice = Money.zeroKzt();
-        recalculateFinalPrice();
-    }
-
-    private void recalculateFinalPrice() {
-        finalPrice = totalPrice.subtract(discountAmount);
+        removePromotion();
     }
 
     public void applyPromotion(UUID promotionId, Money discountAmount) {
@@ -148,26 +231,34 @@ public class CheckoutSession {
 
         this.promotionId = promotionId;
         this.discountAmount = discountAmount;
-        recalculateFinalPrice();
     }
 
     public void removePromotion() {
         ensureInProgress();
-        this.promotionId = null;
-        this.discountAmount = Money.zeroKzt();
-        recalculateFinalPrice();
-    }
-
-    public void setPaymentId(UUID paymentId) {
-        ensureInProgress();
-        Objects.requireNonNull(paymentId, "PaymentId cannot be null!");
-        this.paymentId = paymentId;
+        promotionId = null;
+        discountAmount = Money.zeroKzt();
     }
 
     private void ensureInProgress() {
         if (status != CheckoutSessionStatus.IN_PROGRESS) {
             throw new IllegalStateException(
                 "Checkout session is no longer mutable!"
+            );
+        }
+    }
+
+    private void ensureHasItems() {
+        if (items.getItems().isEmpty()) {
+            throw new IllegalStateException(
+                "Checkout cannot proceed without items!"
+            );
+        }
+    }
+
+    private void validatePricing() {
+        if (discountAmount.isGreaterThan(totalPrice)) {
+            throw new IllegalArgumentException(
+                "Discount cannot exceed total price!"
             );
         }
     }
@@ -209,7 +300,7 @@ public class CheckoutSession {
     }
 
     public Money getFinalPrice() {
-        return finalPrice;
+        return totalPrice.subtract(discountAmount);
     }
 
     public UUID getPaymentId() {

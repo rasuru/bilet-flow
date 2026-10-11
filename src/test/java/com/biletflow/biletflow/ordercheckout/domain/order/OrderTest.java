@@ -1,3 +1,4 @@
+
 package com.biletflow.biletflow.ordercheckout.domain.order;
 
 import com.biletflow.biletflow.common.domain.Money;
@@ -28,8 +29,8 @@ class OrderTest {
                 Money.zeroKzt()
             )
         );
-        session.complete();
 
+        session.completeFreeCheckout();
         return session;
     }
 
@@ -48,9 +49,15 @@ class OrderTest {
                 Money.zeroKzt()
             )
         );
-        session.complete();
 
+        session.completeFreeCheckout();
         return session;
+    }
+
+    private Order createCompletedOrder() {
+        return Order.createFromCheckout(
+            createCompletedGeneralAdmissionCheckout()
+        );
     }
 
     @Test
@@ -67,6 +74,7 @@ class OrderTest {
         assertEquals(checkout.getFinalPrice(), order.getFinalPrice());
         assertEquals(checkout.getDiscountAmount(), order.getDiscountAmount());
         assertEquals(checkout.getPaymentId(), order.getPaymentId());
+        assertNotNull(order.getId());
     }
 
     @Test
@@ -93,7 +101,7 @@ class OrderTest {
     }
 
     @Test
-    void createFromCheckout_generalAdmissionItem_isConvertedToOrderItem() {
+    void createFromCheckout_generalAdmissionItem_isConvertedCorrectly() {
         CheckoutSession checkout = createCompletedGeneralAdmissionCheckout();
 
         Order order = Order.createFromCheckout(checkout);
@@ -104,18 +112,18 @@ class OrderTest {
             order.getItems().get(0)
         );
 
-        GeneralAdmissionOrderItem item =
+        GeneralAdmissionOrderItem orderItem =
             (GeneralAdmissionOrderItem) order.getItems().get(0);
 
         GeneralAdmissionCheckoutItem checkoutItem =
             (GeneralAdmissionCheckoutItem) checkout.getItems().get(0);
 
-        assertEquals(checkoutItem.getTicketTypeId(), item.getTicketTypeId());
-        assertEquals(checkoutItem.getPrice(), item.getPrice());
+        assertEquals(checkoutItem.getTicketTypeId(), orderItem.getTicketTypeId());
+        assertEquals(checkoutItem.getPrice(), orderItem.getPrice());
     }
 
     @Test
-    void createFromCheckout_assignedSeatingItem_isConvertedToOrderItem() {
+    void createFromCheckout_assignedSeatingItem_isConvertedCorrectly() {
         CheckoutSession checkout = createCompletedReservedSeatingCheckout();
 
         Order order = Order.createFromCheckout(checkout);
@@ -126,22 +134,20 @@ class OrderTest {
             order.getItems().get(0)
         );
 
-        AssignedSeatingOrderItem item =
+        AssignedSeatingOrderItem orderItem =
             (AssignedSeatingOrderItem) order.getItems().get(0);
 
         AssignedSeatingCheckoutItem checkoutItem =
             (AssignedSeatingCheckoutItem) checkout.getItems().get(0);
 
-        assertEquals(checkoutItem.getTicketTypeId(), item.getTicketTypeId());
-        assertEquals(checkoutItem.getSeatId(), item.getSeatId());
-        assertEquals(checkoutItem.getPrice(), item.getPrice());
+        assertEquals(checkoutItem.getTicketTypeId(), orderItem.getTicketTypeId());
+        assertEquals(checkoutItem.getSeatId(), orderItem.getSeatId());
+        assertEquals(checkoutItem.getPrice(), orderItem.getPrice());
     }
 
     @Test
     void cancelOrderByCustomer_completedOrder_becomesCancelled() {
-        Order order = Order.createFromCheckout(
-            createCompletedGeneralAdmissionCheckout()
-        );
+        Order order = createCompletedOrder();
 
         order.cancelOrderByCustomer();
 
@@ -154,9 +160,7 @@ class OrderTest {
 
     @Test
     void cancelOrderByManager_completedOrder_becomesCancelled() {
-        Order order = Order.createFromCheckout(
-            createCompletedGeneralAdmissionCheckout()
-        );
+        Order order = createCompletedOrder();
 
         order.cancelOrderByManager();
 
@@ -169,10 +173,7 @@ class OrderTest {
 
     @Test
     void cancelledOrder_cannotBeCancelledAgain() {
-        Order order = Order.createFromCheckout(
-            createCompletedGeneralAdmissionCheckout()
-        );
-
+        Order order = createCompletedOrder();
         order.cancelOrderByCustomer();
 
         assertThrows(
@@ -182,24 +183,50 @@ class OrderTest {
     }
 
     @Test
-    void cancelledOrder_canBeMarkedRefunded() {
-        Order order = Order.createFromCheckout(
-            createCompletedGeneralAdmissionCheckout()
-        );
+    void markRefunded_cancelledOrder_storesRefundId() {
+        Order order = createCompletedOrder();
         order.cancelOrderByCustomer();
 
         UUID refundId = UUID.randomUUID();
-
         order.markRefunded(refundId);
 
+        assertEquals(refundId, order.getRefundId());
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+    }
+
+    @Test
+    void markRefunded_sameRefundId_isIdempotent() {
+        Order order = createCompletedOrder();
+        order.cancelOrderByCustomer();
+
+        UUID refundId = UUID.randomUUID();
+        order.markRefunded(refundId);
+
+        assertDoesNotThrow(() -> order.markRefunded(refundId));
         assertEquals(refundId, order.getRefundId());
     }
 
     @Test
-    void completedOrder_cannotBeMarkedRefunded() {
-        Order order = Order.createFromCheckout(
-            createCompletedGeneralAdmissionCheckout()
+    void markRefunded_differentRefundId_throws() {
+        Order order = createCompletedOrder();
+        order.cancelOrderByCustomer();
+
+        UUID firstRefundId = UUID.randomUUID();
+        UUID secondRefundId = UUID.randomUUID();
+
+        order.markRefunded(firstRefundId);
+
+        assertThrows(
+            IllegalStateException.class,
+            () -> order.markRefunded(secondRefundId)
         );
+
+        assertEquals(firstRefundId, order.getRefundId());
+    }
+
+    @Test
+    void markRefunded_nonCancelledOrder_throws() {
+        Order order = createCompletedOrder();
 
         assertThrows(
             IllegalStateException.class,
@@ -208,10 +235,8 @@ class OrderTest {
     }
 
     @Test
-    void markRefunded_nullId_throws() {
-        Order order = Order.createFromCheckout(
-            createCompletedGeneralAdmissionCheckout()
-        );
+    void markRefunded_nullRefundId_throws() {
+        Order order = createCompletedOrder();
         order.cancelOrderByCustomer();
 
         assertThrows(
@@ -221,10 +246,8 @@ class OrderTest {
     }
 
     @Test
-    void orderItems_areImmutableThroughGetter() {
-        Order order = Order.createFromCheckout(
-            createCompletedGeneralAdmissionCheckout()
-        );
+    void getItems_cannotBeModifiedThroughGetter() {
+        Order order = createCompletedOrder();
 
         assertThrows(
             UnsupportedOperationException.class,
