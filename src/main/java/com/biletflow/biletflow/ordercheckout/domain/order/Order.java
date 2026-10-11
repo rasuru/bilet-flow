@@ -1,19 +1,18 @@
-
 package com.biletflow.biletflow.ordercheckout.domain.order;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
-
 import com.biletflow.biletflow.common.domain.Money;
-import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.AssignedSeatingCheckoutItem;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutItem;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutSession;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutSessionStatus;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.GeneralAdmissionCheckoutItem;
+import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
 
 public class Order {
+
     private final OrderId orderId;
     private OrderStatus orderStatus;
 
@@ -33,6 +32,7 @@ public class Order {
     private UUID refundId;
 
     private Order(
+        OrderId orderId,
         long ownerId,
         UUID eventId,
         InventoryMode inventoryMode,
@@ -46,21 +46,15 @@ public class Order {
             throw new IllegalArgumentException("OwnerId must be positive!");
         }
 
-        this.orderId = OrderId.generate();
+        this.orderId = Objects.requireNonNull(orderId, "OrderId cannot be null!");
         this.orderStatus = OrderStatus.COMPLETED;
         this.ownerId = ownerId;
         this.eventId = Objects.requireNonNull(eventId, "EventId cannot be null!");
-        this.inventoryMode = Objects.requireNonNull(
-            inventoryMode, "InventoryMode cannot be null!"
-        );
+        this.inventoryMode = Objects.requireNonNull(inventoryMode, "InventoryMode cannot be null!");
         this.items = List.copyOf(items);
         this.promotionId = promotionId;
-        this.discountAmount = Objects.requireNonNull(
-            discountAmount, "Discount amount cannot be null!"
-        );
-        this.totalPrice = Objects.requireNonNull(
-            totalPrice, "Total price cannot be null!"
-        );
+        this.discountAmount = Objects.requireNonNull(discountAmount, "Discount amount cannot be null!");
+        this.totalPrice = Objects.requireNonNull(totalPrice, "Total price cannot be null!");
 
         validatePricing();
 
@@ -84,12 +78,8 @@ public class Order {
         CancellationReason cancellationReason,
         UUID refundId
     ) {
-        this.orderId = Objects.requireNonNull(
-            orderId, "OrderId cannot be null!"
-        );
-        this.orderStatus = Objects.requireNonNull(
-            orderStatus, "OrderStatus cannot be null!"
-        );
+        this.orderId = Objects.requireNonNull(orderId, "OrderId cannot be null!");
+        this.orderStatus = Objects.requireNonNull(orderStatus, "OrderStatus cannot be null!");
 
         if (ownerId <= 0) {
             throw new IllegalArgumentException("OwnerId must be positive!");
@@ -97,19 +87,11 @@ public class Order {
 
         this.ownerId = ownerId;
         this.eventId = Objects.requireNonNull(eventId, "EventId cannot be null!");
-        this.inventoryMode = Objects.requireNonNull(
-            inventoryMode, "InventoryMode cannot be null!"
-        );
-        this.items = List.copyOf(
-            Objects.requireNonNull(items, "Items cannot be null!")
-        );
+        this.inventoryMode = Objects.requireNonNull(inventoryMode, "InventoryMode cannot be null!");
+        this.items = List.copyOf(Objects.requireNonNull(items, "Items cannot be null!"));
         this.promotionId = promotionId;
-        this.discountAmount = Objects.requireNonNull(
-            discountAmount, "Discount amount cannot be null!"
-        );
-        this.totalPrice = Objects.requireNonNull(
-            totalPrice, "Total price cannot be null!"
-        );
+        this.discountAmount = Objects.requireNonNull(discountAmount, "Discount amount cannot be null!");
+        this.totalPrice = Objects.requireNonNull(totalPrice, "Total price cannot be null!");
 
         validatePricing();
 
@@ -119,35 +101,27 @@ public class Order {
     }
 
     public static Order createFromCheckout(CheckoutSession checkoutSession) {
-        Objects.requireNonNull(
-            checkoutSession, "CheckoutSession cannot be null!"
-        );
+        Objects.requireNonNull(checkoutSession, "CheckoutSession cannot be null!");
 
         if (checkoutSession.getStatus() != CheckoutSessionStatus.COMPLETED) {
-            throw new IllegalStateException(
-                "Checkout must be completed before creating an order!"
-            );
+            throw new IllegalStateException("Checkout must be completed before creating an order!");
         }
 
-        if (!checkoutSession.getFinalPrice().equals(Money.zeroKzt())
-                && checkoutSession.getPaymentId() == null) {
-            throw new IllegalStateException(
-                "A paid checkout must have a confirmed payment!"
-            );
+        if (!checkoutSession.getFinalPrice().equals(Money.zeroKzt()) && checkoutSession.getPaymentId() == null) {
+            throw new IllegalStateException("A paid checkout must have a confirmed payment!");
         }
 
-        List<OrderItem> orderItems = checkoutSession.getItems()
-            .stream()
-            .map(Order::convertToOrderItem)
-            .toList();
+        List<OrderItem> orderItems = checkoutSession.getItems().stream().map(Order::convertToOrderItem).toList();
 
         if (orderItems.isEmpty()) {
-            throw new IllegalStateException(
-                "Cannot create an order without items!"
-            );
+            throw new IllegalStateException("Cannot create an order without items!");
         }
 
+        // One commercial order per checkout, including repeated completion requests.
+        // Repository adapters must preserve this identity and not overwrite an existing
+        // order with a fresh COMPLETED snapshot on a retry.
         return new Order(
+            new OrderId(checkoutSession.getId().value()),
             checkoutSession.getOwnerId(),
             checkoutSession.getEventId(),
             checkoutSession.getInventoryMode(),
@@ -161,30 +135,19 @@ public class Order {
 
     private static OrderItem convertToOrderItem(CheckoutItem item) {
         if (item instanceof AssignedSeatingCheckoutItem assigned) {
-            return new AssignedSeatingOrderItem(
-                assigned.getTicketTypeId(),
-                assigned.getSeatId(),
-                assigned.getPrice()
-            );
+            return new AssignedSeatingOrderItem(assigned.getTicketTypeId(), assigned.getSeatId(), assigned.getPrice());
         }
 
         if (item instanceof GeneralAdmissionCheckoutItem general) {
-            return new GeneralAdmissionOrderItem(
-                general.getTicketTypeId(),
-                general.getPrice()
-            );
+            return new GeneralAdmissionOrderItem(general.getTicketTypeId(), general.getPrice());
         }
 
-        throw new IllegalArgumentException(
-            "Unsupported checkout item type: " + item.getClass().getName()
-        );
+        throw new IllegalArgumentException("Unsupported checkout item type: " + item.getClass().getName());
     }
 
     private void validatePricing() {
         if (discountAmount.isGreaterThan(totalPrice)) {
-            throw new IllegalArgumentException(
-                "Discount cannot exceed total price!"
-            );
+            throw new IllegalArgumentException("Discount cannot exceed total price!");
         }
     }
 
@@ -199,14 +162,19 @@ public class Order {
         ensureCompleted();
 
         orderStatus = OrderStatus.CANCELLED;
+        cancellationReason = CancellationReason.ORGANIZER_REQUEST;
+    }
+
+    public void cancelOrderForEventCancellation() {
+        ensureCompleted();
+
+        orderStatus = OrderStatus.CANCELLED;
         cancellationReason = CancellationReason.EVENT_CANCELLED;
     }
 
     private void ensureCompleted() {
         if (orderStatus != OrderStatus.COMPLETED) {
-            throw new IllegalStateException(
-                "Only completed orders can be cancelled!"
-            );
+            throw new IllegalStateException("Only completed orders can be cancelled!");
         }
     }
 
@@ -218,9 +186,7 @@ public class Order {
         Objects.requireNonNull(refundId, "RefundId cannot be null!");
 
         if (orderStatus != OrderStatus.CANCELLED) {
-            throw new IllegalStateException(
-                "Only cancelled orders can be refunded!"
-            );
+            throw new IllegalStateException("Only cancelled orders can be refunded!");
         }
 
         if (this.refundId != null) {
@@ -228,9 +194,7 @@ public class Order {
                 return;
             }
 
-            throw new IllegalStateException(
-                "Order already has an associated refund!"
-            );
+            throw new IllegalStateException("Order already has an associated refund!");
         }
 
         this.refundId = refundId;

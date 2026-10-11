@@ -4,5 +4,7 @@ public enum CheckoutSessionStatus {
     IN_PROGRESS,
     AWAITING_PAYMENT,
     COMPLETED,
-    CANCELLED
+    EXPIRED,
+    PAYMENT_FAILED,
+    CANCELLED,
 }

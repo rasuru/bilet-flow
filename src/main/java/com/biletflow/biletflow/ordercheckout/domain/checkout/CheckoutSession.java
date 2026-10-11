@@ -1,14 +1,13 @@
-
 package com.biletflow.biletflow.ordercheckout.domain.checkout;
 
+import com.biletflow.biletflow.common.domain.Money;
+import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-import com.biletflow.biletflow.common.domain.Money;
-import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
-
 public class CheckoutSession {
+
     private final CheckoutSessionId id;
     private CheckoutSessionStatus status;
 
@@ -24,12 +23,7 @@ public class CheckoutSession {
 
     private UUID paymentId;
 
-    public CheckoutSession(
-        CheckoutSessionId id,
-        long ownerId,
-        UUID eventId,
-        InventoryMode inventoryMode
-    ) {
+    public CheckoutSession(CheckoutSessionId id, long ownerId, UUID eventId, InventoryMode inventoryMode) {
         this.id = Objects.requireNonNull(id, "CheckoutSessionId cannot be null!");
 
         if (ownerId <= 0) {
@@ -38,9 +32,7 @@ public class CheckoutSession {
 
         this.ownerId = ownerId;
         this.eventId = Objects.requireNonNull(eventId, "EventId cannot be null!");
-        this.inventoryMode = Objects.requireNonNull(
-            inventoryMode, "InventoryMode cannot be null!"
-        );
+        this.inventoryMode = Objects.requireNonNull(inventoryMode, "InventoryMode cannot be null!");
 
         this.status = CheckoutSessionStatus.IN_PROGRESS;
         this.items = new CheckoutItemCollection();
@@ -70,26 +62,44 @@ public class CheckoutSession {
 
         this.ownerId = ownerId;
         this.eventId = Objects.requireNonNull(eventId, "EventId cannot be null!");
-        this.inventoryMode = Objects.requireNonNull(
-            inventoryMode, "InventoryMode cannot be null!"
-        );
-        this.items = Objects.requireNonNull(items, "Items cannot be null!");
+        this.inventoryMode = Objects.requireNonNull(inventoryMode, "InventoryMode cannot be null!");
+        this.items = new CheckoutItemCollection(Objects.requireNonNull(items, "Items cannot be null!").getItems());
         this.promotionId = promotionId;
-        this.discountAmount = Objects.requireNonNull(
-            discountAmount, "Discount amount cannot be null!"
-        );
-        this.totalPrice = Objects.requireNonNull(
-            totalPrice, "Total price cannot be null!"
-        );
+        this.discountAmount = Objects.requireNonNull(discountAmount, "Discount amount cannot be null!");
+        this.totalPrice = Objects.requireNonNull(totalPrice, "Total price cannot be null!");
 
         validatePricing();
 
         this.paymentId = paymentId;
     }
 
+    /** The application releases inventory and promotion reservations after cancellation. */
     public void cancel() {
-        ensureInProgress();
+        ensureActive();
         status = CheckoutSessionStatus.CANCELLED;
+    }
+
+    /** The application calls this when the inventory hold or checkout deadline expires. */
+    public void expire() {
+        ensureActive();
+        status = CheckoutSessionStatus.EXPIRED;
+    }
+
+    /** A failed payment terminates this checkout; a retry starts a new session. */
+    public void markPaymentFailed() {
+        if (status == CheckoutSessionStatus.PAYMENT_FAILED) {
+            return;
+        }
+        if (status != CheckoutSessionStatus.AWAITING_PAYMENT) {
+            throw new IllegalStateException("Checkout is not awaiting payment!");
+        }
+        status = CheckoutSessionStatus.PAYMENT_FAILED;
+    }
+
+    private void ensureActive() {
+        if (status != CheckoutSessionStatus.IN_PROGRESS && status != CheckoutSessionStatus.AWAITING_PAYMENT) {
+            throw new IllegalStateException("Checkout session is no longer active!");
+        }
     }
 
     public void completeFreeCheckout() {
@@ -108,9 +118,7 @@ public class CheckoutSession {
         ensureHasItems();
 
         if (getFinalPrice().equals(Money.zeroKzt())) {
-            throw new IllegalStateException(
-                "Free checkout does not require payment!"
-            );
+            throw new IllegalStateException("Free checkout does not require payment!");
         }
 
         status = CheckoutSessionStatus.AWAITING_PAYMENT;
@@ -122,10 +130,11 @@ public class CheckoutSession {
     public void confirmPayment(UUID paymentId) {
         Objects.requireNonNull(paymentId, "PaymentId cannot be null!");
 
+        if (status == CheckoutSessionStatus.COMPLETED && paymentId.equals(this.paymentId)) {
+            return;
+        }
         if (status != CheckoutSessionStatus.AWAITING_PAYMENT) {
-            throw new IllegalStateException(
-                "Checkout is not awaiting payment!"
-            );
+            throw new IllegalStateException("Checkout is not awaiting payment!");
         }
 
         this.paymentId = paymentId;
@@ -136,22 +145,18 @@ public class CheckoutSession {
         ensureInProgress();
         Objects.requireNonNull(item, "Item cannot be null!");
 
-        if (inventoryMode == InventoryMode.GENERAL_ADMISSION
-                && item instanceof AssignedSeatingCheckoutItem) {
-            throw new IllegalArgumentException(
-                "Item inventory mode does not match checkout session inventory mode!"
-            );
+        if (inventoryMode == InventoryMode.GENERAL_ADMISSION && item instanceof AssignedSeatingCheckoutItem) {
+            throw new IllegalArgumentException("Item inventory mode does not match checkout session inventory mode!");
         }
 
-        if (inventoryMode == InventoryMode.RESERVED_SEATING
-                && item instanceof GeneralAdmissionCheckoutItem) {
-            throw new IllegalArgumentException(
-                "Item inventory mode does not match checkout session inventory mode!"
-            );
+        if (inventoryMode == InventoryMode.RESERVED_SEATING && item instanceof GeneralAdmissionCheckoutItem) {
+            throw new IllegalArgumentException("Item inventory mode does not match checkout session inventory mode!");
         }
 
+        Money newTotalPrice = totalPrice.add(item.getPrice());
         items.addItem(item);
-        totalPrice = totalPrice.add(item.getPrice());
+        totalPrice = newTotalPrice;
+        removePromotion();
     }
 
     public void removeAssignedSeat(UUID seatId) {
@@ -159,19 +164,17 @@ public class CheckoutSession {
         Objects.requireNonNull(seatId, "SeatId cannot be null!");
 
         if (inventoryMode != InventoryMode.RESERVED_SEATING) {
-            throw new IllegalStateException(
-                "Cannot remove an assigned seat from a general admission checkout!"
-            );
+            throw new IllegalStateException("Cannot remove an assigned seat from a general admission checkout!");
         }
 
-        AssignedSeatingCheckoutItem item = items.getItems().stream()
+        AssignedSeatingCheckoutItem item = items
+            .getItems()
+            .stream()
             .filter(AssignedSeatingCheckoutItem.class::isInstance)
             .map(AssignedSeatingCheckoutItem.class::cast)
             .filter(i -> i.getSeatId().equals(seatId))
             .findFirst()
-            .orElseThrow(() -> new IllegalArgumentException(
-                "Assigned seat was not found in checkout!"
-            ));
+            .orElseThrow(() -> new IllegalArgumentException("Assigned seat was not found in checkout!"));
 
         removeItemInternal(item);
     }
@@ -185,19 +188,17 @@ public class CheckoutSession {
         Objects.requireNonNull(ticketTypeId, "TicketTypeId cannot be null!");
 
         if (inventoryMode != InventoryMode.GENERAL_ADMISSION) {
-            throw new IllegalStateException(
-                "Cannot remove a general admission item from a reserved seating checkout!"
-            );
+            throw new IllegalStateException("Cannot remove a general admission item from a reserved seating checkout!");
         }
 
-        GeneralAdmissionCheckoutItem item = items.getItems().stream()
+        GeneralAdmissionCheckoutItem item = items
+            .getItems()
+            .stream()
             .filter(GeneralAdmissionCheckoutItem.class::isInstance)
             .map(GeneralAdmissionCheckoutItem.class::cast)
             .filter(i -> i.getTicketTypeId().equals(ticketTypeId))
             .findFirst()
-            .orElseThrow(() -> new IllegalArgumentException(
-                "General admission item was not found in checkout!"
-            ));
+            .orElseThrow(() -> new IllegalArgumentException("General admission item was not found in checkout!"));
 
         removeItemInternal(item);
     }
@@ -206,9 +207,9 @@ public class CheckoutSession {
         items.removeItem(item);
         totalPrice = totalPrice.subtract(item.getPrice());
 
-        if (discountAmount.isGreaterThan(totalPrice)) {
-            removePromotion();
-        }
+        // Discounts depend on both the selected ticket types and the subtotal.
+        // The application must obtain a fresh discount through Promotions OHS.
+        removePromotion();
     }
 
     public void clearItems() {
@@ -224,9 +225,7 @@ public class CheckoutSession {
         Objects.requireNonNull(discountAmount, "Discount amount cannot be null!");
 
         if (discountAmount.isGreaterThan(totalPrice)) {
-            throw new IllegalArgumentException(
-                "Discount cannot exceed total price!"
-            );
+            throw new IllegalArgumentException("Discount cannot exceed total price!");
         }
 
         this.promotionId = promotionId;
@@ -241,25 +240,19 @@ public class CheckoutSession {
 
     private void ensureInProgress() {
         if (status != CheckoutSessionStatus.IN_PROGRESS) {
-            throw new IllegalStateException(
-                "Checkout session is no longer mutable!"
-            );
+            throw new IllegalStateException("Checkout session is no longer mutable!");
         }
     }
 
     private void ensureHasItems() {
         if (items.getItems().isEmpty()) {
-            throw new IllegalStateException(
-                "Checkout cannot proceed without items!"
-            );
+            throw new IllegalStateException("Checkout cannot proceed without items!");
         }
     }
 
     private void validatePricing() {
         if (discountAmount.isGreaterThan(totalPrice)) {
-            throw new IllegalArgumentException(
-                "Discount cannot exceed total price!"
-            );
+            throw new IllegalArgumentException("Discount cannot exceed total price!");
         }
     }
 

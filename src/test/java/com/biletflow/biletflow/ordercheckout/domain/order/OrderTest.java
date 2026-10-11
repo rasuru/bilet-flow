@@ -1,5 +1,6 @@
-
 package com.biletflow.biletflow.ordercheckout.domain.order;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.AssignedSeatingCheckoutItem;
@@ -7,57 +8,31 @@ import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutSession;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutSessionId;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.GeneralAdmissionCheckoutItem;
 import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
-import org.junit.jupiter.api.Test;
-
 import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
 
 class OrderTest {
 
     private CheckoutSession createCompletedGeneralAdmissionCheckout() {
-        CheckoutSession session = new CheckoutSession(
-            CheckoutSessionId.generate(),
-            1L,
-            UUID.randomUUID(),
-            InventoryMode.GENERAL_ADMISSION
-        );
+        CheckoutSession session = new CheckoutSession(CheckoutSessionId.generate(), 1L, UUID.randomUUID(), InventoryMode.GENERAL_ADMISSION);
 
-        session.addItem(
-            new GeneralAdmissionCheckoutItem(
-                UUID.randomUUID(),
-                Money.zeroKzt()
-            )
-        );
+        session.addItem(new GeneralAdmissionCheckoutItem(UUID.randomUUID(), Money.zeroKzt()));
 
         session.completeFreeCheckout();
         return session;
     }
 
     private CheckoutSession createCompletedReservedSeatingCheckout() {
-        CheckoutSession session = new CheckoutSession(
-            CheckoutSessionId.generate(),
-            1L,
-            UUID.randomUUID(),
-            InventoryMode.RESERVED_SEATING
-        );
+        CheckoutSession session = new CheckoutSession(CheckoutSessionId.generate(), 1L, UUID.randomUUID(), InventoryMode.RESERVED_SEATING);
 
-        session.addItem(
-            new AssignedSeatingCheckoutItem(
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                Money.zeroKzt()
-            )
-        );
+        session.addItem(new AssignedSeatingCheckoutItem(UUID.randomUUID(), UUID.randomUUID(), Money.zeroKzt()));
 
         session.completeFreeCheckout();
         return session;
     }
 
     private Order createCompletedOrder() {
-        return Order.createFromCheckout(
-            createCompletedGeneralAdmissionCheckout()
-        );
+        return Order.createFromCheckout(createCompletedGeneralAdmissionCheckout());
     }
 
     @Test
@@ -86,18 +61,12 @@ class OrderTest {
             InventoryMode.GENERAL_ADMISSION
         );
 
-        assertThrows(
-            IllegalStateException.class,
-            () -> Order.createFromCheckout(checkout)
-        );
+        assertThrows(IllegalStateException.class, () -> Order.createFromCheckout(checkout));
     }
 
     @Test
     void createFromCheckout_nullCheckout_throws() {
-        assertThrows(
-            NullPointerException.class,
-            () -> Order.createFromCheckout(null)
-        );
+        assertThrows(NullPointerException.class, () -> Order.createFromCheckout(null));
     }
 
     @Test
@@ -107,16 +76,11 @@ class OrderTest {
         Order order = Order.createFromCheckout(checkout);
 
         assertEquals(1, order.getItems().size());
-        assertInstanceOf(
-            GeneralAdmissionOrderItem.class,
-            order.getItems().get(0)
-        );
+        assertInstanceOf(GeneralAdmissionOrderItem.class, order.getItems().get(0));
 
-        GeneralAdmissionOrderItem orderItem =
-            (GeneralAdmissionOrderItem) order.getItems().get(0);
+        GeneralAdmissionOrderItem orderItem = (GeneralAdmissionOrderItem) order.getItems().get(0);
 
-        GeneralAdmissionCheckoutItem checkoutItem =
-            (GeneralAdmissionCheckoutItem) checkout.getItems().get(0);
+        GeneralAdmissionCheckoutItem checkoutItem = (GeneralAdmissionCheckoutItem) checkout.getItems().get(0);
 
         assertEquals(checkoutItem.getTicketTypeId(), orderItem.getTicketTypeId());
         assertEquals(checkoutItem.getPrice(), orderItem.getPrice());
@@ -129,16 +93,11 @@ class OrderTest {
         Order order = Order.createFromCheckout(checkout);
 
         assertEquals(1, order.getItems().size());
-        assertInstanceOf(
-            AssignedSeatingOrderItem.class,
-            order.getItems().get(0)
-        );
+        assertInstanceOf(AssignedSeatingOrderItem.class, order.getItems().get(0));
 
-        AssignedSeatingOrderItem orderItem =
-            (AssignedSeatingOrderItem) order.getItems().get(0);
+        AssignedSeatingOrderItem orderItem = (AssignedSeatingOrderItem) order.getItems().get(0);
 
-        AssignedSeatingCheckoutItem checkoutItem =
-            (AssignedSeatingCheckoutItem) checkout.getItems().get(0);
+        AssignedSeatingCheckoutItem checkoutItem = (AssignedSeatingCheckoutItem) checkout.getItems().get(0);
 
         assertEquals(checkoutItem.getTicketTypeId(), orderItem.getTicketTypeId());
         assertEquals(checkoutItem.getSeatId(), orderItem.getSeatId());
@@ -152,10 +111,7 @@ class OrderTest {
         order.cancelOrderByCustomer();
 
         assertEquals(OrderStatus.CANCELLED, order.getStatus());
-        assertEquals(
-            CancellationReason.CUSTOMER_REQUEST,
-            order.getCancellationReason()
-        );
+        assertEquals(CancellationReason.CUSTOMER_REQUEST, order.getCancellationReason());
     }
 
     @Test
@@ -165,10 +121,7 @@ class OrderTest {
         order.cancelOrderByManager();
 
         assertEquals(OrderStatus.CANCELLED, order.getStatus());
-        assertEquals(
-            CancellationReason.EVENT_CANCELLED,
-            order.getCancellationReason()
-        );
+        assertEquals(CancellationReason.ORGANIZER_REQUEST, order.getCancellationReason());
     }
 
     @Test
@@ -176,10 +129,7 @@ class OrderTest {
         Order order = createCompletedOrder();
         order.cancelOrderByCustomer();
 
-        assertThrows(
-            IllegalStateException.class,
-            order::cancelOrderByManager
-        );
+        assertThrows(IllegalStateException.class, order::cancelOrderByManager);
     }
 
     @Test
@@ -216,10 +166,7 @@ class OrderTest {
 
         order.markRefunded(firstRefundId);
 
-        assertThrows(
-            IllegalStateException.class,
-            () -> order.markRefunded(secondRefundId)
-        );
+        assertThrows(IllegalStateException.class, () -> order.markRefunded(secondRefundId));
 
         assertEquals(firstRefundId, order.getRefundId());
     }
@@ -228,10 +175,7 @@ class OrderTest {
     void markRefunded_nonCancelledOrder_throws() {
         Order order = createCompletedOrder();
 
-        assertThrows(
-            IllegalStateException.class,
-            () -> order.markRefunded(UUID.randomUUID())
-        );
+        assertThrows(IllegalStateException.class, () -> order.markRefunded(UUID.randomUUID()));
     }
 
     @Test
@@ -239,19 +183,81 @@ class OrderTest {
         Order order = createCompletedOrder();
         order.cancelOrderByCustomer();
 
-        assertThrows(
-            NullPointerException.class,
-            () -> order.markRefunded(null)
-        );
+        assertThrows(NullPointerException.class, () -> order.markRefunded(null));
     }
 
     @Test
     void getItems_cannotBeModifiedThroughGetter() {
         Order order = createCompletedOrder();
 
-        assertThrows(
-            UnsupportedOperationException.class,
-            () -> order.getItems().clear()
+        assertThrows(UnsupportedOperationException.class, () -> order.getItems().clear());
+    }
+
+    @Test
+    void eventCancellation_hasItsOwnReason() {
+        Order order = createCompletedOrder();
+        order.cancelOrderForEventCancellation();
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+        assertEquals(CancellationReason.EVENT_CANCELLED, order.getCancellationReason());
+        assertThrows(IllegalStateException.class, order::cancelOrderForEventCancellation);
+    }
+
+    @Test
+    void repeatedCompletionOfSameCheckout_usesSameOrderIdentity() {
+        CheckoutSession checkout = createCompletedGeneralAdmissionCheckout();
+        Order first = Order.createFromCheckout(checkout);
+        Order retry = Order.createFromCheckout(checkout);
+        assertEquals(first.getId(), retry.getId());
+        assertEquals(checkout.getId().value(), first.getId());
+    }
+
+    @Test
+    void differentCheckouts_haveDifferentOrderIdentities() {
+        Order first = createCompletedOrder();
+        Order second = createCompletedOrder();
+        assertNotEquals(first.getId(), second.getId());
+    }
+
+    @Test
+    void reconstitutedCheckout_preservesOrderIdentityOnCompletionRetry() {
+        CheckoutSession original = createCompletedGeneralAdmissionCheckout();
+        CheckoutSession restored = new CheckoutSession(
+            original.getId(),
+            original.getStatus(),
+            original.getOwnerId(),
+            original.getEventId(),
+            original.getInventoryMode(),
+            new com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutItemCollection(original.getItems()),
+            original.getPromotionId(),
+            original.getDiscountAmount(),
+            original.getTotalPrice(),
+            original.getPaymentId()
         );
+        assertEquals(Order.createFromCheckout(original).getId(), Order.createFromCheckout(restored).getId());
+    }
+
+    @Test
+    void paidOrder_preservesNonzeroPricingAndPaymentSnapshot() {
+        CheckoutSession checkout = new CheckoutSession(
+            CheckoutSessionId.generate(),
+            1L,
+            UUID.randomUUID(),
+            InventoryMode.GENERAL_ADMISSION
+        );
+        checkout.addItem(new GeneralAdmissionCheckoutItem(UUID.randomUUID(), Money.kzt(10000)));
+        UUID promotionId = UUID.randomUUID();
+        checkout.applyPromotion(promotionId, Money.kzt(2000));
+        checkout.awaitPayment();
+        UUID paymentId = UUID.randomUUID();
+        checkout.confirmPayment(paymentId);
+
+        Order order = Order.createFromCheckout(checkout);
+
+        assertEquals(Money.kzt(10000), order.getTotalPrice());
+        assertEquals(Money.kzt(2000), order.getDiscountAmount());
+        assertEquals(Money.kzt(8000), order.getFinalPrice());
+        assertEquals(paymentId, order.getPaymentId());
+        assertEquals(promotionId, order.getPromotionId());
+        assertEquals(Money.kzt(10000), ((GeneralAdmissionOrderItem) order.getItems().get(0)).getPrice());
     }
 }
