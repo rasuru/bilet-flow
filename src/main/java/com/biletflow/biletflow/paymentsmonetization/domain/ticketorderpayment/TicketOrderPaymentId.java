@@ -5,7 +5,7 @@ import java.util.UUID;
 
 public record TicketOrderPaymentId(UUID value) {
     public TicketOrderPaymentId {
-        Objects.requireNonNull(value, "PaymentId cannot be null");
+        Objects.requireNonNull(value, "TicketOrderPaymentId cannot be null");
     }
 
     public static TicketOrderPaymentId generate() {

@@ -104,7 +104,7 @@ class OrganizerBalanceTest {
     }
 
     @Test
-    void aRefundAfterPayoutCreatesADeficit() {
+    void aRefundAfterPayoutCreatesADebt() {
         OrganizerBalance balance = balanceWith(Money.kzt(10000));
         balance.reserveForPayout(Money.kzt(10000));
         balance.settlePayout(Money.kzt(10000));
@@ -117,15 +117,15 @@ class OrganizerBalanceTest {
     }
 
     @Test
-    void noPayoutIsPossibleWhileADeficitExists() {
-        OrganizerBalance balance = balanceWithDeficit(Money.kzt(4000));
+    void noPayoutIsPossibleWhileADebtExists() {
+        OrganizerBalance balance = balanceWithDebt(Money.kzt(4000));
 
         assertThrows(InsufficientBalanceException.class, () -> balance.reserveForPayout(Money.kzt(1)));
     }
 
     @Test
-    void aSmallCreditOnlyReducesTheDeficit() {
-        OrganizerBalance balance = balanceWithDeficit(Money.kzt(4000));
+    void aSmallCreditOnlyReducesTheDebt() {
+        OrganizerBalance balance = balanceWithDebt(Money.kzt(4000));
 
         balance.credit(Money.kzt(3000));
 
@@ -134,8 +134,8 @@ class OrganizerBalanceTest {
     }
 
     @Test
-    void aLargeCreditPaysTheDeficitFirstThenIncreasesAvailable() {
-        OrganizerBalance balance = balanceWithDeficit(Money.kzt(4000));
+    void aLargeCreditPaysTheDebtFirstThenIncreasesAvailable() {
+        OrganizerBalance balance = balanceWithDebt(Money.kzt(4000));
 
         balance.credit(Money.kzt(10000));
 
@@ -144,7 +144,7 @@ class OrganizerBalanceTest {
     }
 
     @Test
-    void aReleasedPayoutPaysADeficitCreatedInTheMeantime() {
+    void aReleasedPayoutPaysADebtCreatedInTheMeantime() {
         OrganizerBalance balance = balanceWith(Money.kzt(10000));
         balance.reserveForPayout(Money.kzt(10000));
         balance.debit(Money.kzt(3000));
@@ -161,9 +161,9 @@ class OrganizerBalanceTest {
         return balance;
     }
 
-    private static OrganizerBalance balanceWithDeficit(Money deficit) {
+    private static OrganizerBalance balanceWithDebt(Money debt) {
         OrganizerBalance balance = OrganizerBalance.open(ORGANIZER_ID, Money.KZT);
-        balance.debit(deficit);
+        balance.debit(debt);
         return balance;
     }
 }

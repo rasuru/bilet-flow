@@ -26,12 +26,12 @@ public class OrganizerBalance {
     private Money paidOut;
     private Money debt;
 
-    public OrganizerBalance(Long organizerId, Money available, Money pendingPayout, Money paidOut, Money deficit) {
+    public OrganizerBalance(Long organizerId, Money available, Money pendingPayout, Money paidOut, Money debt) {
         this.organizerId = Objects.requireNonNull(organizerId, "organizerId cannot be null");
         this.available = Objects.requireNonNull(available, "available cannot be null");
         this.pendingPayout = Objects.requireNonNull(pendingPayout, "pendingPayout cannot be null");
         this.paidOut = Objects.requireNonNull(paidOut, "paidOut cannot be null");
-        this.debt = Objects.requireNonNull(deficit, "deficit cannot be null");
+        this.debt = Objects.requireNonNull(debt, "deficit cannot be null");
     }
 
     public static OrganizerBalance open(Long organizerId, Currency currency) {
