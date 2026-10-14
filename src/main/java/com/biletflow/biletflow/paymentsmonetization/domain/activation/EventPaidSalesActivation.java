@@ -60,6 +60,10 @@ public class EventPaidSalesActivation {
             throw new ActivationNotAllowedException("Activation fee payment belongs to another event");
         }
 
+        if (!feePayment.getOrganizerId().equals(organizerId)) {
+            throw new ActivationNotAllowedException("Activation fee payment belongs to another organizer");
+        }
+
         if (!feePayment.hasSucceeded()) {
             throw new ActivationNotAllowedException("Activation fee has not been paid for event " + eventId);
         }

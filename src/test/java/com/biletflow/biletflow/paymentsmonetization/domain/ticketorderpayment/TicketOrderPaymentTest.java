@@ -128,6 +128,62 @@ class TicketOrderPaymentTest {
     }
 
     @Test
+    void completingARefundWithoutAProviderReferenceLeavesItUnchangedAndRetryable() {
+        TicketOrderPayment payment = succeededPayment();
+        Refund refund = payment.requestRefund("order cancelled", NOW);
+
+        assertThrows(NullPointerException.class, () -> payment.completeRefund(null, NOW.plusSeconds(60)));
+
+        assertRefundStillRequested(payment, refund);
+        payment.completeRefund("SIM-R1", NOW.plusSeconds(60));
+        assertEquals(TicketOrderPaymentStatus.REFUNDED, payment.getStatus());
+        assertEquals(RefundStatus.COMPLETED, refund.getStatus());
+        assertEquals("SIM-R1", refund.getProviderReference());
+        assertEquals(NOW.plusSeconds(60), refund.getCompletedAt());
+    }
+
+    @Test
+    void completingARefundWithoutATimestampLeavesItUnchangedAndRetryable() {
+        TicketOrderPayment payment = succeededPayment();
+        Refund refund = payment.requestRefund("order cancelled", NOW);
+
+        assertThrows(NullPointerException.class, () -> payment.completeRefund("SIM-INVALID", null));
+
+        assertRefundStillRequested(payment, refund);
+        payment.completeRefund("SIM-R1", NOW.plusSeconds(60));
+        assertEquals(TicketOrderPaymentStatus.REFUNDED, payment.getStatus());
+        assertEquals(RefundStatus.COMPLETED, refund.getStatus());
+        assertEquals("SIM-R1", refund.getProviderReference());
+        assertEquals(NOW.plusSeconds(60), refund.getCompletedAt());
+    }
+
+    @Test
+    void failingARefundWithoutATimestampLeavesItUnchangedAndRetryable() {
+        TicketOrderPayment payment = succeededPayment();
+        Refund refund = payment.requestRefund("order cancelled", NOW);
+
+        assertThrows(NullPointerException.class, () -> payment.failRefund("invalid failure", null));
+
+        assertRefundStillRequested(payment, refund);
+        payment.failRefund("provider rejected", NOW.plusSeconds(60));
+        assertEquals(TicketOrderPaymentStatus.SUCCEEDED, payment.getStatus());
+        assertEquals(RefundStatus.FAILED, refund.getStatus());
+        assertEquals("provider rejected", refund.getFailureReason());
+        assertEquals(NOW.plusSeconds(60), refund.getCompletedAt());
+        assertTrue(payment.receivesRefunds());
+    }
+
+    private static void assertRefundStillRequested(TicketOrderPayment payment, Refund refund) {
+        assertEquals(TicketOrderPaymentStatus.SUCCEEDED, payment.getStatus());
+        assertSame(refund, payment.getRefund().orElseThrow());
+        assertEquals(RefundStatus.REQUESTED, refund.getStatus());
+        assertNull(refund.getProviderReference());
+        assertNull(refund.getFailureReason());
+        assertNull(refund.getCompletedAt());
+        assertFalse(payment.receivesRefunds());
+    }
+
+    @Test
     void aFailedRefundCanBeRequestedAgain() {
         TicketOrderPayment payment = succeededPayment();
         Refund first = payment.requestRefund("order cancelled", NOW);

@@ -38,16 +38,21 @@ public class Refund {
 
     void complete(String providerReference, Instant completedAt) {
         requireRequested();
+        Objects.requireNonNull(providerReference, "providerReference cannot be null");
+        Objects.requireNonNull(completedAt, "completedAt cannot be null");
+
         this.status = RefundStatus.COMPLETED;
-        this.providerReference = Objects.requireNonNull(providerReference, "providerReference cannot be null");
-        this.completedAt = Objects.requireNonNull(completedAt, "completedAt cannot be null");
+        this.providerReference = providerReference;
+        this.completedAt = completedAt;
     }
 
     void fail(String failureReason, Instant completedAt) {
         requireRequested();
+        Objects.requireNonNull(completedAt, "completedAt cannot be null");
+
         this.status = RefundStatus.FAILED;
         this.failureReason = failureReason;
-        this.completedAt = Objects.requireNonNull(completedAt, "completedAt cannot be null");
+        this.completedAt = completedAt;
     }
 
     boolean hasFailed() {
