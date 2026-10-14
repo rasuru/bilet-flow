@@ -66,6 +66,24 @@ class EventPaidSalesActivationTest {
     }
 
     @Test
+    void aFeePaidForAnotherOrganizerDoesNotActivateAndLeavesTheActivationRetryable() {
+        EventPaidSalesActivation activation = pendingActivation();
+        ActivationFeePayment otherOrganizerFee = ActivationFeePayment.initiate(activation.getEventId(), ORGANIZER_ID + 1, Money.kzt(5000));
+        otherOrganizerFee.succeed("SIM-OTHER-ORGANIZER", NOW);
+
+        assertThrows(ActivationNotAllowedException.class, () -> activation.activate(otherOrganizerFee, true));
+        assertEquals(EventPaidSalesActivationStatus.PENDING, activation.getStatus());
+        assertFalse(activation.permitsPaidSales());
+        assertNull(activation.getFeePaymentId());
+
+        ActivationFeePayment correctFee = paidFee(activation.getEventId());
+        activation.activate(correctFee, true);
+
+        assertTrue(activation.permitsPaidSales());
+        assertEquals(correctFee.getId(), activation.getFeePaymentId());
+    }
+
+    @Test
     void activationPermitsPaidSales() {
         EventPaidSalesActivation activation = pendingActivation();
         ActivationFeePayment fee = paidFee(activation.getEventId());
