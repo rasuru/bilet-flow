@@ -1,8 +1,8 @@
 package com.biletflow.biletflow.paymentsmonetization.persistence;
 
 import com.biletflow.biletflow.common.domain.Money;
-import com.biletflow.biletflow.paymentsmonetization.application.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.domain.activationfeepayment.*;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.*;
 import java.math.BigDecimal;
 import java.time.Instant;

@@ -67,9 +67,6 @@ public class PaymentsResource {
         if (w.payerId != user) throw new org.springframework.security.access.AccessDeniedException(
             "Only the payer can open this payment session"
         );
-        if (w.abandoned || !"PENDING".equals(w.status()) || !clock.instant().isBefore(w.deadline)) throw new IllegalStateException(
-            "Payment session is no longer available"
-        );
         // The persisted form is reused on retries; creating a second session cannot trigger a second payment.
         return response(sessions.open(w));
     }

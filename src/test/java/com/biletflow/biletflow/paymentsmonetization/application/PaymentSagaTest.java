@@ -1,17 +1,17 @@
 package com.biletflow.biletflow.paymentsmonetization.application;
 
-import com.biletflow.biletflow.common.audit.FinancialAudit;
+import com.biletflow.biletflow.common.application.*;
 import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.common.events.*;
-import com.biletflow.biletflow.common.persistence.*;
 import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.eventmanagement.ohs.dto.*;
 import com.biletflow.biletflow.ordercheckout.application.*;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.*;
 import com.biletflow.biletflow.ordercheckout.domain.order.*;
-import com.biletflow.biletflow.paymentsmonetization.config.HalykProperties;
 import com.biletflow.biletflow.paymentsmonetization.domain.activation.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.activationfeepayment.*;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.*;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.*;
 import com.biletflow.biletflow.paymentsmonetization.ohs.*;
 import com.biletflow.biletflow.ticketinventory.ohs.CheckoutInventoryOhs;
@@ -19,9 +19,6 @@ import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
 import org.junit.jupiter.api.Test;
-import org.springframework.transaction.*;
-import org.springframework.transaction.support.SimpleTransactionStatus;
-import tools.jackson.databind.json.JsonMapper;
 
 /** Isolated application tests: real services/domain, fake bank and repositories. Database guarantees have separate ITs. */
 public class PaymentSagaTest {
@@ -175,12 +172,12 @@ public class PaymentSagaTest {
         var f = new Fixture();
         var v = f.start();
         var w = f.work(v);
-        f.bank.next = new PaymentGateway.Observation(
+        f.bank.next = new SettlementEvidence(
             w.invoiceId,
             UUID.randomUUID().toString(),
             new BigDecimal("0.01"),
             "KZT",
-            f.config.terminalId,
+            true,
             SettlementStatus.CAPTURED,
             w.id.toString()
         );
@@ -331,12 +328,12 @@ public class PaymentSagaTest {
         var f = new Fixture();
         var v = f.start();
         var w = f.work(v);
-        f.bank.next = new PaymentGateway.Observation(
+        f.bank.next = new SettlementEvidence(
             w.invoiceId,
             UUID.randomUUID().toString(),
             w.amount,
             "KZT",
-            f.config.terminalId,
+            true,
             SettlementStatus.CAPTURED,
             UUID.randomUUID().toString()
         );
@@ -355,12 +352,12 @@ public class PaymentSagaTest {
         f.checkout.refund(v.id(), 7, "Full refund");
         f.observe(w, "CHARGE");
         check(w.operationAcknowledged, "Successful bank response is retained");
-        f.bank.next = new PaymentGateway.Observation(
+        f.bank.next = new SettlementEvidence(
             w.invoiceId,
             w.bankTransactionId,
             BigDecimal.ZERO,
             "KZT",
-            f.config.terminalId,
+            true,
             SettlementStatus.REFUNDED,
             w.id.toString()
         );
@@ -377,17 +374,72 @@ public class PaymentSagaTest {
         var f = new Fixture();
         var v = f.paid();
         var w = f.work(v);
-        f.bank.next = new PaymentGateway.Observation(
+        f.bank.next = new SettlementEvidence(
             w.invoiceId,
             w.bankTransactionId,
             new BigDecimal("500.00"),
             "KZT",
-            f.config.terminalId,
+            true,
             SettlementStatus.REFUNDED,
             w.id.toString()
         );
         f.reconciler.reconcile(w.id);
         check(w.reviewRequired && f.ledger.refunds.isEmpty(), "Partial or ambiguous bank refund requires evidence of full amount");
+    }
+
+    @Test
+    void sessionRetriesReuseDurableFormWithoutCallingBankTwice() {
+        var fixture = new Fixture();
+        var work = fixture.work(fixture.start());
+        var store = new FormSessions();
+        var form = new PaymentGateway.Session(Map.of(), "sandbox", Map.of("auth", Map.of("expires_in", 3600)));
+        fixture.bank.form = form;
+        var service = new PaymentSessionService(store, fixture.bank, fixture.clock);
+        check(service.open(work) == form, "First form returned");
+        check(service.open(work) == form, "Durable form reused");
+        check(fixture.bank.sessionCalls == 1, "Only one provider session");
+    }
+
+    @Test
+    void failedSessionPublicationReleasesOnlyItsClaim() {
+        var fixture = new Fixture();
+        var work = fixture.work(fixture.start());
+        var store = new FormSessions();
+        store.superseded = true;
+        fixture.bank.form = new PaymentGateway.Session(Map.of(), "sandbox", Map.of());
+        fails(() -> new PaymentSessionService(store, fixture.bank, fixture.clock).open(work));
+        check(store.released.equals(store.claim), "Failure cleans up the matching claim");
+    }
+
+    @Test
+    void expiredSessionIsRejectedBeforeClaimOrNetworkCall() {
+        var fixture = new Fixture();
+        var work = fixture.work(fixture.start());
+        var store = new FormSessions();
+        fixture.clock.now = work.deadline;
+        fails(() -> new PaymentSessionService(store, fixture.bank, fixture.clock).open(work));
+        check(store.claim == null && fixture.bank.sessionCalls == 0, "No claim or provider call for expired payment");
+    }
+
+    static final class FormSessions implements PaymentSessionStore {
+
+        UUID claim, released;
+        PaymentGateway.Session cached;
+        boolean superseded;
+
+        public PaymentGateway.Session claim(UUID paymentId, UUID claim, Instant now) {
+            this.claim = claim;
+            return cached;
+        }
+
+        public void complete(UUID paymentId, UUID claim, PaymentGateway.Session session, Instant deadline, Instant now) {
+            if (superseded) throw new IllegalStateException("Claim superseded");
+            cached = session;
+        }
+
+        public void release(UUID paymentId, UUID claim) {
+            released = claim;
+        }
     }
 
     public static void main(String[] args) throws Exception {
@@ -425,49 +477,66 @@ public class PaymentSagaTest {
         }
     }
 
-    static final class LocalTransactions implements PlatformTransactionManager {
+    static final class LocalTransactions implements Transactions {
 
-        public TransactionStatus getTransaction(TransactionDefinition definition) {
-            return new SimpleTransactionStatus();
+        public <T> T required(java.util.function.Supplier<T> work) {
+            return work.get();
         }
-
-        public void commit(TransactionStatus status) {}
-
-        public void rollback(TransactionStatus status) {}
     }
 
-    static final class Audit extends FinancialAudit {
+    static final class Secrets implements CallbackSecrets {
 
-        Audit(Clock c) {
-            super(null, c);
+        public String generate() {
+            return UUID.randomUUID().toString();
         }
+
+        public boolean matches(String expected, String supplied) {
+            return expected.equals(supplied);
+        }
+    }
+
+    static final class Audit implements FinancialAudit {
+
+        Audit(Clock c) {}
 
         public void record(String c, UUID id, Long actor, String action) {}
 
         public void recordDetails(String c, UUID id, Long actor, String action, String details) {}
     }
 
-    static final class Locks extends TransactionLocks {
+    static final class Locks implements TransactionLocks {
 
-        Locks() {
-            super(null);
-        }
+        Locks() {}
 
         public void lock(String key) {}
     }
 
     static final class Bank implements PaymentGateway {
 
-        Observation next;
+        SettlementEvidence next;
+        Session form;
+        int sessionCalls;
         boolean throwAfterMutation;
         boolean unavailable;
         List<String> commands = new ArrayList<>();
 
-        public Session session(PaymentWork w) {
-            throw new UnsupportedOperationException();
+        public boolean acceptsInvoiceId(String id) {
+            return id != null && id.matches("[0-9]{6,15}");
         }
 
-        public Observation inspect(String invoice) {
+        public void validateAmount(BigDecimal amount) {
+            if (amount == null || amount.compareTo(BigDecimal.TEN) < 0 || amount.scale() > 2) throw new IllegalArgumentException(
+                "Unsupported amount"
+            );
+        }
+
+        public Session session(PaymentWork w) {
+            sessionCalls++;
+            if (form == null) throw new IllegalStateException("No provider form");
+            return form;
+        }
+
+        public SettlementEvidence inspect(String invoice) {
             if (unavailable) throw new IllegalStateException("offline");
             return next;
         }
@@ -731,34 +800,16 @@ public class PaymentSagaTest {
         Ledger ledger = new Ledger();
         Bank bank = new Bank();
         List<IntegrationEvent> queue = new ArrayList<>();
-        HalykProperties config = new HalykProperties(
-            "test",
-            "test-secret",
-            "67e34d63-102f-4bd1-898e-370781d0074d",
-            "https://example.com",
-            "https://example.com/return",
-            new BigDecimal("1000"),
-            new BigDecimal("0.03")
-        );
+        PaymentTerms terms = new PaymentTerms(new BigDecimal("1000"), new BigDecimal("0.03"));
+        Secrets secrets = new Secrets();
         Sessions sessions = new Sessions();
         Orders orders = new Orders();
         Processes processes = new Processes();
         Stock stock = new Stock(clock);
-        PaymentService service = new PaymentService(works, activations, events, locks, audit, clock, config);
-        PaymentAccessService access = new PaymentAccessService(works, locks, audit, queue::add, clock, ledger, activations);
-        PaymentReconciler reconciler = new PaymentReconciler(
-            works,
-            bank,
-            activations,
-            ledger,
-            queue::add,
-            audit,
-            locks,
-            events,
-            config,
-            clock,
-            new LocalTransactions()
-        );
+        PaymentService service = new PaymentService(works, activations, events, locks, audit, clock, terms, bank, secrets);
+        PaymentTransitions transitions = new PaymentTransitions(works, activations, ledger, queue::add, audit, locks, events, clock);
+        PaymentAccessService access = new PaymentAccessService(works, bank, secrets, transitions, audit, clock);
+        PaymentReconciler reconciler = new PaymentReconciler(works, bank, transitions, locks, clock, new LocalTransactions());
         CheckoutService checkout = new CheckoutService(
             sessions,
             orders,
@@ -768,7 +819,7 @@ public class PaymentSagaTest {
             events,
             locks,
             audit,
-            new JsonCodec(JsonMapper.builder().build()),
+            Object::toString,
             clock
         );
 
@@ -816,15 +867,7 @@ public class PaymentSagaTest {
         void observe(PaymentWork w, String status) {
             String ref = w.isTicket() ? w.payment.getProviderReference() : w.activationPayment.getProviderReference();
             if (ref == null) ref = "00000000-0000-0000-0000-000000000001";
-            bank.next = new PaymentGateway.Observation(
-                w.invoiceId,
-                ref,
-                w.amount,
-                "KZT",
-                config.terminalId,
-                normalize(status),
-                w.id.toString()
-            );
+            bank.next = new SettlementEvidence(w.invoiceId, ref, w.amount, "KZT", true, normalize(status), w.id.toString());
             reconciler.reconcile(w.id);
         }
 

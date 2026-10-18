@@ -2,6 +2,7 @@ package com.biletflow.biletflow.paymentsmonetization.persistence;
 
 import com.biletflow.biletflow.common.persistence.JsonCodec;
 import com.biletflow.biletflow.paymentsmonetization.application.*;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.*;

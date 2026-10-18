@@ -1,8 +1,9 @@
 package com.biletflow.biletflow.paymentsmonetization.infrastructure.halyk;
 
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentGateway;
-import com.biletflow.biletflow.paymentsmonetization.application.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.config.HalykProperties;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.SettlementEvidence;
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.SettlementStatus;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -36,6 +37,18 @@ public class HalykGateway implements PaymentGateway {
     }
 
     @Override
+    public boolean acceptsInvoiceId(String invoiceId) {
+        return invoiceId != null && invoiceId.matches("[0-9]{6,15}");
+    }
+
+    @Override
+    public void validateAmount(java.math.BigDecimal amount) {
+        if (amount == null || amount.compareTo(java.math.BigDecimal.TEN) < 0 || amount.scale() > 2) throw new IllegalArgumentException(
+            "Halyk sandbox payments must be at least 10 KZT with at most two decimals"
+        );
+    }
+
+    @Override
     public Session session(PaymentWork work) {
         String callback = config.publicBaseUrl + "/api/payments/halyk/callback";
         Map<String, String> fields = new LinkedHashMap<>();
@@ -64,7 +77,7 @@ public class HalykGateway implements PaymentGateway {
     }
 
     @Override
-    public Observation inspect(String invoiceId) {
+    public SettlementEvidence inspect(String invoiceId) {
         String access = accessToken();
         String body = send(
             HttpRequest.newBuilder(URI.create(API + "/check-status/payment/transaction/" + invoiceId))
@@ -75,8 +88,8 @@ public class HalykGateway implements PaymentGateway {
         );
         var root = json.readTree(body);
         String code = root.path("resultCode").asString("");
-        if ("102".equals(code)) return new Observation(invoiceId, null, null, null, null, SettlementStatus.NOT_FOUND, null);
-        if ("107".equals(code)) return new Observation(invoiceId, null, null, null, null, SettlementStatus.PENDING, null);
+        if ("102".equals(code)) return new SettlementEvidence(invoiceId, null, null, null, false, SettlementStatus.NOT_FOUND, null);
+        if ("107".equals(code)) return new SettlementEvidence(invoiceId, null, null, null, false, SettlementStatus.PENDING, null);
         var t = root.path("transaction");
         if (t.isMissingNode() || t.isNull()) {
             // A failed status lookup is not proof that an individual payment failed.
@@ -85,12 +98,12 @@ public class HalykGateway implements PaymentGateway {
         if (!"100".equals(code) && !"101".equals(code)) throw new GatewayUnavailable();
         var data = t.path("data");
         var correlation = data.isString() ? json.readTree(data.asString("")) : data;
-        return new Observation(
+        return new SettlementEvidence(
             t.path("invoiceID").asString(""),
             t.path("id").asString(""),
             t.path("amount").decimalValue(null),
             t.path("currency").asString(""),
-            t.path("terminalID").asString(""),
+            config.terminalId.equals(t.path("terminalID").asString("")),
             normalize(t.path("statusName").asString("")),
             correlation.path("biletflowPaymentId").asString("")
         );

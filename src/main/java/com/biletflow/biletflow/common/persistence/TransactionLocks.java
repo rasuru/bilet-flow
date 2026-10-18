@@ -7,7 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** PostgreSQL transaction locks also serialize creation before an aggregate row exists. */
 @Component
-public class TransactionLocks {
+public class TransactionLocks implements com.biletflow.biletflow.common.application.TransactionLocks {
 
     private final JdbcTemplate jdbc;
 

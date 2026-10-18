@@ -2,8 +2,8 @@ package com.biletflow.biletflow.paymentsmonetization.infrastructure.halyk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.biletflow.biletflow.paymentsmonetization.application.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.config.HalykProperties;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.SettlementStatus;
 import java.math.BigDecimal;
 import java.net.http.HttpRequest;
@@ -23,9 +23,7 @@ class HalykGatewayTest {
         "merchant-secret",
         "67e34d63-102f-4bd1-898e-370781d0074d",
         "https://example.com",
-        "https://example.com/return",
-        new BigDecimal("1000"),
-        new BigDecimal("0.03")
+        "https://example.com/return"
     );
     private final Deque<String> responses = new ArrayDeque<>();
     private final List<HttpRequest> requests = new ArrayList<>();
@@ -64,9 +62,17 @@ class HalykGatewayTest {
         responses.add(transaction("AUTH", payment));
         var observation = gateway().inspect("123456");
         assertEquals(SettlementStatus.AUTHORIZED, observation.status());
+        assertTrue(observation.merchantVerified());
         assertEquals(new BigDecimal("123.45"), observation.amount());
         assertEquals(payment.toString(), observation.paymentId());
         assertTrue(requests.get(1).uri().toString().endsWith("/check-status/payment/transaction/123456"));
+    }
+
+    @Test
+    void wrongTerminalIsReportedAsUnverifiedMerchant() {
+        responses.add(TOKEN);
+        responses.add(transaction("CHARGE", UUID.randomUUID()).replace(config.terminalId, UUID.randomUUID().toString()));
+        assertFalse(gateway().inspect("123456").merchantVerified());
     }
 
     @Test

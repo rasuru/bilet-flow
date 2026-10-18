@@ -1,6 +1,7 @@
 package com.biletflow.biletflow.paymentsmonetization.persistence;
 
 import com.biletflow.biletflow.paymentsmonetization.application.*;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import java.math.BigDecimal;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;

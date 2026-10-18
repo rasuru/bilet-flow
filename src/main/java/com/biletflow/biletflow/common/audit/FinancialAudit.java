@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** Append-only business audit. Details are fixed application codes, not provider responses. */
 @Component
-public class FinancialAudit {
+public class FinancialAudit implements com.biletflow.biletflow.common.application.FinancialAudit {
 
     private final JdbcTemplate jdbc;
     private final Clock clock;

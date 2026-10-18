@@ -1,38 +1,40 @@
 # Payment saga: Halyk sandbox
 
-This implements the backend purchase lifecycle: free registration, paid checkout, Halyk hosted payment, verified capture, ticket issuance, cancellation, full refunds, recovery, and the per-event activation-fee prerequisite. Financial status responses are labelled as sandbox data. The HTML tester is a developer aid, not the customer frontend.
+The payment saga coordinates the backend purchase lifecycle: free registration, paid checkout, Halyk hosted payment, verified capture, ticket issuance, cancellation, full refunds, recovery, and the per-event activation-fee prerequisite. Financial status responses are labelled as sandbox data. The HTML tester is a developer aid, not the customer frontend.
 
 ## Architecture
 
 - **Order & Checkout** owns checkout sessions, the commercial order, immutable price/attendee/hold snapshots, and the process manager. The checkout UUID is also the eventual order UUID. One idempotency key creates at most one checkout, payment and order.
-- **Payments & Monetization** owns payment/refund aggregates, activation payments, bank interaction, reconciliation, and the financial ledger. Its application port translates Halyk states into our own financial vocabulary.
+- **Payments & Monetization** owns payment/refund aggregates, activation payments, bank interaction, reconciliation, and the financial ledger. Its Halyk infrastructure adapter translates provider states into domain settlement evidence.
 - **Ticket Inventory** owns reservations, ticket issuance, admission and inventory reversal. All calls from O&C use the published `CheckoutInventoryOhs` contract. Prices are loaded from TI, never accepted from the client.
 - **Event Management** publishes event sales/authorization facts through its OHS. Payment code does not import EM domain objects.
 - **common/events** contains a PostgreSQL transactional outbox. PM publishes payment outcome facts in the same transaction as financial state. One durable consumer per event type handles them; its local effects and acknowledgement commit together. Failures roll back and retry after 30 seconds indefinitely. A broker is unnecessary for this modular monolith.
 
-Repositories keep explicit JSON persistence DTOs in BC-owned tables, with relational identifiers, indexes and uniqueness constraints. Domain aggregates have no Spring/JPA/Jackson dependencies. The original OC repository interfaces now have JDBC adapters. PM execution metadata is persisted separately from its financial domain state through an application repository port. Local OHS effects use the shared Spring/JPA database transaction; HTTP requests never hold database transactions open.
+Repositories keep explicit JSON persistence DTOs in BC-owned tables, with relational identifiers, indexes and uniqueness constraints. Domain aggregates have no Spring/JPA/Jackson dependencies. OC repository interfaces have JDBC adapters. The PM settlement process and financial aggregates belong to the domain; application repository ports persist their explicit snapshots. Local OHS effects use the shared Spring/JPA database transaction; HTTP requests never hold database transactions open.
+
+Application services coordinate authorization, repository access, transaction boundaries and effects. `PaymentTerms`, `PaymentWork` and `PaymentSettlement` own pricing, lifecycle guards and settlement decisions. Infrastructure adapters own Halyk protocol details, encrypted form storage, hashing, scheduling and database access.
 
 ## Setup
 
-Use Java 21 and the repository's normal PostgreSQL/Redis/Elasticsearch services. The new Liquibase migration is included from `master.xml`; do not regenerate or edit the existing migration.
+Use Java 21 and the repository's normal PostgreSQL/Redis/Elasticsearch services. Liquibase applies the payment schema through `master.xml` when the backend starts.
 
-Example environment in bash:
+Obtain sandbox credentials from [Halyk’s test credentials page](https://epayment.kz/docs/Test-credentials). Configure the environment before starting the backend; the following example uses bash:
 
 ```bash
-export BILETFLOW_PAYMENTS_HALYK_CLIENT_ID=test
-export BILETFLOW_PAYMENTS_HALYK_CLIENT_SECRET='some-secret'
-export BILETFLOW_PAYMENTS_HALYK_TERMINAL_ID=insert-id-here
+export BILETFLOW_PAYMENTS_HALYK_CLIENT_ID='<sandbox-client-id>'
+export BILETFLOW_PAYMENTS_HALYK_CLIENT_SECRET='<sandbox-client-secret>'
+export BILETFLOW_PAYMENTS_HALYK_TERMINAL_ID='<sandbox-terminal-id>'
 export BILETFLOW_PAYMENTS_SESSION_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 export BILETFLOW_PAYMENTS_PUBLIC_BASE_URL=http://localhost:8080
 export BILETFLOW_PAYMENTS_RETURN_URL=http://localhost:9090/halyk-sandbox-checkout.html
 ./gradlew
 ```
 
-These are Halyk's **public test credentials**, not production merchant credentials. For fish, use `set -gx NAME value` instead of `export NAME=value`; generate the key with `set -gx BILETFLOW_PAYMENTS_SESSION_ENCRYPTION_KEY (openssl rand -base64 32)`.
+Use sandbox credentials only. Production endpoints are not supported by this adapter.
 
 Save the generated encryption key securely and reuse it after restarts and across backend replicas. Changing it makes existing encrypted payment forms unreadable. Merchant credentials never reach the browser. The limited payment form token is encrypted with AES-GCM before persistence and reused for the same invoice; card numbers, CVC, card masks and raw callback/status payloads are not stored.
 
-For real callback delivery, set `PUBLIC_BASE_URL` to the externally reachable HTTPS origin forwarding to this backend. The callback path is `/api/payments/halyk/callback`. Localhost is sufficient to exercise payment through scheduled status reconciliation even when Halyk cannot call back. The browser return URL can remain local for local testing. Browser redirects never change financial state.
+For real callback delivery, set `BILETFLOW_PAYMENTS_PUBLIC_BASE_URL` to the externally reachable HTTPS origin forwarding to this backend. The callback path is `/api/payments/halyk/callback`. Localhost is sufficient to exercise payment through scheduled status reconciliation even when Halyk cannot call back. The browser return URL can remain local for local testing. Browser redirects never change financial state.
 
 Serve the tester in another terminal:
 
@@ -48,7 +50,7 @@ Configuration defaults: activation fee **1,000 KZT**; estimated processing fee *
 
 Use an organizer JWT in `$ORGANIZER_JWT`, an attendee JWT in `$ATTENDEE_JWT`, a published event UUID in `$EVENT_ID`, and a currently purchasable ticket-type UUID in `$TICKET_TYPE_ID`. Set `$API=http://localhost:8080` and obtain JWTs through the existing login endpoint. Assigned-seat setup uses the existing event/ticket-type APIs.
 
-1. As organizer, request per-event activation. Verification is explicitly simulated for this university MVP; acceptance of the sandbox paid-event terms is recorded.
+1. As organizer, request per-event activation. Verification is explicitly simulated in the sandbox workflow; acceptance of the sandbox paid-event terms is recorded.
 
 ```bash
 curl -sS -X POST "$API/api/payments/events/$EVENT_ID/activation" \
@@ -73,7 +75,7 @@ curl -sS -X POST "$API/api/checkouts" \
   -d '{"eventId":"'"$EVENT_ID"'","selections":[{"ticketTypeId":"'"$TICKET_TYPE_ID"'","seats":[],"attendeeEmails":["attendee@example.com"]}]}'
 ```
 
-For assigned seating, provide one seat UUID per email in matching array order. Group a ticket type into one selection. The entire request is limited to 100 tickets and 30 ticket types. The returned `amountKzt` is the frozen commercial snapshot; later ticket-type price changes do not change this purchase. There is no promotions BC in this archive, so this implementation does not accept arbitrary client discounts or pretend a promotion was reserved.
+For assigned seating, provide one seat UUID per email in matching array order. Group a ticket type into one selection. The entire request is limited to 100 tickets and 30 ticket types. The returned `amountKzt` is the frozen commercial snapshot; later ticket-type price changes do not change this purchase. Checkout does not currently integrate with Promotions or accept client-supplied discounts.
 
 A zero-price checkout returns `COMPLETED` immediately with tickets. A paid checkout returns `AWAITING_PAYMENT` and `paymentId`. Holds retain TI's existing ten-minute deadline.
 
@@ -95,7 +97,7 @@ curl -sS -X POST "$API/api/checkouts/$CHECKOUT_KEY/refund" \
 
 `refundState=PENDING` means admission is blocked and the bank outcome is still unresolved. Inventory remains sold until the bank confirms the refund. An acknowledged full-refund request followed by matching bank refund status sets `refundState=REFUNDED`, cancels the commercial order, invalidates tickets and reverses inventory once. A definitively rejected refund can be retried with a new refund ID. The history of earlier attempts is retained. Refunds can be initiated after event cancellation too.
 
-The MVP policy allows organizers to refund only unused tickets. It does not grant automatic attendee refunds or partial refunds. A refund initiated outside this application is detected and sent for operator review: Halyk status `REFUND` alone does not prove whether a full or partial refund occurred. After independently confirming the full amount with the bank, the audited operator resolution below invalidates admission, including an already-used ticket if necessary to reflect the financial truth.
+The refund policy allows organizers to refund only unused tickets. It does not grant automatic attendee refunds or partial refunds. A refund initiated outside this application is detected and sent for operator review: Halyk status `REFUND` alone does not prove whether a full or partial refund occurred. After independently confirming the full amount with the bank, the audited operator resolution below invalidates admission, including an already-used ticket if necessary to reflect the financial truth.
 
 5. Check organizer accounting:
 
@@ -103,7 +105,7 @@ The MVP policy allows organizers to refund only unused tickets. It does not gran
 curl -sS "$API/api/payments/revenue/mine" -H "Authorization: Bearer $ORGANIZER_JWT"
 ```
 
-Charge and refund ledger entries are immutable and have unique operation keys. Activation fees do not count as organizer ticket revenue. A full refund can leave a negative estimated net amount representing retained fees. This is an accounting summary, not a bank settlement balance. Organizer payouts and bank-account verification remain separate monetization features; this change does not implement real payouts.
+Charge and refund ledger entries are immutable and have unique operation keys. Activation fees do not count as organizer ticket revenue. A full refund can leave a negative estimated net amount representing retained fees. This is an accounting summary, not a bank settlement balance. Organizer payouts and bank-account verification remain separate monetization features; real payouts are not implemented.
 
 ## Failure and recovery behavior
 
@@ -130,7 +132,7 @@ The invoice sequence never wraps because Halyk also requires uniqueness of the l
 
 ## Operator actions
 
-An admin can GET `/api/payments/operations` for data conflicts and mutations still unresolved after five minutes. GET `/api/payments/{id}` includes the current bank operation, its ID and state. Unauthorized users cannot inspect other people's payments, checkouts, tickets or revenue through these new APIs.
+An admin can GET `/api/payments/operations` for data conflicts and mutations still unresolved after five minutes. GET `/api/payments/{id}` includes the current bank operation, its ID and state. Unauthorized users cannot inspect other people's payments, checkouts, tickets or revenue through the payment and checkout APIs.
 
 If bank support independently confirms an operation was **not executed**, POST `/api/payments/{id}/resolve-operation` as `ROLE_ADMIN`:
 
@@ -148,23 +150,23 @@ Other resolutions are `REFUND_CONFIRMED_REJECTED` for a definitively rejected ti
 
 Audit records live in `common_financial_audit`; historical ticket refunds live in `pm_refund_history`. To inspect unresolved integration delivery, query `common_outbox` where `delivered_at is null`, ordered by `attempts desc`. There is no destructive automatic dead-letter discard.
 
-## Tests and validation
+## Tests
 
 Run with the project's normal Java 21/Docker setup:
 
 ```bash
-./gradlew test --tests '*PaymentSagaTest' --tests '*HalykGatewayTest' --tests '*InventoryCompensationTest'
+./gradlew test --tests '*PaymentSagaTest' --tests '*PaymentSettlementTest' --tests '*PaymentLayeringTest' --tests '*HalykGatewayTest' --tests '*InventoryCompensationTest'
 ./gradlew integrationTest --tests '*PaymentPersistenceIT'
 ./gradlew test
 ```
 
 The isolated saga tests use the real application/domain code and fake bank/inventory/repositories. They cover capture, void, refund uncertainty, late capture, delayed/reordered/duplicate outcomes, issuance failure, idempotency, callback authentication, authorization, activation compensation and admission blocking. The integration tests exercise producer rollback, JPA consumer rollback with outbox acknowledgement, concurrent leases, refresh of stale ticket state, actual JSON persistence and refund history against PostgreSQL.
 
-Validation in the implementation environment: 21 isolated saga tests (59 assertions) and 124 existing/new domain tests passed using a local Java harness. New application sources passed a Java compilation check with framework signatures substituted because dependencies could not be downloaded. This is **not** a full Spring application build. Gradle could not download its distribution (`Network is unreachable`); the host has Java 17 rather than the project's Java 21. The real Jackson/HTTP adapter tests, PostgreSQL integration tests and live Halyk card flow remain to be run in the project environment. No live sandbox transaction was claimed.
+`PaymentSettlementTest` exercises financial policy without framework dependencies. `PaymentLayeringTest` guards application and domain dependency boundaries. Automated tests use controlled provider responses; the end-to-end walkthrough above exercises the hosted sandbox payment flow.
 
 ## Halyk contracts used
 
-Verified against Halyk's official documentation on 2026-10-18:
+Provider reference documentation:
 
 - [Hosted payment page, scoped token, required secret_hash, callback](https://epayment.kz/docs/platezhnaya-stranica)
 - [Status query, resultCode vs transaction statusName](https://epayment.kz/docs/check-status-payment)
@@ -173,5 +175,6 @@ Verified against Halyk's official documentation on 2026-10-18:
 - [Full refund, transaction ID, externalID, minimum amount](https://epayment.kz/docs/vozvrat-chastichnyi-vozvrat)
 - [Current sandbox credentials and test cards](https://epayment.kz/docs/Test-credentials)
 
-The existing project email delivery and absent Promotions application are not changed. Purchase/refund confirmations are observable through authenticated status endpoints; connecting those committed outcomes to customer email is a separate delivery adapter.
+## Current scope
 
+Purchase and refund confirmations are available through authenticated status endpoints. Payment outcomes are published through the transactional outbox; customer email delivery is not connected to those outcomes. Promotions integration, real organizer payouts, and identity or payout-account verification are not implemented by the sandbox payment workflow.

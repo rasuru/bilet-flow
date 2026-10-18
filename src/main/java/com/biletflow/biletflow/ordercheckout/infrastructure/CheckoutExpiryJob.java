@@ -1,5 +1,6 @@
-package com.biletflow.biletflow.ordercheckout.application;
+package com.biletflow.biletflow.ordercheckout.infrastructure;
 
+import com.biletflow.biletflow.ordercheckout.application.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;

@@ -1,16 +1,13 @@
 package com.biletflow.biletflow.ordercheckout.application;
 
-import com.biletflow.biletflow.common.audit.FinancialAudit;
-import com.biletflow.biletflow.common.persistence.JsonCodec;
-import com.biletflow.biletflow.common.persistence.TransactionLocks;
+import com.biletflow.biletflow.common.application.FinancialAudit;
+import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.*;
 import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
 import com.biletflow.biletflow.ordercheckout.domain.order.*;
 import com.biletflow.biletflow.paymentsmonetization.ohs.*;
 import com.biletflow.biletflow.ticketinventory.ohs.CheckoutInventoryOhs;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Clock;
 import java.util.*;
 import org.springframework.stereotype.Service;
@@ -49,7 +46,7 @@ public class CheckoutService {
     private final EventManagementOhs events;
     private final TransactionLocks locks;
     private final FinancialAudit audit;
-    private final JsonCodec json;
+    private final CheckoutFingerprint fingerprints;
     private final Clock clock;
 
     public CheckoutService(
@@ -61,7 +58,7 @@ public class CheckoutService {
         EventManagementOhs events,
         TransactionLocks locks,
         FinancialAudit audit,
-        JsonCodec json,
+        CheckoutFingerprint fingerprints,
         Clock clock
     ) {
         this.checkouts = checkouts;
@@ -72,7 +69,7 @@ public class CheckoutService {
         this.events = events;
         this.locks = locks;
         this.audit = audit;
-        this.json = json;
+        this.fingerprints = fingerprints;
         this.clock = clock;
     }
 
@@ -81,7 +78,7 @@ public class CheckoutService {
             "Supply 1 to 30 ticket selections"
         );
         locks.lock("checkout:" + id);
-        String fingerprint = fingerprint(request);
+        String fingerprint = fingerprints.of(request);
         var prior = processes.find(id);
         if (prior.isPresent()) {
             var p = prior.orElseThrow();
@@ -342,15 +339,5 @@ public class CheckoutService {
             inventory.tickets(p.id()),
             true
         );
-    }
-
-    private String fingerprint(Request request) {
-        try {
-            return HexFormat.of().formatHex(
-                MessageDigest.getInstance("SHA-256").digest(json.write(request).getBytes(StandardCharsets.UTF_8))
-            );
-        } catch (java.security.NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
     }
 }
