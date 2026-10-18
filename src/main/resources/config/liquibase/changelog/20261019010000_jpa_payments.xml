@@ -1,0 +1,217 @@
+<?xml version='1.0' encoding='utf-8'?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="20261019010000-1" author="biletflow" dbms="postgresql">
+        <comment>Map checkout and payment aggregates to relational JPA storage, preserving existing saga state.</comment>
+        <addColumn tableName="oc_checkout">
+            <column name="inventory_mode" type="varchar(30)"/>
+            <column name="promotion_id" type="uuid"/>
+            <column name="discount_amount" type="numeric(19,2)"/>
+            <column name="discount_currency" type="varchar(3)"/>
+            <column name="total_amount" type="numeric(19,2)"/>
+            <column name="total_currency" type="varchar(3)"/>
+            <column name="payment_id" type="uuid"/>
+            <column name="version" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <addColumn tableName="oc_order">
+            <column name="status" type="varchar(40)"/>
+            <column name="inventory_mode" type="varchar(30)"/>
+            <column name="promotion_id" type="uuid"/>
+            <column name="discount_amount" type="numeric(19,2)"/>
+            <column name="discount_currency" type="varchar(3)"/>
+            <column name="total_amount" type="numeric(19,2)"/>
+            <column name="total_currency" type="varchar(3)"/>
+            <column name="payment_id" type="uuid"/>
+            <column name="cancellation_reason" type="varchar(40)"/>
+            <column name="refund_id" type="uuid"/>
+            <column name="version" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <addColumn tableName="oc_saga">
+            <column name="event_id" type="uuid"/>
+            <column name="owner_id" type="bigint"/>
+            <column name="fingerprint" type="varchar(64)"/>
+            <column name="deadline" type="timestamp with time zone"/>
+            <column name="payment_id" type="uuid"/>
+            <column name="refund_state" type="varchar(30)"/>
+            <column name="refund_id" type="uuid"/>
+            <column name="version" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <addColumn tableName="pm_payment_work">
+            <column name="amount" type="numeric(19,2)"/>
+            <column name="fee" type="numeric(19,2)"/>
+            <column name="callback_secret" type="varchar(200)"/>
+            <column name="deadline" type="timestamp with time zone"/>
+            <column name="abandoned" type="boolean"/>
+            <column name="review_required" type="boolean"/>
+            <column name="operation" type="varchar(20)"/>
+            <column name="operation_id" type="uuid"/>
+            <column name="operation_state" type="varchar(30)"/>
+            <column name="operation_at" type="timestamp with time zone"/>
+            <column name="operation_acknowledged" type="boolean"/>
+            <column name="bank_transaction_id" type="varchar(100)"/>
+            <column name="status" type="varchar(30)"/>
+            <column name="provider_reference" type="varchar(100)"/>
+            <column name="paid_at" type="timestamp with time zone"/>
+            <column name="failed_at" type="timestamp with time zone"/>
+            <column name="failure_reason" type="varchar(200)"/>
+            <column name="current_refund_id" type="uuid"/>
+            <column name="version" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <addColumn tableName="pm_event_activation">
+            <column name="version" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <addColumn tableName="pm_payment_session">
+            <column name="version" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <createTable tableName="pm_halyk_invoice_allocation">
+            <column name="id" type="bigint">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+        </createTable>
+        <createTable tableName="oc_checkout_item">
+            <column name="purchase_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="item_index" type="integer">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ticket_type_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="seat_id" type="uuid"/>
+            <column name="price_amount" type="numeric(19,2)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="price_currency" type="varchar(3)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addPrimaryKey tableName="oc_checkout_item" columnNames="purchase_id,item_index" constraintName="pk_oc_checkout_item"/>
+        <addForeignKeyConstraint baseTableName="oc_checkout_item" baseColumnNames="purchase_id" referencedTableName="oc_checkout" referencedColumnNames="id" constraintName="fk_oc_checkout_item_parent"/>
+        <createTable tableName="oc_order_item">
+            <column name="purchase_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="item_index" type="integer">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ticket_type_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="seat_id" type="uuid"/>
+            <column name="price_amount" type="numeric(19,2)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="price_currency" type="varchar(3)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addPrimaryKey tableName="oc_order_item" columnNames="purchase_id,item_index" constraintName="pk_oc_order_item"/>
+        <addForeignKeyConstraint baseTableName="oc_order_item" baseColumnNames="purchase_id" referencedTableName="oc_order" referencedColumnNames="id" constraintName="fk_oc_order_item_parent"/>
+        <createTable tableName="oc_saga_line">
+            <column name="checkout_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="line_index" type="integer">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ticket_type_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="seat_id" type="uuid"/>
+            <column name="price_amount" type="numeric(19,2)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="price_currency" type="varchar(3)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="attendee_email" type="varchar(320)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addPrimaryKey tableName="oc_saga_line" columnNames="checkout_id,line_index" constraintName="pk_oc_saga_line"/>
+        <addForeignKeyConstraint baseTableName="oc_saga_line" baseColumnNames="checkout_id" referencedTableName="oc_saga" referencedColumnNames="id" constraintName="fk_oc_saga_line_parent"/>
+        <createTable tableName="oc_saga_hold">
+            <column name="checkout_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="hold_index" type="integer">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reference_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="assigned_seat" type="boolean">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addPrimaryKey tableName="oc_saga_hold" columnNames="checkout_id,hold_index" constraintName="pk_oc_saga_hold"/>
+        <addForeignKeyConstraint baseTableName="oc_saga_hold" baseColumnNames="checkout_id" referencedTableName="oc_saga" referencedColumnNames="id" constraintName="fk_oc_saga_hold_parent"/>
+        <sql splitStatements="true"><![CDATA[
+UPDATE oc_checkout p SET inventory_mode=j->>'mode',promotion_id=(j->>'promotionId')::uuid,discount_amount=(j->'discount'->>'amount')::numeric,discount_currency=j->'discount'->>'currency',total_amount=(j->'total'->>'amount')::numeric,total_currency=j->'total'->>'currency',payment_id=(j->>'paymentId')::uuid FROM (SELECT id,snapshot::jsonb j FROM oc_checkout) old WHERE p.id=old.id;
+INSERT INTO oc_checkout_item(purchase_id,item_index,ticket_type_id,seat_id,price_amount,price_currency)
+SELECT p.id,(i.ordinality-1)::integer,(i.value->>'ticketTypeId')::uuid,(i.value->>'seatId')::uuid,(i.value->'price'->>'amount')::numeric,i.value->'price'->>'currency'
+FROM oc_checkout p CROSS JOIN LATERAL jsonb_array_elements(p.snapshot::jsonb->'items') WITH ORDINALITY i(value,ordinality);
+UPDATE oc_order p SET inventory_mode=j->>'mode',promotion_id=(j->>'promotionId')::uuid,discount_amount=(j->'discount'->>'amount')::numeric,discount_currency=j->'discount'->>'currency',total_amount=(j->'total'->>'amount')::numeric,total_currency=j->'total'->>'currency',payment_id=(j->>'paymentId')::uuid,status=j->>'status',cancellation_reason=j->>'reason',refund_id=(j->>'refundId')::uuid FROM (SELECT id,snapshot::jsonb j FROM oc_order) old WHERE p.id=old.id;
+INSERT INTO oc_order_item(purchase_id,item_index,ticket_type_id,seat_id,price_amount,price_currency)
+SELECT p.id,(i.ordinality-1)::integer,(i.value->>'ticketTypeId')::uuid,(i.value->>'seatId')::uuid,(i.value->'price'->>'amount')::numeric,i.value->'price'->>'currency'
+FROM oc_order p CROSS JOIN LATERAL jsonb_array_elements(p.snapshot::jsonb->'items') WITH ORDINALITY i(value,ordinality);
+UPDATE oc_saga p SET event_id=(j->>'eventId')::uuid,owner_id=(j->>'ownerId')::bigint,fingerprint=j->>'fingerprint',deadline=(j->>'deadline')::timestamptz,
+payment_id=(j->>'paymentId')::uuid,refund_state=j->>'refundState',refund_id=(j->>'refundId')::uuid FROM (SELECT id,snapshot::jsonb j FROM oc_saga) old WHERE p.id=old.id;
+INSERT INTO oc_saga_line(checkout_id,line_index,ticket_type_id,seat_id,price_amount,price_currency,attendee_email)
+SELECT p.id,(i.ordinality-1)::integer,(i.value->>'ticketTypeId')::uuid,(i.value->>'seatId')::uuid,(i.value->'price'->>'amount')::numeric,i.value->'price'->>'currency',i.value->>'email'
+FROM oc_saga p CROSS JOIN LATERAL jsonb_array_elements(p.snapshot::jsonb->'lines') WITH ORDINALITY i(value,ordinality);
+INSERT INTO oc_saga_hold(checkout_id,hold_index,reference_id,assigned_seat)
+SELECT p.id,(i.ordinality-1)::integer,(i.value->>'referenceId')::uuid,(i.value->>'assignedSeat')::boolean
+FROM oc_saga p CROSS JOIN LATERAL jsonb_array_elements(p.snapshot::jsonb->'holds') WITH ORDINALITY i(value,ordinality);
+UPDATE pm_payment_work p SET amount=(j->>'amount')::numeric,fee=(j->>'fee')::numeric,callback_secret=j->>'callbackSecret',deadline=(j->>'deadline')::timestamptz,abandoned=coalesce((j->>'abandoned')::boolean,false),review_required=coalesce((j->>'reviewRequired')::boolean,false),operation=j->>'operation',operation_id=(j->>'operationId')::uuid,operation_state=j->>'operationState',operation_at=(j->>'operationAt')::timestamptz,operation_acknowledged=coalesce((j->>'operationAcknowledged')::boolean,false),bank_transaction_id=j->>'bankTransactionId',status=j->>'status',provider_reference=j->>'providerReference',paid_at=(j->>'paidAt')::timestamptz,failed_at=(j->>'failedAt')::timestamptz,failure_reason=j->>'failureReason',current_refund_id=(j->'refund'->>'id')::uuid FROM (SELECT id,snapshot::jsonb j FROM pm_payment_work) old WHERE p.id=old.id;
+INSERT INTO pm_refund_history(id,payment_id,reason,requested_at,status,provider_reference,failure_reason,completed_at)
+SELECT (j->>'id')::uuid,payment_id,j->>'reason',(j->>'requestedAt')::timestamptz,j->>'status',j->>'reference',j->>'failure',(j->>'completedAt')::timestamptz
+FROM (SELECT id payment_id,snapshot::jsonb->'refund' j FROM pm_payment_work) old WHERE j->>'id' IS NOT NULL ON CONFLICT(id) DO NOTHING;
+]]></sql>
+        <addNotNullConstraint tableName="oc_checkout" columnName="inventory_mode" columnDataType="varchar(30)"/>
+        <addNotNullConstraint tableName="oc_checkout" columnName="discount_amount" columnDataType="numeric(19,2)"/>
+        <addNotNullConstraint tableName="oc_checkout" columnName="discount_currency" columnDataType="varchar(3)"/>
+        <addNotNullConstraint tableName="oc_checkout" columnName="total_amount" columnDataType="numeric(19,2)"/>
+        <addNotNullConstraint tableName="oc_checkout" columnName="total_currency" columnDataType="varchar(3)"/>
+        <addNotNullConstraint tableName="oc_order" columnName="status" columnDataType="varchar(40)"/>
+        <addNotNullConstraint tableName="oc_order" columnName="inventory_mode" columnDataType="varchar(30)"/>
+        <addNotNullConstraint tableName="oc_order" columnName="discount_amount" columnDataType="numeric(19,2)"/>
+        <addNotNullConstraint tableName="oc_order" columnName="discount_currency" columnDataType="varchar(3)"/>
+        <addNotNullConstraint tableName="oc_order" columnName="total_amount" columnDataType="numeric(19,2)"/>
+        <addNotNullConstraint tableName="oc_order" columnName="total_currency" columnDataType="varchar(3)"/>
+        <addNotNullConstraint tableName="oc_saga" columnName="event_id" columnDataType="uuid"/>
+        <addNotNullConstraint tableName="oc_saga" columnName="owner_id" columnDataType="bigint"/>
+        <addNotNullConstraint tableName="oc_saga" columnName="fingerprint" columnDataType="varchar(64)"/>
+        <addNotNullConstraint tableName="oc_saga" columnName="deadline" columnDataType="timestamp with time zone"/>
+        <addNotNullConstraint tableName="pm_payment_work" columnName="amount" columnDataType="numeric(19,2)"/>
+        <addNotNullConstraint tableName="pm_payment_work" columnName="fee" columnDataType="numeric(19,2)"/>
+        <addNotNullConstraint tableName="pm_payment_work" columnName="callback_secret" columnDataType="varchar(200)"/>
+        <addNotNullConstraint tableName="pm_payment_work" columnName="deadline" columnDataType="timestamp with time zone"/>
+        <addNotNullConstraint tableName="pm_payment_work" columnName="abandoned" columnDataType="boolean"/>
+        <addNotNullConstraint tableName="pm_payment_work" columnName="review_required" columnDataType="boolean"/>
+        <addNotNullConstraint tableName="pm_payment_work" columnName="operation_acknowledged" columnDataType="boolean"/>
+        <addNotNullConstraint tableName="pm_payment_work" columnName="status" columnDataType="varchar(30)"/>
+        <addUniqueConstraint tableName="pm_refund_history" columnNames="payment_id,id" constraintName="uk_pm_refund_payment_id"/>
+        <addForeignKeyConstraint baseTableName="pm_payment_work" baseColumnNames="id,current_refund_id" referencedTableName="pm_refund_history" referencedColumnNames="payment_id,id" constraintName="fk_pm_current_refund" deferrable="true" initiallyDeferred="true"/>
+        <createIndex tableName="pm_payment_work" indexName="ix_pm_payment_review">
+            <column name="review_required"/>
+            <column name="operation_state"/>
+        </createIndex>
+        <dropColumn tableName="oc_checkout" columnName="snapshot"/>
+        <dropColumn tableName="oc_order" columnName="snapshot"/>
+        <dropColumn tableName="oc_saga" columnName="snapshot"/>
+        <dropColumn tableName="pm_payment_work" columnName="snapshot"/>
+    </changeSet>
+</databaseChangeLog>

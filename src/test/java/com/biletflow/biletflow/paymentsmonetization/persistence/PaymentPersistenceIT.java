@@ -3,14 +3,17 @@ package com.biletflow.biletflow.paymentsmonetization.persistence;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.biletflow.biletflow.IntegrationTest;
+import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.common.events.*;
 import com.biletflow.biletflow.common.persistence.JsonCodec;
 import com.biletflow.biletflow.paymentsmonetization.application.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.*;
+import com.biletflow.biletflow.paymentsmonetization.infrastructure.halyk.EncryptedJpaPaymentSessionStore;
 import com.biletflow.biletflow.ticketinventory.domain.ticket.*;
 import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeId;
+import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.*;
@@ -29,6 +32,12 @@ class PaymentPersistenceIT {
 
     @Autowired
     JdbcTemplate jdbc;
+
+    @Autowired
+    EntityManager entities;
+
+    @Autowired
+    TransactionLocks locks;
 
     @Autowired
     JsonCodec json;
@@ -134,8 +143,10 @@ class PaymentPersistenceIT {
         assertEquals(second.getId(), loaded.payment.getRefund().orElseThrow().getId());
         assertEquals(2, jdbc.queryForObject("select count(*) from pm_refund_history where payment_id=?", Integer.class, w.id));
         assertEquals("FAILED", jdbc.queryForObject("select status from pm_refund_history where id=?", String.class, first.getId().value()));
-        jdbc.update("delete from pm_refund_history where payment_id=?", w.id);
-        jdbc.update("delete from pm_payment_work where id=?", w.id);
+        tx().executeWithoutResult(status -> {
+            jdbc.update("delete from pm_refund_history where payment_id=?", w.id);
+            jdbc.update("delete from pm_payment_work where id=?", w.id);
+        });
     }
 
     @Test
@@ -179,6 +190,109 @@ class PaymentPersistenceIT {
             changed.countDown();
             pool.shutdownNow();
             tx().executeWithoutResult(status -> jdbc.update("delete from ticket_inventory_ticket where id=?", ticket.getId().value()));
+        }
+    }
+
+    @Test
+    void relationalPaymentStateIsQueryableAndLedgerIsIdempotent() {
+        var work = work();
+        tx().executeWithoutResult(status -> works.insert(work));
+        try {
+            tx().executeWithoutResult(status -> {
+                work.payment.succeed(UUID.randomUUID().toString(), Instant.now());
+                works.save(work);
+                entities.flush();
+                entities.clear();
+                var stored = entities.find(PaymentWorkJpaEntity.class, work.id);
+                assertEquals(work.amount, stored.amount);
+                assertEquals("SUCCEEDED", stored.status);
+                var ledger = new JpaPaymentLedger(entities, key -> {}, Clock.systemUTC());
+                ledger.charge(work);
+                ledger.charge(work);
+                entities.flush();
+            });
+            assertEquals(1, jdbc.queryForObject("select count(*) from pm_ledger where payment_id=?", Integer.class, work.id));
+            assertEquals(
+                0,
+                jdbc.queryForObject(
+                    "select count(*) from information_schema.columns where table_schema=current_schema() and table_name='pm_payment_work' and column_name='snapshot'",
+                    Integer.class
+                )
+            );
+        } finally {
+            tx().executeWithoutResult(status -> {
+                jdbc.update("delete from pm_ledger where payment_id=?", work.id);
+                jdbc.update("delete from pm_payment_work where id=?", work.id);
+            });
+        }
+    }
+
+    @Test
+    void refreshAfterLockDoesNotReuseStateReadBeforeAnotherTransactionCommits() throws Exception {
+        var work = work();
+        tx().executeWithoutResult(status -> works.insert(work));
+        var loaded = new CountDownLatch(1);
+        var changed = new CountDownLatch(1);
+        var pool = Executors.newSingleThreadExecutor();
+        try {
+            var reader = pool.submit(() ->
+                tx().execute(status -> {
+                    works.find(work.id).orElseThrow();
+                    loaded.countDown();
+                    try {
+                        if (!changed.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Timed out");
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(e);
+                    }
+                    return works.find(work.id).orElseThrow().status();
+                })
+            );
+            assertTrue(loaded.await(10, TimeUnit.SECONDS));
+            tx().executeWithoutResult(status -> {
+                var latest = works.find(work.id).orElseThrow();
+                latest.payment.succeed("verified", Instant.now());
+                works.save(latest);
+            });
+            changed.countDown();
+            assertEquals("SUCCEEDED", reader.get(10, TimeUnit.SECONDS));
+        } finally {
+            changed.countDown();
+            pool.shutdownNow();
+            jdbc.update("delete from pm_payment_work where id=?", work.id);
+        }
+    }
+
+    @Test
+    void encryptedSessionClaimsCannotPublishOrDeleteASupersedingClaim() {
+        var work = work();
+        tx().executeWithoutResult(status -> works.insert(work));
+        var store = new EncryptedJpaPaymentSessionStore(entities, json, locks, manager, Base64.getEncoder().encodeToString(new byte[32]));
+        Instant now = Instant.now();
+        UUID first = UUID.randomUUID(),
+            second = UUID.randomUUID();
+        var form = new PaymentGateway.Session(Map.of(), "sandbox-script", Map.of("auth", Map.of("expires_in", 7200)));
+        try {
+            assertNull(store.claim(work.id, first, now));
+            assertThrows(IllegalStateException.class, () -> store.claim(work.id, second, now.plusSeconds(1)));
+            assertNull(store.claim(work.id, second, now.plusSeconds(61)));
+            assertThrows(IllegalStateException.class, () -> store.complete(work.id, first, form, work.deadline, now.plusSeconds(62)));
+            store.release(work.id, first);
+            assertEquals(second, jdbc.queryForObject("select claim_id from pm_payment_session where payment_id=?", UUID.class, work.id));
+            store.complete(work.id, second, form, work.deadline, now.plusSeconds(62));
+            store.release(work.id, second);
+            assertEquals(form, store.claim(work.id, UUID.randomUUID(), now.plusSeconds(63)));
+            String payload = jdbc.queryForObject(
+                "select encrypted_payload from pm_payment_session where payment_id=?",
+                String.class,
+                work.id
+            );
+            assertFalse(payload.contains("sandbox-script"));
+        } finally {
+            tx().executeWithoutResult(status -> {
+                jdbc.update("delete from pm_payment_session where payment_id=?", work.id);
+                jdbc.update("delete from pm_payment_work where id=?", work.id);
+            });
         }
     }
 

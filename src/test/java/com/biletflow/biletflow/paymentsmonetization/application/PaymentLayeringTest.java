@@ -52,4 +52,20 @@ class PaymentLayeringTest {
             }
         }
     }
+
+    @Test
+    void aggregatePersistenceUsesJpaRatherThanJdbcOrJson() throws IOException {
+        for (String context : List.of("paymentsmonetization", "ordercheckout")) {
+            try (var files = Files.walk(root.resolve(context).resolve("persistence"))) {
+                for (Path file : files.filter(path -> path.toString().endsWith(".java")).toList()) {
+                    String source = Files.readString(file);
+                    assertFalse(source.contains("JdbcTemplate"), file + " uses JDBC aggregate persistence");
+                    if (!file.getFileName().toString().equals("JsonCheckoutFingerprint.java")) assertFalse(
+                        source.contains("JsonCodec"),
+                        file + " serializes aggregate state"
+                    );
+                }
+            }
+        }
+    }
 }

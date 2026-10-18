@@ -10,7 +10,7 @@ The payment saga coordinates the backend purchase lifecycle: free registration, 
 - **Event Management** publishes event sales/authorization facts through its OHS. Payment code does not import EM domain objects.
 - **common/events** contains a PostgreSQL transactional outbox. PM publishes payment outcome facts in the same transaction as financial state. One durable consumer per event type handles them; its local effects and acknowledgement commit together. Failures roll back and retry after 30 seconds indefinitely. A broker is unnecessary for this modular monolith.
 
-Repositories keep explicit JSON persistence DTOs in BC-owned tables, with relational identifiers, indexes and uniqueness constraints. Domain aggregates have no Spring/JPA/Jackson dependencies. OC repository interfaces have JDBC adapters. The PM settlement process and financial aggregates belong to the domain; application repository ports persist their explicit snapshots. Local OHS effects use the shared Spring/JPA database transaction; HTTP requests never hold database transactions open.
+Repositories map domain aggregates to separate JPA entities and relational columns in BC-owned tables. Checkout and order items, checkout holds and attendee lines use ordered child tables; payment refund attempts are retained as separate rows. Domain aggregates have no Spring/JPA/Jackson dependencies. Liquibase owns schema changes. Local OHS effects share the Spring/JPA database transaction; bank HTTP requests run outside database transactions. PostgreSQL-specific SQL is limited to transactional advisory locks and the outbox's idempotent publication and worker claiming. Provider form data remains serialized inside encrypted session payloads.
 
 Application services coordinate authorization, repository access, transaction boundaries and effects. `PaymentTerms`, `PaymentWork` and `PaymentSettlement` own pricing, lifecycle guards and settlement decisions. Infrastructure adapters own Halyk protocol details, encrypted form storage, hashing, scheduling and database access.
 
@@ -156,11 +156,11 @@ Run with the project's normal Java 21/Docker setup:
 
 ```bash
 ./gradlew test --tests '*PaymentSagaTest' --tests '*PaymentSettlementTest' --tests '*PaymentLayeringTest' --tests '*HalykGatewayTest' --tests '*InventoryCompensationTest'
-./gradlew integrationTest --tests '*PaymentPersistenceIT'
+./gradlew integrationTest --tests '*PaymentPersistenceIT' --tests '*CheckoutPersistenceIT' --tests '*PaymentSchemaMigrationIT'
 ./gradlew test
 ```
 
-The isolated saga tests use the real application/domain code and fake bank/inventory/repositories. They cover capture, void, refund uncertainty, late capture, delayed/reordered/duplicate outcomes, issuance failure, idempotency, callback authentication, authorization, activation compensation and admission blocking. The integration tests exercise producer rollback, JPA consumer rollback with outbox acknowledgement, concurrent leases, refresh of stale ticket state, actual JSON persistence and refund history against PostgreSQL.
+The isolated saga tests use the real application/domain code and fake bank/inventory/repositories. They cover capture, void, refund uncertainty, late capture, delayed/reordered/duplicate outcomes, issuance failure, idempotency, callback authentication, authorization, activation compensation and admission blocking. The migration test applies the payment schema and its relational upgrade in an isolated PostgreSQL schema, checking existing purchases, refund history, encrypted sessions and invoice sequence continuity. The persistence integration tests exercise producer rollback, JPA consumer rollback with outbox acknowledgement, concurrent leases, refresh of stale ticket state, JPA aggregate persistence, ordered value collections and refund history against PostgreSQL.
 
 `PaymentSettlementTest` exercises financial policy without framework dependencies. `PaymentLayeringTest` guards application and domain dependency boundaries. Automated tests use controlled provider responses; the end-to-end walkthrough above exercises the hosted sandbox payment flow.
 
