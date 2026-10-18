@@ -61,6 +61,13 @@ public final class GeneralAdmissionInventory implements InventoryMode {
 
     public void releaseReservation(InventoryReservationId reservationId, SessionId sessionId) {
         InventoryReservation reservation = findReservation(reservationId);
+        if (!reservation.getSessionId().equals(sessionId)) throw new IllegalStateException(
+            "Reservation belongs to another checkout session"
+        );
+        if (
+            reservation.getStatus() == com.biletflow.biletflow.ticketinventory.domain.eventinventory.ga.ReservationStatus.RELEASED ||
+            reservation.getStatus() == com.biletflow.biletflow.ticketinventory.domain.eventinventory.ga.ReservationStatus.EXPIRED
+        ) return;
         reservation.release(sessionId);
 
         InventoryCounters current = requireCounters(reservation.getTicketTypeId());

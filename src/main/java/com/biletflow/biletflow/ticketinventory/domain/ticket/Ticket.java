@@ -137,6 +137,28 @@ public class Ticket {
         return true;
     }
 
+    /** Locks admission while the bank refund is unresolved; inventory remains sold until confirmation. */
+    public void prepareRefund() {
+        if (status == TicketStatus.REFUND_PENDING || status == TicketStatus.REFUNDED) return;
+        if (status != TicketStatus.VALID) throw new IllegalStateException("Only unused tickets can be refunded");
+        status = TicketStatus.REFUND_PENDING;
+    }
+
+    public void restoreAfterFailedRefund() {
+        if (status == TicketStatus.REFUND_PENDING) status = TicketStatus.VALID;
+    }
+
+    /** A verified bank refund must invalidate admission even if it was performed outside this application. */
+    public boolean applyConfirmedRefund() {
+        if (status == TicketStatus.REFUNDED) return false;
+        if (status == TicketStatus.CANCELLED) {
+            status = TicketStatus.REFUNDED;
+            return false; // Cancellation already released this allocation; a refund must not release it again.
+        }
+        status = TicketStatus.REFUNDED;
+        return true;
+    }
+
     public TicketId getId() {
         return id;
     }

@@ -160,3 +160,7 @@ BiletFlow was generated with JHipster 9.3.0.
 JHipster documentation:
 
 https://www.jhipster.tech/documentation-archive/v9.3.0
+
+## Halyk sandbox checkout
+
+See [Payment saga setup and end-to-end testing](docs/payment-saga.md).

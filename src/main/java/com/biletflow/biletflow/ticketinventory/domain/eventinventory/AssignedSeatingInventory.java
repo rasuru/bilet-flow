@@ -63,7 +63,10 @@ public final class AssignedSeatingInventory implements InventoryMode {
     }
 
     public void releaseHold(SeatHoldId holdId, SessionId sessionId) {
-        findHold(holdId).release(sessionId);
+        SeatHold hold = findHold(holdId);
+        if (!hold.getSessionId().equals(sessionId)) throw new IllegalStateException("Seat hold belongs to another checkout session");
+        if (hold.getStatus() == SeatHoldStatus.RELEASED || hold.getStatus() == SeatHoldStatus.EXPIRED) return;
+        hold.release(sessionId);
     }
 
     public void cancelSale(SeatId seatId, OrderId orderId) {

@@ -4,4 +4,6 @@ public enum ActivationFeePaymentStatus {
     PENDING,
     SUCCEEDED,
     FAILED,
+    REFUND_REQUESTED,
+    REFUNDED,
 }

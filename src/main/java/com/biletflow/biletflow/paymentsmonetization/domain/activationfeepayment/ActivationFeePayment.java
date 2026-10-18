@@ -75,6 +75,20 @@ public class ActivationFeePayment {
         this.paidAt = now;
     }
 
+    public void reconcileCharge(String reference, Instant now) {
+        Objects.requireNonNull(reference);
+        Objects.requireNonNull(now);
+        if (paidAt != null) {
+            if (!reference.equals(providerReference)) throw new InvalidPaymentStateException("Conflicting provider transaction");
+            return;
+        }
+        status = ActivationFeePaymentStatus.SUCCEEDED;
+        providerReference = reference;
+        paidAt = now;
+        failedAt = null;
+        failureReason = null;
+    }
+
     public void fail(String reason, Instant now) {
         Objects.requireNonNull(now, "now cannot be null");
         ensurePending();
@@ -82,6 +96,19 @@ public class ActivationFeePayment {
         this.status = ActivationFeePaymentStatus.FAILED;
         this.failureReason = reason;
         this.failedAt = now;
+    }
+
+    /** System compensation for a fee that cannot activate sales; no customer fee-refund policy is implied. */
+    public void requestCompensatingRefund() {
+        if (status == ActivationFeePaymentStatus.REFUND_REQUESTED || status == ActivationFeePaymentStatus.REFUNDED) return;
+        if (status != ActivationFeePaymentStatus.SUCCEEDED) throw new InvalidPaymentStateException("Fee has not been captured");
+        status = ActivationFeePaymentStatus.REFUND_REQUESTED;
+    }
+
+    public void completeCompensatingRefund() {
+        if (status == ActivationFeePaymentStatus.REFUNDED) return;
+        if (status != ActivationFeePaymentStatus.REFUND_REQUESTED) throw new InvalidPaymentStateException("Fee refund was not requested");
+        status = ActivationFeePaymentStatus.REFUNDED;
     }
 
     public boolean hasSucceeded() {

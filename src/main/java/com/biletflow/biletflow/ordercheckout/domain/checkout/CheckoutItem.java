@@ -4,4 +4,6 @@ import com.biletflow.biletflow.common.domain.Money;
 
 public sealed interface CheckoutItem permits GeneralAdmissionCheckoutItem, AssignedSeatingCheckoutItem {
     Money getPrice();
+
+    java.util.UUID getTicketTypeId();
 }

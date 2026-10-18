@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BiletFlow sandbox payment tester</title>
+<style>
+  body { max-width: 720px; margin: 48px auto; padding: 0 20px; font: 16px/1.5 system-ui; color: #182232; }
+  label { display: block; margin-top: 18px; } input { box-sizing: border-box; width: 100%; padding: 10px; }
+  button { padding: 10px 16px; margin: 20px 8px 0 0; cursor: pointer; } pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f2f4f8; padding: 16px; }
+</style>
+<h1>Halyk sandbox payment tester</h1>
+<p>Test transactions only. Card entry takes place on Halyk's payment page. A browser redirect does not confirm payment.</p>
+<label>Backend URL <input id="backend" value="http://localhost:8080" autocomplete="off"></label>
+<label>JWT bearer token <input id="token" type="password" autocomplete="off"></label>
+<label>Payment ID <input id="payment" autocomplete="off" placeholder="UUID from activation or checkout"></label>
+<button id="pay">Open Halyk test payment</button><button id="status">Check payment and order</button>
+<pre id="output" aria-live="polite">Start with an activation payment or paid checkout from the API. Paste its payment ID here.</pre>
+<script>
+const output = document.querySelector('#output');
+const scriptUrl = 'https://test-epay.epayment.kz/payform/payment-api.js';
+async function api(path, method = 'GET') {
+  const base = document.querySelector('#backend').value.replace(/\/+$/, '');
+  const bearer = document.querySelector('#token').value.trim();
+  if (!bearer) throw new Error('Enter a bearer token.');
+  const response = await fetch(base + path, { method, headers: { Authorization: 'Bearer ' + bearer }, cache: 'no-store' });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Request failed: ' + response.status);
+  return data;
+}
+function paymentId() {
+  const id = document.querySelector('#payment').value.trim();
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Enter a payment UUID.');
+  return id;
+}
+async function loadHalyk() {
+  if (window.halyk) return;
+  await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = scriptUrl; script.onload = resolve; script.onerror = () => reject(new Error('Could not load Halyk sandbox script.')); document.head.append(script); });
+}
+document.querySelector('#pay').onclick = async () => {
+  const button = document.querySelector('#pay'); button.disabled = true;
+  try { const data = await api('/api/payments/' + paymentId() + '/session', 'POST');
+    if (data.scriptUrl !== scriptUrl) throw new Error('Unexpected bank script URL.');
+    await loadHalyk(); output.textContent = 'Opening Halyk sandbox. After payment, check the verified order status.'; window.halyk.pay(data.paymentObject);
+  } catch (error) { output.textContent = error.message; } finally { button.disabled = false; }
+};
+document.querySelector('#status').onclick = async () => {
+  try { const payment = await api('/api/payments/' + paymentId());
+    const checkout = payment.orderId ? await api('/api/checkouts/' + payment.orderId) : null;
+    output.textContent = JSON.stringify({ payment, checkout }, null, 2);
+  } catch (error) { output.textContent = error.message; }
+};
+</script>
+</html>
+
