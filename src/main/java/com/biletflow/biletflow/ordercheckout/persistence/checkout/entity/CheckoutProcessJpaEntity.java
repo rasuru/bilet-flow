@@ -2,7 +2,6 @@ package com.biletflow.biletflow.ordercheckout.persistence.checkout.entity;
 
 import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutRefundStatus;
 import jakarta.persistence.*;
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
 

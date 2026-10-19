@@ -296,14 +296,6 @@ public class PaymentWorkJpaEntity {
         return currentRefundId;
     }
 
-    public Instant getNextPoll() {
-        return nextPoll;
-    }
-
-    public Instant getLeaseUntil() {
-        return leaseUntil;
-    }
-
     public long getVersion() {
         return version;
     }

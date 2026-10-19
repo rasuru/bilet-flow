@@ -2,7 +2,6 @@ package com.biletflow.biletflow.paymentsmonetization.persistence.payment.entity;
 
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.RefundStatus;
 import jakarta.persistence.*;
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
 

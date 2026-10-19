@@ -6,7 +6,6 @@ import com.biletflow.biletflow.IntegrationTest;
 import com.biletflow.biletflow.common.persistence.JsonCodec;
 import java.math.BigDecimal;
 import java.sql.Connection;
-import java.time.Instant;
 import java.util.*;
 import javax.sql.DataSource;
 import liquibase.integration.spring.SpringLiquibase;

@@ -1,14 +1,8 @@
 package com.biletflow.biletflow.ordercheckout.persistence.order;
 
 import com.biletflow.biletflow.common.domain.Money;
-import com.biletflow.biletflow.ordercheckout.application.CheckoutProcess;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.*;
-import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
 import com.biletflow.biletflow.ordercheckout.domain.order.*;
-import com.biletflow.biletflow.ordercheckout.persistence.checkout.entity.CheckoutHoldJpaEmbeddable;
-import com.biletflow.biletflow.ordercheckout.persistence.checkout.entity.CheckoutJpaEntity;
-import com.biletflow.biletflow.ordercheckout.persistence.checkout.entity.CheckoutLineJpaEmbeddable;
-import com.biletflow.biletflow.ordercheckout.persistence.checkout.entity.CheckoutProcessJpaEntity;
 import com.biletflow.biletflow.ordercheckout.persistence.common.entity.PurchaseItemJpaEmbeddable;
 import com.biletflow.biletflow.ordercheckout.persistence.order.entity.OrderJpaEntity;
 import java.util.*;

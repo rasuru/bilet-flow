@@ -2,7 +2,6 @@ package com.biletflow.biletflow.paymentsmonetization.persistence.activation.enti
 
 import com.biletflow.biletflow.paymentsmonetization.domain.activation.EventPaidSalesActivationStatus;
 import jakarta.persistence.*;
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
 

@@ -56,36 +56,4 @@ public class LedgerEntryJpaEntity {
         this.fee = fee;
         this.createdAt = createdAt;
     }
-
-    public String getId() {
-        return id;
-    }
-
-    public UUID getPaymentId() {
-        return paymentId;
-    }
-
-    public UUID getEventId() {
-        return eventId;
-    }
-
-    public long getOrganizerId() {
-        return organizerId;
-    }
-
-    public LedgerEntryKind getKind() {
-        return kind;
-    }
-
-    public BigDecimal getAmount() {
-        return amount;
-    }
-
-    public BigDecimal getFee() {
-        return fee;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
 }

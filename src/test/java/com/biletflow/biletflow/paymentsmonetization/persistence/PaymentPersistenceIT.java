@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.biletflow.biletflow.IntegrationTest;
 import com.biletflow.biletflow.common.application.TransactionLocks;
-import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.common.events.*;
 import com.biletflow.biletflow.common.persistence.JsonCodec;
 import com.biletflow.biletflow.paymentsmonetization.application.*;

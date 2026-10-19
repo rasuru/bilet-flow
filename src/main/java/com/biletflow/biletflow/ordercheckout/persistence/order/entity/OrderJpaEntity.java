@@ -6,7 +6,6 @@ import com.biletflow.biletflow.ordercheckout.domain.order.OrderStatus;
 import com.biletflow.biletflow.ordercheckout.persistence.common.entity.PurchaseItemJpaEmbeddable;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.*;
 
 @Entity

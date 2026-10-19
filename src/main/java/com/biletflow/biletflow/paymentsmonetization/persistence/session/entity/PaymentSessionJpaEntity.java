@@ -1,7 +1,6 @@
 package com.biletflow.biletflow.paymentsmonetization.persistence.session.entity;
 
 import jakarta.persistence.*;
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
 
@@ -46,10 +45,6 @@ public class PaymentSessionJpaEntity {
         this.expiresAt = expiresAt;
     }
 
-    public UUID getPaymentId() {
-        return paymentId;
-    }
-
     public UUID getClaimId() {
         return claimId;
     }
@@ -64,9 +59,5 @@ public class PaymentSessionJpaEntity {
 
     public Instant getExpiresAt() {
         return expiresAt;
-    }
-
-    public long getVersion() {
-        return version;
     }
 }

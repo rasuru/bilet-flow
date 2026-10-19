@@ -5,8 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.*;
 import com.biletflow.biletflow.paymentsmonetization.persistence.payment.PaymentPersistenceMapper;
 import com.biletflow.biletflow.paymentsmonetization.persistence.payment.PaymentPersistenceMapper;
-import com.biletflow.biletflow.paymentsmonetization.persistence.payment.entity.PaymentWorkJpaEntity;
-import com.biletflow.biletflow.paymentsmonetization.persistence.payment.entity.RefundJpaEntity;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;

@@ -31,10 +31,7 @@ import org.junit.jupiter.api.Test;
 /** Isolated application tests: real services/domain, fake bank and repositories. Database guarantees have separate ITs. */
 public class PaymentSagaTest {
 
-    private static int assertions;
-
     private static void check(boolean condition, String message) {
-        assertions++;
         if (!condition) throw new AssertionError(message);
     }
 
@@ -476,20 +473,6 @@ public class PaymentSagaTest {
         public void release(UUID paymentId, UUID claim) {
             released = claim;
         }
-    }
-
-    public static void main(String[] args) throws Exception {
-        int tests = 0;
-        for (var method : PaymentSagaTest.class.getDeclaredMethods())
-            if (method.isAnnotationPresent(Test.class)) {
-                try {
-                    method.invoke(new PaymentSagaTest());
-                    tests++;
-                } catch (java.lang.reflect.InvocationTargetException e) {
-                    throw new AssertionError(method.getName(), e.getCause());
-                }
-            }
-        System.out.println(tests + " saga tests passed; " + assertions + " assertions");
     }
 
     static final class MutableClock extends Clock {

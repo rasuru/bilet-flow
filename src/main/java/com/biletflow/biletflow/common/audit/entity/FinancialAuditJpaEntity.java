@@ -1,7 +1,6 @@
 package com.biletflow.biletflow.common.audit.entity;
 
 import jakarta.persistence.*;
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
 
@@ -49,33 +48,5 @@ public class FinancialAuditJpaEntity {
         this.action = action;
         this.occurredAt = occurredAt;
         this.details = details;
-    }
-
-    public UUID getId() {
-        return id;
-    }
-
-    public String getContext() {
-        return context;
-    }
-
-    public UUID getAggregateId() {
-        return aggregateId;
-    }
-
-    public Long getActor() {
-        return actor;
-    }
-
-    public String getAction() {
-        return action;
-    }
-
-    public Instant getOccurredAt() {
-        return occurredAt;
-    }
-
-    public String getDetails() {
-        return details;
     }
 }

@@ -23,12 +23,4 @@ public class CheckoutHoldJpaEmbeddable {
     public Hold toDomain() {
         return new Hold(referenceId, assignedSeat);
     }
-
-    public UUID getReferenceId() {
-        return referenceId;
-    }
-
-    public boolean isAssignedSeat() {
-        return assignedSeat;
-    }
 }

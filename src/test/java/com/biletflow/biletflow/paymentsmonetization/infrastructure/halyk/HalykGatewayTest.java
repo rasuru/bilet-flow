@@ -6,7 +6,6 @@ import com.biletflow.biletflow.paymentsmonetization.application.PaymentProviderU
 import com.biletflow.biletflow.paymentsmonetization.config.HalykProperties;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentOperation;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentTerms;
-import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.SettlementStatus;
 import java.math.BigDecimal;
 import java.net.http.HttpRequest;
