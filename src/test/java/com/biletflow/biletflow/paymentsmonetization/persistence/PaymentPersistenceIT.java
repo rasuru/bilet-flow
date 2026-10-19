@@ -103,11 +103,13 @@ class PaymentPersistenceIT {
         assertTrue(tickets.findById(ticket.getId()).isEmpty());
         assertNull(jdbc.queryForObject("select delivered_at from common_outbox where id=?", Timestamp.class, id));
         fail.set(false);
-        jdbc.update("update common_outbox set available_at=? where id=?", Timestamp.from(Instant.EPOCH), id);
+        tx().executeWithoutResult(status ->
+            jdbc.update("update common_outbox set available_at=? where id=?", Timestamp.from(Instant.EPOCH), id)
+        );
         bus.dispatch();
         assertTrue(tickets.findById(ticket.getId()).isPresent());
         assertNotNull(jdbc.queryForObject("select delivered_at from common_outbox where id=?", Timestamp.class, id));
-        jdbc.update("delete from common_outbox where id=?", id);
+        tx().executeWithoutResult(status -> jdbc.update("delete from common_outbox where id=?", id));
         tx().executeWithoutResult(s -> jdbc.update("delete from ticket_inventory_ticket where id=?", ticket.getId().value()));
     }
 
@@ -128,7 +130,7 @@ class PaymentPersistenceIT {
             assertNotEquals(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
         } finally {
             pool.shutdownNow();
-            jdbc.update("delete from pm_payment_work where id=?", w.getId());
+            tx().executeWithoutResult(status -> jdbc.update("delete from pm_payment_work where id=?", w.getId()));
         }
     }
 

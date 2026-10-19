@@ -14,7 +14,7 @@ spring:
     hikari:
       auto-commit: false
       poolName: Hikari
-      maximum-pool-size: 1
+      maximum-pool-size: 4 # Concurrent integration tests need independent transaction connections.
   jpa:
     open-in-view: false
     hibernate:
