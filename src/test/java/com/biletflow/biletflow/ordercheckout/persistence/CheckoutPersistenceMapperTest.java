@@ -7,6 +7,12 @@ import com.biletflow.biletflow.ordercheckout.application.CheckoutProcess;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.*;
 import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
 import com.biletflow.biletflow.ordercheckout.domain.order.*;
+import com.biletflow.biletflow.ordercheckout.persistence.checkout.CheckoutProcessPersistenceMapper;
+import com.biletflow.biletflow.ordercheckout.persistence.checkout.CheckoutSessionPersistenceMapper;
+import com.biletflow.biletflow.ordercheckout.persistence.checkout.entity.CheckoutJpaEntity;
+import com.biletflow.biletflow.ordercheckout.persistence.checkout.entity.CheckoutProcessJpaEntity;
+import com.biletflow.biletflow.ordercheckout.persistence.order.OrderPersistenceMapper;
+import com.biletflow.biletflow.ordercheckout.persistence.order.entity.OrderJpaEntity;
 import com.biletflow.biletflow.ticketinventory.ohs.CheckoutInventoryOhs.*;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -17,7 +23,7 @@ class CheckoutPersistenceMapperTest {
 
     @Test
     void pricesPromotionSeatsAndOrderCancellationSurviveMapping() {
-        var mapper = new CheckoutPersistenceMapper();
+        var mapper = new CheckoutSessionPersistenceMapper();
         UUID type = UUID.randomUUID(),
             first = UUID.randomUUID(),
             second = UUID.randomUUID(),
@@ -27,9 +33,8 @@ class CheckoutPersistenceMapperTest {
         session.addItem(new AssignedSeatingCheckoutItem(type, second, Money.kzt(new BigDecimal("2000"))));
         session.applyPromotion(UUID.randomUUID(), Money.kzt(new BigDecimal("500")));
         session.awaitPayment();
-        var row = new CheckoutJpaEntity();
-        mapper.update(session, row);
-        var restored = mapper.domain(row);
+        var row = mapper.toNewEntity(session);
+        var restored = mapper.toDomain(row);
         assertEquals(session.getPromotionId(), restored.getPromotionId());
         assertEquals(session.getFinalPrice(), restored.getFinalPrice());
         assertEquals(first, ((AssignedSeatingCheckoutItem) restored.getItems().get(0)).getSeatId());
@@ -37,9 +42,9 @@ class CheckoutPersistenceMapperTest {
         restored.confirmPayment(payment);
         var order = Order.createFromCheckout(restored);
         order.cancelOrderByManager();
-        var sale = new OrderJpaEntity();
-        mapper.update(order, sale);
-        var loaded = mapper.domain(sale);
+        var orderMapper = new OrderPersistenceMapper();
+        var sale = orderMapper.toNewEntity(order);
+        var loaded = orderMapper.toDomain(sale);
         assertEquals(order.getStatus(), loaded.getStatus());
         assertEquals(order.getCancellationReason(), loaded.getCancellationReason());
         assertEquals(payment, loaded.getPaymentId());
@@ -48,7 +53,7 @@ class CheckoutPersistenceMapperTest {
 
     @Test
     void attendeeAndHoldOrderIsPreservedWithoutSharingMutableCollections() {
-        var mapper = new CheckoutPersistenceMapper();
+        var mapper = new CheckoutProcessPersistenceMapper();
         UUID seat1 = UUID.randomUUID(),
             seat2 = UUID.randomUUID(),
             type = UUID.randomUUID();
@@ -64,15 +69,14 @@ class CheckoutPersistenceMapperTest {
             ),
             List.of(new Hold(seat1, true), new Hold(seat2, true)),
             UUID.randomUUID(),
-            "PENDING",
+            CheckoutRefundStatus.PENDING,
             UUID.randomUUID()
         );
-        var entity = new CheckoutProcessJpaEntity();
-        mapper.update(process, entity);
-        var loaded = mapper.domain(entity);
+        var entity = mapper.toNewEntity(process);
+        var loaded = mapper.toDomain(entity);
         assertEquals(process, loaded);
-        entity.lines.clear();
-        entity.holds.clear();
+        assertThrows(UnsupportedOperationException.class, () -> entity.getLines().clear());
+        assertThrows(UnsupportedOperationException.class, () -> entity.getHolds().clear());
         assertEquals(2, loaded.lines().size());
         assertEquals(2, loaded.holds().size());
     }

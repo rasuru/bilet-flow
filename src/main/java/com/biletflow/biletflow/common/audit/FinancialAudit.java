@@ -1,7 +1,9 @@
 package com.biletflow.biletflow.common.audit;
 
+import com.biletflow.biletflow.common.audit.entity.FinancialAuditJpaEntity;
 import jakarta.persistence.EntityManager;
 import java.time.Clock;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.*;
@@ -13,8 +15,8 @@ public class FinancialAudit implements com.biletflow.biletflow.common.applicatio
     private final Clock clock;
 
     public FinancialAudit(EntityManager entities, Clock clock) {
-        this.entities = entities;
-        this.clock = clock;
+        this.entities = Objects.requireNonNull(entities, "entities cannot be null");
+        this.clock = Objects.requireNonNull(clock, "clock cannot be null");
     }
 
     @Override
@@ -26,14 +28,6 @@ public class FinancialAudit implements com.biletflow.biletflow.common.applicatio
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void recordDetails(String context, UUID aggregateId, Long actor, String action, String details) {
-        var row = new FinancialAuditJpaEntity();
-        row.id = UUID.randomUUID();
-        row.context = context;
-        row.aggregateId = aggregateId;
-        row.actor = actor;
-        row.action = action;
-        row.occurredAt = clock.instant();
-        row.details = details;
-        entities.persist(row);
+        entities.persist(new FinancialAuditJpaEntity(UUID.randomUUID(), context, aggregateId, actor, action, clock.instant(), details));
     }
 }

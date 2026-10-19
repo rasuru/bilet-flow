@@ -6,14 +6,22 @@ import com.biletflow.biletflow.common.events.*;
 import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.eventmanagement.ohs.dto.*;
 import com.biletflow.biletflow.ordercheckout.application.*;
+import com.biletflow.biletflow.ordercheckout.application.command.CreateCheckoutCommand;
+import com.biletflow.biletflow.ordercheckout.application.view.CheckoutView;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.*;
 import com.biletflow.biletflow.ordercheckout.domain.order.*;
+import com.biletflow.biletflow.paymentsmonetization.application.command.ActivatePaidSalesCommand;
+import com.biletflow.biletflow.paymentsmonetization.application.command.ResolvePaymentOperationCommand;
 import com.biletflow.biletflow.paymentsmonetization.domain.activation.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.activationfeepayment.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.*;
 import com.biletflow.biletflow.paymentsmonetization.ohs.*;
+import com.biletflow.biletflow.ticketinventory.domain.ticket.AttendeeEmail;
+import com.biletflow.biletflow.ticketinventory.domain.ticket.Ticket;
+import com.biletflow.biletflow.ticketinventory.domain.ticket.TicketStatus;
+import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeId;
 import com.biletflow.biletflow.ticketinventory.ohs.CheckoutInventoryOhs;
 import java.math.BigDecimal;
 import java.time.*;
@@ -51,7 +59,7 @@ public class PaymentSagaTest {
         f.deliver();
         check(f.orders.rows.size() == 1, "One order");
         check(f.stock.issued.size() == 1, "One ticket issuance");
-        f.checkout.onOutcome(new PaymentOutcome(w.id, w.orderId, "SUCCEEDED", null));
+        f.checkout.onOutcome(new PaymentOutcome(w.getId(), w.getOrderId(), "SUCCEEDED", null));
         f.observe(w, "CHARGE");
         f.deliver();
         check(f.orders.rows.size() == 1 && f.stock.issued.size() == 1, "Duplicate success does not duplicate fulfillment");
@@ -86,8 +94,16 @@ public class PaymentSagaTest {
         check(Collections.frequency(f.bank.commands, "refund") == 1, "Timeout must not cause a second refund");
         check("PENDING".equals(f.checkout.get(v.id(), 1).refundState()), "Timeout is not refund failure");
         f.observe(w, "REFUND");
-        check(w.reviewRequired, "An ambiguous response cannot prove the full refund amount");
-        f.access.resolve(w.id, 99, w.operationId, "FULL_REFUND_CONFIRMED_COMPLETED", "Bank case confirms full amount returned");
+        check(w.isReviewRequired(), "An ambiguous response cannot prove the full refund amount");
+        f.access.resolve(
+            new ResolvePaymentOperationCommand(
+                w.getId(),
+                99,
+                w.getOperationId(),
+                OperationResolution.FULL_REFUND_CONFIRMED_COMPLETED,
+                "Bank case confirms full amount returned"
+            )
+        );
         f.deliver();
         check("REFUNDED".equals(f.checkout.get(v.id(), 1).refundState()), "Verified full refund completes saga");
         check(f.ledger.refunds.size() == 1 && !f.stock.refundPending, "Refund booked exactly once");
@@ -119,7 +135,7 @@ public class PaymentSagaTest {
         f.observe(w, "CHARGE");
         f.deliver();
         check(f.orders.rows.isEmpty(), "No overselling after hold expiry");
-        check(w.payment.getRefund().isPresent(), "Late payment gets compensation");
+        check(w.getPayment().getRefund().isPresent(), "Late payment gets compensation");
         f.observe(w, "CHARGE");
         check(f.bank.commands.contains("refund"), "Compensation reaches bank");
         f.observe(w, "REFUND");
@@ -135,7 +151,7 @@ public class PaymentSagaTest {
         f.observe(w, "CHARGE");
         f.clock.advance(601);
         f.deliver();
-        check(f.stock.issued.isEmpty() && w.payment.getRefund().isPresent(), "Delayed consumer compensates expired hold");
+        check(f.stock.issued.isEmpty() && w.getPayment().getRefund().isPresent(), "Delayed consumer compensates expired hold");
     }
 
     @Test
@@ -160,7 +176,15 @@ public class PaymentSagaTest {
         var w = f.work(v);
         f.observe(w, "CHARGE");
         f.observe(w, "REFUND");
-        f.access.resolve(w.id, 99, w.operationId, "FULL_REFUND_CONFIRMED_COMPLETED", "Bank case confirms external full refund");
+        f.access.resolve(
+            new ResolvePaymentOperationCommand(
+                w.getId(),
+                99,
+                w.getOperationId(),
+                OperationResolution.FULL_REFUND_CONFIRMED_COMPLETED,
+                "Bank case confirms external full refund"
+            )
+        );
         Collections.reverse(f.queue);
         f.deliver();
         check(f.stock.issued.isEmpty() && f.orders.rows.isEmpty(), "Reordered outcomes cannot issue refunded tickets");
@@ -173,16 +197,16 @@ public class PaymentSagaTest {
         var v = f.start();
         var w = f.work(v);
         f.bank.next = new SettlementEvidence(
-            w.invoiceId,
+            w.getInvoiceId(),
             UUID.randomUUID().toString(),
             new BigDecimal("0.01"),
             "KZT",
             true,
             SettlementStatus.CAPTURED,
-            w.id.toString()
+            w.getId().toString()
         );
-        f.reconciler.reconcile(w.id);
-        check(w.reviewRequired && f.queue.isEmpty() && f.bank.commands.isEmpty(), "Amount mismatch requires review");
+        f.reconciler.reconcile(w.getId());
+        check(w.isReviewRequired() && f.queue.isEmpty() && f.bank.commands.isEmpty(), "Amount mismatch requires review");
     }
 
     @Test
@@ -190,9 +214,9 @@ public class PaymentSagaTest {
         var f = new Fixture();
         var v = f.start();
         var w = f.work(v);
-        fails(() -> f.access.callback(w.invoiceId, "wrong"));
-        f.access.callback(w.invoiceId, w.callbackSecret);
-        check("PENDING".equals(w.status()) && f.queue.isEmpty(), "Callback cannot confirm payment");
+        fails(() -> f.access.callback(w.getInvoiceId(), "wrong"));
+        f.access.callback(w.getInvoiceId(), w.getCallbackSecret());
+        check("PENDING".equals(w.getStatus().name()) && f.queue.isEmpty(), "Callback cannot confirm payment");
     }
 
     @Test
@@ -206,7 +230,7 @@ public class PaymentSagaTest {
         check(f.stock.released.contains(v.id()), "Hold released");
         f.observe(w, "CHARGE");
         f.deliver();
-        check(w.payment.getRefund().isPresent() && f.orders.rows.isEmpty(), "Late contradictory capture is recovered");
+        check(w.getPayment().getRefund().isPresent() && f.orders.rows.isEmpty(), "Late contradictory capture is recovered");
     }
 
     @Test
@@ -224,7 +248,7 @@ public class PaymentSagaTest {
             f.checkout.create(
                 id,
                 1,
-                new CheckoutService.Request(
+                new CreateCheckoutCommand(
                     f.event,
                     List.of(new CheckoutInventoryOhs.Selection(UUID.randomUUID(), List.of(), List.of("other@example.com")))
                 )
@@ -248,39 +272,39 @@ public class PaymentSagaTest {
         var v = f.start();
         var w = f.work(v);
         f.bank.unavailable = true;
-        f.reconciler.reconcile(w.id);
-        check("PENDING".equals(w.status()) && f.queue.isEmpty(), "Transport failure leaves payment unresolved");
+        f.reconciler.reconcile(w.getId());
+        check("PENDING".equals(w.getStatus().name()) && f.queue.isEmpty(), "Transport failure leaves payment unresolved");
     }
 
     @Test
     void activationFeesAreNotOrganizerRevenueAndLateFeesAreRefunded() {
         var f = new Fixture();
         f.activations.rows.clear();
-        UUID id = f.service.activate(f.event, 7, true, true);
+        UUID id = f.service.activate(new ActivatePaidSalesCommand(f.event, 7, true, true));
         var w = f.works.find(id).orElseThrow();
         f.observe(w, "CHARGE");
         check(f.activations.find(f.event).orElseThrow().aggregate().permitsPaidSales(), "Verified activation fee enables paid sales");
         check(f.ledger.charges.isEmpty(), "Activation fee is not ticket revenue");
         var g = new Fixture();
         g.activations.rows.clear();
-        UUID late = g.service.activate(g.event, 7, true, true);
+        UUID late = g.service.activate(new ActivatePaidSalesCommand(g.event, 7, true, true));
         var old = g.works.find(late).orElseThrow();
         g.clock.advance(1801);
-        UUID replacement = g.service.activate(g.event, 7, true, true);
+        UUID replacement = g.service.activate(new ActivatePaidSalesCommand(g.event, 7, true, true));
         check(!replacement.equals(late), "Expired activation may be restarted");
         g.observe(old, "CHARGE");
-        check("REFUND_REQUESTED".equals(old.status()), "Old fee settles to compensation");
+        check("REFUND_REQUESTED".equals(old.getStatus().name()), "Old fee settles to compensation");
         g.observe(old, "CHARGE");
         check(g.bank.commands.contains("refund"), "Late activation fee is refunded");
     }
 
     @Test
     void pendingRefundPreventsCheckInAndExternalRefundInvalidatesUsedTicket() {
-        var t = com.biletflow.biletflow.ticketinventory.domain.ticket.Ticket.issue(
-            new com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeId(UUID.randomUUID()),
+        var t = Ticket.issue(
+            new TicketTypeId(UUID.randomUUID()),
             UUID.randomUUID(),
             new com.biletflow.biletflow.ticketinventory.domain.common.OrderId(UUID.randomUUID()),
-            new com.biletflow.biletflow.ticketinventory.domain.ticket.AttendeeEmail("a@example.com"),
+            new AttendeeEmail("a@example.com"),
             null,
             null,
             Instant.now()
@@ -290,10 +314,7 @@ public class PaymentSagaTest {
         t.restoreAfterFailedRefund();
         t.checkIn();
         t.applyConfirmedRefund();
-        check(
-            t.getStatus() == com.biletflow.biletflow.ticketinventory.domain.ticket.TicketStatus.REFUNDED,
-            "Financial truth invalidates admission"
-        );
+        check(t.getStatus() == TicketStatus.REFUNDED, "Financial truth invalidates admission");
         check(!t.applyConfirmedRefund(), "Repeated financial refund does not release inventory twice");
     }
 
@@ -304,14 +325,29 @@ public class PaymentSagaTest {
         var w = f.work(v);
         f.checkout.refund(v.id(), 7, "Full refund");
         f.observe(w, "CHARGE");
-        UUID op = w.operationId;
-        fails(() -> f.access.resolve(w.id, 99, UUID.randomUUID(), "CONFIRMED_NOT_EXECUTED_RETRY", "Bank case 1"));
-        f.access.resolve(w.id, 99, op, "REFUND_CONFIRMED_REJECTED", "Bank case 1");
+        UUID op = w.getOperationId();
+        fails(() ->
+            f.access.resolve(
+                new ResolvePaymentOperationCommand(
+                    w.getId(),
+                    99,
+                    UUID.randomUUID(),
+                    OperationResolution.CONFIRMED_NOT_EXECUTED_RETRY,
+                    "Bank case 1"
+                )
+            )
+        );
+        f.access.resolve(
+            new ResolvePaymentOperationCommand(w.getId(), 99, op, OperationResolution.REFUND_CONFIRMED_REJECTED, "Bank case 1")
+        );
         f.deliver();
         check("FAILED".equals(f.checkout.get(v.id(), 1).refundState()) && !f.stock.refundPending, "Confirmed rejection restores admission");
-        UUID oldRefund = w.payment.getRefund().orElseThrow().getId().value();
+        UUID oldRefund = w.getPayment().getRefund().orElseThrow().getId().value();
         f.checkout.refund(v.id(), 7, "Retry after bank rejection");
-        check(!w.payment.getRefund().orElseThrow().getId().value().equals(oldRefund), "Definitively failed refund gets a fresh attempt");
+        check(
+            !w.getPayment().getRefund().orElseThrow().getId().value().equals(oldRefund),
+            "Definitively failed refund gets a fresh attempt"
+        );
     }
 
     @Test
@@ -320,7 +356,7 @@ public class PaymentSagaTest {
         var v = f.paid();
         var w = f.work(v);
         f.observe(w, "AUTH");
-        check(w.reviewRequired && f.bank.commands.isEmpty(), "A regressed bank state must not trigger another capture");
+        check(w.isReviewRequired() && f.bank.commands.isEmpty(), "A regressed bank state must not trigger another capture");
     }
 
     @Test
@@ -329,17 +365,17 @@ public class PaymentSagaTest {
         var v = f.start();
         var w = f.work(v);
         f.bank.next = new SettlementEvidence(
-            w.invoiceId,
+            w.getInvoiceId(),
             UUID.randomUUID().toString(),
-            w.amount,
+            w.getAmount(),
             "KZT",
             true,
             SettlementStatus.CAPTURED,
             UUID.randomUUID().toString()
         );
-        f.reconciler.reconcile(w.id);
+        f.reconciler.reconcile(w.getId());
         check(
-            w.reviewRequired && f.queue.isEmpty() && f.stock.issued.isEmpty(),
+            w.isReviewRequired() && f.queue.isEmpty() && f.stock.issued.isEmpty(),
             "Invoice/amount match is insufficient on a shared terminal"
         );
     }
@@ -351,17 +387,17 @@ public class PaymentSagaTest {
         var w = f.work(v);
         f.checkout.refund(v.id(), 7, "Full refund");
         f.observe(w, "CHARGE");
-        check(w.operationAcknowledged, "Successful bank response is retained");
+        check(w.isOperationAcknowledged(), "Successful bank response is retained");
         f.bank.next = new SettlementEvidence(
-            w.invoiceId,
-            w.bankTransactionId,
+            w.getInvoiceId(),
+            w.getBankTransactionId(),
             BigDecimal.ZERO,
             "KZT",
             true,
             SettlementStatus.REFUNDED,
-            w.id.toString()
+            w.getId().toString()
         );
-        f.reconciler.reconcile(w.id);
+        f.reconciler.reconcile(w.getId());
         f.deliver();
         check(
             "REFUNDED".equals(f.checkout.get(v.id(), 1).refundState()) && f.ledger.refunds.size() == 1,
@@ -375,16 +411,16 @@ public class PaymentSagaTest {
         var v = f.paid();
         var w = f.work(v);
         f.bank.next = new SettlementEvidence(
-            w.invoiceId,
-            w.bankTransactionId,
+            w.getInvoiceId(),
+            w.getBankTransactionId(),
             new BigDecimal("500.00"),
             "KZT",
             true,
             SettlementStatus.REFUNDED,
-            w.id.toString()
+            w.getId().toString()
         );
-        f.reconciler.reconcile(w.id);
-        check(w.reviewRequired && f.ledger.refunds.isEmpty(), "Partial or ambiguous bank refund requires evidence of full amount");
+        f.reconciler.reconcile(w.getId());
+        check(w.isReviewRequired() && f.ledger.refunds.isEmpty(), "Partial or ambiguous bank refund requires evidence of full amount");
     }
 
     @Test
@@ -416,7 +452,7 @@ public class PaymentSagaTest {
         var fixture = new Fixture();
         var work = fixture.work(fixture.start());
         var store = new FormSessions();
-        fixture.clock.now = work.deadline;
+        fixture.clock.now = work.getDeadline();
         fails(() -> new PaymentSessionService(store, fixture.bank, fixture.clock).open(work));
         check(store.claim == null && fixture.bank.sessionCalls == 0, "No claim or provider call for expired payment");
     }
@@ -541,8 +577,14 @@ public class PaymentSagaTest {
             return next;
         }
 
-        public void mutate(String t, String op, String id) {
-            commands.add(op);
+        public void mutate(String t, PaymentOperation op, String id) {
+            commands.add(
+                switch (op) {
+                    case CAPTURE -> "charge";
+                    case VOID -> "cancel";
+                    case REFUND -> "refund";
+                }
+            );
             if (throwAfterMutation) throw new IllegalStateException("response lost");
         }
     }
@@ -564,7 +606,7 @@ public class PaymentSagaTest {
             return rows
                 .values()
                 .stream()
-                .filter(w -> id.equals(w.orderId))
+                .filter(w -> id.equals(w.getOrderId()))
                 .findFirst();
         }
 
@@ -572,16 +614,16 @@ public class PaymentSagaTest {
             return rows
                 .values()
                 .stream()
-                .filter(w -> id.equals(w.invoiceId))
+                .filter(w -> id.equals(w.getInvoiceId()))
                 .findFirst();
         }
 
         public void insert(PaymentWork w) {
-            rows.put(w.id, w);
+            rows.put(w.getId(), w);
         }
 
         public void save(PaymentWork w) {
-            rows.put(w.id, w);
+            rows.put(w.getId(), w);
         }
 
         public List<UUID> requiringReview() {
@@ -620,11 +662,11 @@ public class PaymentSagaTest {
             refunds = new HashSet<>();
 
         public void charge(PaymentWork w) {
-            charges.add(w.id);
+            charges.add(w.getId());
         }
 
         public void refund(PaymentWork w, UUID r) {
-            refunds.add(w.id);
+            refunds.add(w.getId());
         }
 
         public Map<String, BigDecimal> summary(long o) {
@@ -842,33 +884,30 @@ public class PaymentSagaTest {
             );
         }
 
-        CheckoutService.Request request() {
-            return new CheckoutService.Request(
-                event,
-                List.of(new CheckoutInventoryOhs.Selection(type, List.of(), List.of("a@example.com")))
-            );
+        CreateCheckoutCommand request() {
+            return new CreateCheckoutCommand(event, List.of(new CheckoutInventoryOhs.Selection(type, List.of(), List.of("a@example.com"))));
         }
 
-        CheckoutService.View start() {
+        CheckoutView start() {
             return checkout.create(UUID.randomUUID(), 1, request());
         }
 
-        CheckoutService.View paid() {
+        CheckoutView paid() {
             var v = start();
             observe(work(v), "CHARGE");
             deliver();
             return checkout.get(v.id(), 1);
         }
 
-        PaymentWork work(CheckoutService.View v) {
+        PaymentWork work(CheckoutView v) {
             return works.find(v.paymentId()).orElseThrow();
         }
 
         void observe(PaymentWork w, String status) {
-            String ref = w.isTicket() ? w.payment.getProviderReference() : w.activationPayment.getProviderReference();
+            String ref = w.isTicket() ? w.getPayment().getProviderReference() : w.getActivationPayment().getProviderReference();
             if (ref == null) ref = "00000000-0000-0000-0000-000000000001";
-            bank.next = new SettlementEvidence(w.invoiceId, ref, w.amount, "KZT", true, normalize(status), w.id.toString());
-            reconciler.reconcile(w.id);
+            bank.next = new SettlementEvidence(w.getInvoiceId(), ref, w.getAmount(), "KZT", true, normalize(status), w.getId().toString());
+            reconciler.reconcile(w.getId());
         }
 
         SettlementStatus normalize(String status) {

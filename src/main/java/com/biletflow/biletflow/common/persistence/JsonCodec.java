@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.common.persistence;
 
+import java.util.Objects;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
@@ -9,7 +10,7 @@ public class JsonCodec {
     private final ObjectMapper mapper;
 
     public JsonCodec(ObjectMapper mapper) {
-        this.mapper = mapper;
+        this.mapper = Objects.requireNonNull(mapper, "mapper cannot be null");
     }
 
     public String write(Object value) {

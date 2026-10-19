@@ -58,42 +58,60 @@ public record PaymentTerms(BigDecimal activationFee, BigDecimal processingFeeRat
         String secret
     ) {
         requireTicketRequest(payer, amount, deadline, now);
-        var work = base("TICKET", event, payer, organizer, amount, deadline, invoice, secret);
-        work.orderId = order;
-        work.payment = TicketOrderPayment.initiate(order, event, organizer, Money.kzt(amount));
-        work.id = work.payment.getId().value();
-        return work;
+        var payment = TicketOrderPayment.initiate(order, event, organizer, Money.kzt(amount));
+        return new PaymentWork(
+            payment.getId().value(),
+            PaymentPurpose.TICKET,
+            event,
+            order,
+            payer,
+            organizer,
+            amount.setScale(2, RoundingMode.UNNECESSARY),
+            feeFor(amount),
+            invoice,
+            secret,
+            deadline,
+            false,
+            false,
+            null,
+            null,
+            false,
+            null,
+            null,
+            null,
+            payment,
+            null
+        );
     }
 
     public PaymentWork activation(UUID event, long organizer, Instant now, String invoice, String secret) {
-        var work = base("ACTIVATION", event, organizer, organizer, activationFee, now.plusSeconds(1800), invoice, secret);
-        work.fee = BigDecimal.ZERO;
-        work.activationPayment = ActivationFeePayment.initiate(event, organizer, Money.kzt(activationFee));
-        work.id = work.activationPayment.getId().value();
-        return work;
+        var payment = ActivationFeePayment.initiate(event, organizer, Money.kzt(activationFee));
+        return new PaymentWork(
+            payment.getId().value(),
+            PaymentPurpose.ACTIVATION,
+            event,
+            null,
+            organizer,
+            organizer,
+            activationFee.setScale(2, RoundingMode.UNNECESSARY),
+            BigDecimal.ZERO,
+            invoice,
+            secret,
+            now.plusSeconds(1800),
+            false,
+            false,
+            null,
+            null,
+            false,
+            null,
+            null,
+            null,
+            null,
+            payment
+        );
     }
 
-    private PaymentWork base(
-        String purpose,
-        UUID event,
-        long payer,
-        long organizer,
-        BigDecimal amount,
-        Instant deadline,
-        String invoice,
-        String secret
-    ) {
-        if (amount == null || amount.signum() <= 0 || amount.scale() > 2) throw new IllegalArgumentException("Invalid payment amount");
-        var work = new PaymentWork();
-        work.purpose = purpose;
-        work.eventId = event;
-        work.payerId = payer;
-        work.organizerId = organizer;
-        work.amount = amount.setScale(2, RoundingMode.UNNECESSARY);
-        work.fee = work.amount.multiply(processingFeeRate).setScale(2, RoundingMode.HALF_UP);
-        work.deadline = deadline;
-        work.invoiceId = invoice;
-        work.callbackSecret = secret;
-        return work;
+    private BigDecimal feeFor(BigDecimal amount) {
+        return amount.multiply(processingFeeRate).setScale(2, RoundingMode.HALF_UP);
     }
 }

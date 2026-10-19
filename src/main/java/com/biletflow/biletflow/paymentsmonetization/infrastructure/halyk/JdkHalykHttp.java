@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.paymentsmonetization.infrastructure.halyk;
 
+import com.biletflow.biletflow.paymentsmonetization.application.PaymentProviderUnavailableException;
 import java.net.http.*;
 import java.time.Duration;
 import org.springframework.stereotype.Component;
@@ -16,13 +17,13 @@ public class JdkHalykHttp implements HalykHttp {
     public String send(HttpRequest request) {
         try {
             var response = http.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new HalykGateway.GatewayUnavailable();
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new PaymentProviderUnavailableException();
             return response.body();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new HalykGateway.GatewayUnavailable();
+            throw new PaymentProviderUnavailableException();
         } catch (java.io.IOException e) {
-            throw new HalykGateway.GatewayUnavailable();
+            throw new PaymentProviderUnavailableException();
         }
     }
 }

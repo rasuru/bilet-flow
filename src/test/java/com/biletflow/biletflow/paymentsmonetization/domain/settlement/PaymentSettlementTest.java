@@ -33,13 +33,13 @@ class PaymentSettlementTest {
 
     private SettlementEvidence evidence(PaymentWork work, SettlementStatus status, boolean merchant) {
         return new SettlementEvidence(
-            work.invoiceId,
+            work.getInvoiceId(),
             UUID.randomUUID().toString(),
-            work.amount,
+            work.getAmount(),
             "KZT",
             merchant,
             status,
-            work.id.toString()
+            work.getId().toString()
         );
     }
 
@@ -47,36 +47,36 @@ class PaymentSettlementTest {
     void authorizationCommitsIntentWithoutRecognizingRevenue() {
         var work = work();
         var effects = PaymentSettlement.settle(work, evidence(work, SettlementStatus.AUTHORIZED, true), context(), now);
-        assertEquals("charge", effects.dispatch.operation());
-        assertEquals("SENT", work.operationState);
-        assertFalse(work.charged());
-        assertFalse(effects.charge);
-        assertTrue(effects.outcomes.isEmpty());
+        assertEquals(PaymentOperation.CAPTURE, effects.getDispatch().operation());
+        assertEquals(PaymentOperationState.SENT, work.getOperationState());
+        assertFalse(work.hasBeenCharged());
+        assertFalse(effects.isCharge());
+        assertTrue(effects.getOutcomes().isEmpty());
     }
 
     @Test
     void wrongMerchantCannotChangeFinancialState() {
         var work = work();
         var effects = PaymentSettlement.settle(work, evidence(work, SettlementStatus.CAPTURED, false), context(), now);
-        assertTrue(work.reviewRequired);
-        assertFalse(work.charged());
-        assertNull(effects.dispatch);
-        assertFalse(effects.charge);
+        assertTrue(work.isReviewRequired());
+        assertFalse(work.hasBeenCharged());
+        assertNull(effects.getDispatch());
+        assertFalse(effects.isCharge());
     }
 
     @Test
     void lateCaptureRequestsCompensationBeforeAnyRefundDispatch() {
         var work = work();
         var effects = PaymentSettlement.settle(work, evidence(work, SettlementStatus.CAPTURED, true), context(), now.plusSeconds(61));
-        assertTrue(work.charged());
-        assertEquals(RefundStatus.REQUESTED, work.payment.getRefund().orElseThrow().getStatus());
-        assertTrue(effects.charge);
-        assertNull(effects.dispatch);
+        assertTrue(work.hasBeenCharged());
+        assertEquals(RefundStatus.REQUESTED, work.getPayment().getRefund().orElseThrow().getStatus());
+        assertTrue(effects.isCharge());
+        assertNull(effects.getDispatch());
     }
 
     @Test
     void pricingRoundsHalfUpToKztPrecision() {
-        assertEquals(new BigDecimal("3.71"), work().fee);
+        assertEquals(new BigDecimal("3.71"), work().getFee());
         assertThrows(IllegalArgumentException.class, () -> new PaymentTerms(new BigDecimal("1000.001"), BigDecimal.ZERO));
     }
 
@@ -90,15 +90,22 @@ class PaymentSettlementTest {
     @Test
     void acknowledgingSupersededOperationDoesNotAcknowledgeReplacement() {
         var work = work();
-        UUID current = UUID.randomUUID();
-        work.operationId = current;
-        work.operation = "refund";
-        work.operationState = "SENT";
-        work.acknowledge(UUID.randomUUID(), "refund");
-        assertFalse(work.operationAcknowledged);
-        work.acknowledge(current, "charge");
-        assertFalse(work.operationAcknowledged);
-        work.acknowledge(current, "refund");
-        assertTrue(work.operationAcknowledged);
+        work.getPayment().reconcileCharge("verified", now);
+        work.requestTicketRefund("Full refund", now);
+        UUID current = work.recordDispatch(PaymentOperation.REFUND, now);
+        work.acknowledge(UUID.randomUUID(), PaymentOperation.REFUND);
+        assertFalse(work.isOperationAcknowledged());
+        work.acknowledge(current, PaymentOperation.CAPTURE);
+        assertFalse(work.isOperationAcknowledged());
+        work.acknowledge(current, PaymentOperation.REFUND);
+        assertTrue(work.isOperationAcknowledged());
+    }
+
+    @Test
+    void transitionEffectsCannotBeMutatedByApplicationCallers() {
+        var work = work();
+        var effects = PaymentSettlement.settle(work, evidence(work, SettlementStatus.CAPTURED, true), context(), now);
+        assertThrows(UnsupportedOperationException.class, () -> effects.getOutcomes().clear());
+        assertThrows(UnsupportedOperationException.class, () -> effects.getAudit().clear());
     }
 }

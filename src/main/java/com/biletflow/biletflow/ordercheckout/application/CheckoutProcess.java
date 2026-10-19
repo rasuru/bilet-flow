@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.ordercheckout.application;
 
+import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutRefundStatus;
 import com.biletflow.biletflow.ticketinventory.ohs.CheckoutInventoryOhs.Hold;
 import com.biletflow.biletflow.ticketinventory.ohs.CheckoutInventoryOhs.Line;
 import java.time.Instant;
@@ -16,7 +17,7 @@ public record CheckoutProcess(
     List<Line> lines,
     List<Hold> holds,
     UUID paymentId,
-    String refundState,
+    CheckoutRefundStatus refundState,
     UUID refundId
 ) {
     public CheckoutProcess {
@@ -28,7 +29,7 @@ public record CheckoutProcess(
         return new CheckoutProcess(this.id, ownerId, eventId, fingerprint, deadline, lines, holds, id, refundState, refundId);
     }
 
-    public CheckoutProcess refund(String state, UUID id) {
+    public CheckoutProcess refund(CheckoutRefundStatus state, UUID id) {
         return new CheckoutProcess(this.id, ownerId, eventId, fingerprint, deadline, lines, holds, paymentId, state, id);
     }
 }

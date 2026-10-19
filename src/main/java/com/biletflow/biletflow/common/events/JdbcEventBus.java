@@ -34,9 +34,9 @@ public class JdbcEventBus implements EventBus {
         PlatformTransactionManager manager,
         List<IntegrationEventHandler> handlers
     ) {
-        this.jdbc = jdbc;
-        this.json = json;
-        this.clock = clock;
+        this.jdbc = Objects.requireNonNull(jdbc, "jdbc cannot be null");
+        this.json = Objects.requireNonNull(json, "json cannot be null");
+        this.clock = Objects.requireNonNull(clock, "clock cannot be null");
         this.tx = new TransactionTemplate(manager);
         this.handlers = handlers.stream().collect(Collectors.toMap(IntegrationEventHandler::eventType, Function.identity()));
     }

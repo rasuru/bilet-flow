@@ -1,6 +1,7 @@
 package com.biletflow.biletflow.ordercheckout.infrastructure;
 
 import com.biletflow.biletflow.ordercheckout.application.*;
+import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -14,8 +15,8 @@ public class CheckoutExpiryJob {
     private final CheckoutService service;
 
     public CheckoutExpiryJob(CheckoutProcessRepository processes, CheckoutService service) {
-        this.processes = processes;
-        this.service = service;
+        this.processes = Objects.requireNonNull(processes, "processes cannot be null");
+        this.service = Objects.requireNonNull(service, "service cannot be null");
     }
 
     @Scheduled(fixedDelayString = "${biletflow.payments.expiry-delay-ms:5000}")

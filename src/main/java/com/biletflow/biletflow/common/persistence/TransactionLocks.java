@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.common.persistence;
 
+import java.util.Objects;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -12,7 +13,7 @@ public class TransactionLocks implements com.biletflow.biletflow.common.applicat
     private final JdbcTemplate jdbc;
 
     public TransactionLocks(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
+        this.jdbc = Objects.requireNonNull(jdbc, "jdbc cannot be null");
     }
 
     @Transactional(propagation = Propagation.MANDATORY)

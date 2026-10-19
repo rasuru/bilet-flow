@@ -2,13 +2,17 @@ package com.biletflow.biletflow.paymentsmonetization.infrastructure.halyk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.biletflow.biletflow.paymentsmonetization.application.PaymentProviderUnavailableException;
 import com.biletflow.biletflow.paymentsmonetization.config.HalykProperties;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentOperation;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentTerms;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.SettlementStatus;
 import java.math.BigDecimal;
 import java.net.http.HttpRequest;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.Flow;
@@ -38,11 +42,18 @@ class HalykGatewayTest {
     @Test
     void paymentTokenIsBoundAndBrowserObjectContainsNoMerchantSecret() throws Exception {
         responses.add(TOKEN);
-        var work = new PaymentWork();
-        work.id = UUID.randomUUID();
-        work.invoiceId = "123456";
-        work.amount = new BigDecimal("123.45");
-        work.callbackSecret = "bank-only-secret";
+        var now = Instant.now();
+        var work = new PaymentTerms(new BigDecimal("1000"), BigDecimal.ZERO).ticket(
+            UUID.randomUUID(),
+            UUID.randomUUID(),
+            1,
+            7,
+            new BigDecimal("123.45"),
+            now.plusSeconds(600),
+            now,
+            "123456",
+            "bank-only-secret"
+        );
         var session = gateway().session(work);
         String body = body(requests.get(0));
         assertTrue(requests.get(0).uri().toString().equals("https://test-epay-oauth.epayment.kz/oauth2/token"));
@@ -52,7 +63,7 @@ class HalykGatewayTest {
         assertEquals("https://test-epay.epayment.kz/payform/payment-api.js", session.scriptUrl());
         assertFalse(session.paymentObject().toString().contains("merchant-secret"));
         assertFalse(session.paymentObject().toString().contains("bank-only-secret"));
-        assertTrue(session.paymentObject().get("data").toString().contains(work.id.toString()));
+        assertTrue(session.paymentObject().get("data").toString().contains(work.getId().toString()));
     }
 
     @Test
@@ -71,7 +82,7 @@ class HalykGatewayTest {
     @Test
     void wrongTerminalIsReportedAsUnverifiedMerchant() {
         responses.add(TOKEN);
-        responses.add(transaction("CHARGE", UUID.randomUUID()).replace(config.terminalId, UUID.randomUUID().toString()));
+        responses.add(transaction("CHARGE", UUID.randomUUID()).replace(config.getTerminalId(), UUID.randomUUID().toString()));
         assertFalse(gateway().inspect("123456").merchantVerified());
     }
 
@@ -82,7 +93,7 @@ class HalykGatewayTest {
         assertEquals(SettlementStatus.NOT_FOUND, gateway().inspect("123456").status());
         responses.add(TOKEN);
         responses.add("{\"resultCode\":\"103\",\"transaction\":null}");
-        assertThrows(HalykGateway.GatewayUnavailable.class, () -> gateway().inspect("123456"));
+        assertThrows(PaymentProviderUnavailableException.class, () -> gateway().inspect("123456"));
     }
 
     @Test
@@ -91,7 +102,7 @@ class HalykGatewayTest {
         responses.add("");
         UUID transaction = UUID.randomUUID(),
             refund = UUID.randomUUID();
-        gateway().mutate(transaction.toString(), "refund", refund.toString());
+        gateway().mutate(transaction.toString(), PaymentOperation.REFUND, refund.toString());
         var request = requests.get(1);
         assertEquals("POST", request.method());
         assertEquals(
@@ -104,7 +115,7 @@ class HalykGatewayTest {
     private String transaction(String status, UUID payment) {
         return (
             "{\"resultCode\":\"100\",\"transaction\":{\"id\":\"00000000-0000-0000-0000-000000000001\",\"invoiceID\":\"123456\",\"amount\":123.45,\"currency\":\"KZT\",\"terminalID\":\"" +
-            config.terminalId +
+            config.getTerminalId() +
             "\",\"statusName\":\"" +
             status +
             "\",\"data\":\"{\\\"biletflowPaymentId\\\":\\\"" +

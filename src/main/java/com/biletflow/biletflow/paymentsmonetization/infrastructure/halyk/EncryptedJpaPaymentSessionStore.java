@@ -3,6 +3,7 @@ package com.biletflow.biletflow.paymentsmonetization.infrastructure.halyk;
 import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.common.persistence.JsonCodec;
 import com.biletflow.biletflow.paymentsmonetization.application.*;
+import com.biletflow.biletflow.paymentsmonetization.persistence.session.entity.PaymentSessionJpaEntity;
 import jakarta.persistence.EntityManager;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -32,11 +33,11 @@ public class EncryptedJpaPaymentSessionStore implements PaymentSessionStore {
         PlatformTransactionManager manager,
         @Value("${biletflow.payments.session-encryption-key:}") String encryptionKey
     ) {
-        this.entities = entities;
-        this.json = json;
-        this.locks = locks;
+        this.entities = Objects.requireNonNull(entities, "entities cannot be null");
+        this.json = Objects.requireNonNull(json, "json cannot be null");
+        this.locks = Objects.requireNonNull(locks, "locks cannot be null");
         tx = new TransactionTemplate(manager);
-        this.encryptionKey = encryptionKey;
+        this.encryptionKey = Objects.requireNonNull(encryptionKey, "encryptionKey cannot be null");
     }
 
     @Override
@@ -45,18 +46,18 @@ public class EncryptedJpaPaymentSessionStore implements PaymentSessionStore {
         return tx.execute(status -> {
             var row = lockedRow(paymentId);
             if (row != null) {
-                if (row.encryptedPayload != null) {
-                    if (!now.isBefore(row.expiresAt)) throw new IllegalStateException("Bank form session expired; start a new checkout");
-                    return json.read(crypt(row.encryptedPayload, key, false), PaymentGateway.Session.class);
+                if (row.getEncryptedPayload() != null) {
+                    if (!now.isBefore(row.getExpiresAt())) throw new IllegalStateException(
+                        "Bank form session expired; start a new checkout"
+                    );
+                    return json.read(crypt(row.getEncryptedPayload(), key, false), PaymentGateway.Session.class);
                 }
-                if (row.claimedUntil.isAfter(now)) throw new IllegalStateException("Payment session is being prepared; retry shortly");
+                if (row.getClaimedUntil().isAfter(now)) throw new IllegalStateException("Payment session is being prepared; retry shortly");
             } else {
-                row = new PaymentSessionJpaEntity();
-                row.paymentId = paymentId;
+                row = new PaymentSessionJpaEntity(paymentId, claim, now.plusSeconds(60), null, null);
                 entities.persist(row);
             }
-            row.claimId = claim;
-            row.claimedUntil = now.plusSeconds(60);
+            row.updateMutableState(claim, now.plusSeconds(60), null, null);
             return null;
         });
     }
@@ -70,11 +71,10 @@ public class EncryptedJpaPaymentSessionStore implements PaymentSessionStore {
         String encrypted = crypt(json.write(session), key(), true);
         tx.executeWithoutResult(status -> {
             var row = lockedRow(paymentId);
-            if (row == null || !claim.equals(row.claimId) || row.encryptedPayload != null) throw new IllegalStateException(
+            if (row == null || !claim.equals(row.getClaimId()) || row.getEncryptedPayload() != null) throw new IllegalStateException(
                 "Payment session preparation was superseded; retry"
             );
-            row.encryptedPayload = encrypted;
-            row.expiresAt = expires;
+            row.updateMutableState(row.getClaimId(), row.getClaimedUntil(), encrypted, expires);
         });
     }
 
@@ -82,7 +82,7 @@ public class EncryptedJpaPaymentSessionStore implements PaymentSessionStore {
     public void release(UUID paymentId, UUID claim) {
         tx.executeWithoutResult(status -> {
             var row = lockedRow(paymentId);
-            if (row != null && claim.equals(row.claimId) && row.encryptedPayload == null) entities.remove(row);
+            if (row != null && claim.equals(row.getClaimId()) && row.getEncryptedPayload() == null) entities.remove(row);
         });
     }
 

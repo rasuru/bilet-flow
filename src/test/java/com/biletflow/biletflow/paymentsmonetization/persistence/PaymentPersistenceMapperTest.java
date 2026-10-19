@@ -3,6 +3,10 @@ package com.biletflow.biletflow.paymentsmonetization.persistence;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.*;
+import com.biletflow.biletflow.paymentsmonetization.persistence.payment.PaymentPersistenceMapper;
+import com.biletflow.biletflow.paymentsmonetization.persistence.payment.PaymentPersistenceMapper;
+import com.biletflow.biletflow.paymentsmonetization.persistence.payment.entity.PaymentWorkJpaEntity;
+import com.biletflow.biletflow.paymentsmonetization.persistence.payment.entity.RefundJpaEntity;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
@@ -25,46 +29,54 @@ class PaymentPersistenceMapperTest {
             "123456",
             "secret"
         );
-        work.payment.reconcileCharge("transaction", now);
-        var refund = work.payment.requestRefund("Full refund", now);
-        work.payment.failRefund("Confirmed rejected", now);
-        work.operationId = refund.getId().value();
-        work.operation = "refund";
-        work.operationState = "UNKNOWN";
-        work.operationAt = now;
-        work.operationAcknowledged = true;
-        work.reviewRequired = true;
-        work.bankTransactionId = "transaction";
+        work.getPayment().reconcileCharge("transaction", now);
+        var refund = work.getPayment().requestRefund("Full refund", now);
+        work.getPayment().failRefund("Confirmed rejected", now);
+        work.recordDispatch(PaymentOperation.REFUND, now);
+        work.acknowledge(work.getOperationId(), PaymentOperation.REFUND);
+        work.markOperationUnknown();
+        work.requireReview();
+        work.recordVerifiedTransaction("transaction");
         var mapper = new PaymentPersistenceMapper();
-        var row = new PaymentWorkJpaEntity();
-        var attempt = new RefundJpaEntity();
-        mapper.update(work, row);
-        mapper.update(refund, work.id, attempt);
-        var loaded = mapper.domain(row, attempt);
-        assertEquals(work.id, loaded.id);
-        assertEquals(work.amount, loaded.amount);
-        assertEquals(work.fee, loaded.fee);
-        assertEquals(work.operationId, loaded.operationId);
-        assertEquals("UNKNOWN", loaded.operationState);
-        assertTrue(loaded.operationAcknowledged);
-        assertTrue(loaded.reviewRequired);
-        assertEquals("transaction", loaded.bankTransactionId);
-        assertEquals(refund.getStatus(), loaded.payment.getRefund().orElseThrow().getStatus());
-        assertEquals(refund.getFailureReason(), loaded.payment.getRefund().orElseThrow().getFailureReason());
+        var row = mapper.toNewEntity(work);
+        var attempt = mapper.toNewEntity(refund, work.getId());
+        var loaded = mapper.toDomain(row, attempt);
+        assertEquals(work.getId(), loaded.getId());
+        assertEquals(work.getAmount(), loaded.getAmount());
+        assertEquals(work.getFee(), loaded.getFee());
+        assertEquals(work.getOperationId(), loaded.getOperationId());
+        assertEquals(PaymentOperationState.UNKNOWN, loaded.getOperationState());
+        assertTrue(loaded.isOperationAcknowledged());
+        assertTrue(loaded.isReviewRequired());
+        assertEquals("transaction", loaded.getBankTransactionId());
+        assertEquals(refund.getStatus(), loaded.getPayment().getRefund().orElseThrow().getStatus());
+        assertEquals(refund.getFailureReason(), loaded.getPayment().getRefund().orElseThrow().getFailureReason());
     }
 
     @Test
     void compensatingActivationRefundSurvivesMapping() {
         Instant now = Instant.parse("2026-10-18T12:00:00Z");
         var work = new PaymentTerms(new BigDecimal("1000"), BigDecimal.ZERO).activation(UUID.randomUUID(), 7, now, "123456", "secret");
-        work.activationPayment.reconcileCharge("transaction", now);
-        work.activationPayment.requestCompensatingRefund();
+        work.getActivationPayment().reconcileCharge("transaction", now);
+        work.getActivationPayment().requestCompensatingRefund();
         var mapper = new PaymentPersistenceMapper();
-        var row = new PaymentWorkJpaEntity();
-        mapper.update(work, row);
-        var loaded = mapper.domain(row, null);
+        var row = mapper.toNewEntity(work);
+        var loaded = mapper.toDomain(row, null);
         assertFalse(loaded.isTicket());
-        assertEquals("REFUND_REQUESTED", loaded.status());
-        assertEquals("transaction", loaded.activationPayment.getProviderReference());
+        assertEquals("REFUND_REQUESTED", loaded.getStatus().name());
+        assertEquals("transaction", loaded.getActivationPayment().getProviderReference());
+    }
+
+    @Test
+    void updateCannotReplaceAnotherPaymentsIdentity() {
+        var now = Instant.now();
+        var terms = new PaymentTerms(new BigDecimal("1000"), BigDecimal.ZERO);
+        var first = terms.activation(UUID.randomUUID(), 7, now, "123456", "secret");
+        var second = terms.activation(UUID.randomUUID(), 7, now, "123457", "secret");
+        var mapper = new PaymentPersistenceMapper();
+        var entity = mapper.toNewEntity(first);
+        assertThrows(IllegalArgumentException.class, () -> mapper.updateEntity(second, entity));
+        assertEquals(first.getId(), entity.getId());
+        assertEquals(first.getEventId(), entity.getEventId());
     }
 }

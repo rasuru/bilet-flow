@@ -8,6 +8,7 @@ import com.biletflow.biletflow.ordercheckout.application.*;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.*;
 import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
 import com.biletflow.biletflow.ordercheckout.domain.order.*;
+import com.biletflow.biletflow.ordercheckout.persistence.order.entity.OrderJpaEntity;
 import com.biletflow.biletflow.ticketinventory.ohs.CheckoutInventoryOhs.*;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;

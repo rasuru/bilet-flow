@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.paymentsmonetization.application;
 
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentOperation;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.SettlementEvidence;
 import java.math.BigDecimal;
@@ -13,5 +14,5 @@ public interface PaymentGateway {
     void validateAmount(BigDecimal amount);
     Session session(PaymentWork work);
     SettlementEvidence inspect(String invoiceId);
-    void mutate(String transactionId, String operation, String externalId);
+    void mutate(String transactionId, PaymentOperation operation, String externalId);
 }

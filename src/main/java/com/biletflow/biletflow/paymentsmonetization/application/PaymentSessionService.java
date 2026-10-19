@@ -2,6 +2,7 @@ package com.biletflow.biletflow.paymentsmonetization.application;
 
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import java.time.Clock;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -14,22 +15,22 @@ public class PaymentSessionService {
     private final Clock clock;
 
     public PaymentSessionService(PaymentSessionStore sessions, PaymentGateway bank, Clock clock) {
-        this.sessions = sessions;
-        this.bank = bank;
-        this.clock = clock;
+        this.sessions = Objects.requireNonNull(sessions, "sessions cannot be null");
+        this.bank = Objects.requireNonNull(bank, "bank cannot be null");
+        this.clock = Objects.requireNonNull(clock, "clock cannot be null");
     }
 
     public PaymentGateway.Session open(PaymentWork work) {
         work.requireSessionAvailable(clock.instant());
         UUID claim = UUID.randomUUID();
-        var cached = sessions.claim(work.id, claim, clock.instant());
+        var cached = sessions.claim(work.getId(), claim, clock.instant());
         if (cached != null) return cached;
         try {
             var session = bank.session(work);
-            sessions.complete(work.id, claim, session, work.deadline, clock.instant());
+            sessions.complete(work.getId(), claim, session, work.getDeadline(), clock.instant());
             return session;
         } catch (RuntimeException failure) {
-            sessions.release(work.id, claim);
+            sessions.release(work.getId(), claim);
             throw failure;
         }
     }

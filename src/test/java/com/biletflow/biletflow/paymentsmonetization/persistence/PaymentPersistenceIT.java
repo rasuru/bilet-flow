@@ -8,9 +8,14 @@ import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.common.events.*;
 import com.biletflow.biletflow.common.persistence.JsonCodec;
 import com.biletflow.biletflow.paymentsmonetization.application.*;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentStatus;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentTerms;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.*;
 import com.biletflow.biletflow.paymentsmonetization.infrastructure.halyk.EncryptedJpaPaymentSessionStore;
+import com.biletflow.biletflow.paymentsmonetization.persistence.ledger.JpaPaymentLedger;
+import com.biletflow.biletflow.paymentsmonetization.persistence.payment.entity.PaymentWorkJpaEntity;
+import com.biletflow.biletflow.ticketinventory.domain.common.OrderId;
 import com.biletflow.biletflow.ticketinventory.domain.ticket.*;
 import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeId;
 import jakarta.persistence.EntityManager;
@@ -74,7 +79,7 @@ class PaymentPersistenceIT {
         var ticket = Ticket.issue(
             TicketTypeId.generate(),
             event,
-            new com.biletflow.biletflow.ticketinventory.domain.common.OrderId(UUID.randomUUID()),
+            new OrderId(UUID.randomUUID()),
             new AttendeeEmail("test@example.com"),
             null,
             null,
@@ -116,7 +121,7 @@ class PaymentPersistenceIT {
             var gate = new CountDownLatch(1);
             Callable<Boolean> take = () -> {
                 gate.await();
-                return tx().execute(s -> works.lease(w.id, Instant.now(), Instant.now().plusSeconds(60)));
+                return tx().execute(s -> works.lease(w.getId(), Instant.now(), Instant.now().plusSeconds(60)));
             };
             var first = pool.submit(take);
             var second = pool.submit(take);
@@ -124,7 +129,7 @@ class PaymentPersistenceIT {
             assertNotEquals(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
         } finally {
             pool.shutdownNow();
-            jdbc.update("delete from pm_payment_work where id=?", w.id);
+            jdbc.update("delete from pm_payment_work where id=?", w.getId());
         }
     }
 
@@ -132,20 +137,20 @@ class PaymentPersistenceIT {
     void aggregateAndEveryRefundAttemptSurviveRoundTrip() {
         var w = work();
         tx().executeWithoutResult(s -> works.insert(w));
-        w.payment.succeed(UUID.randomUUID().toString(), Instant.now());
-        var first = w.payment.requestRefund("First", Instant.now());
-        w.payment.failRefund("Confirmed rejected", Instant.now());
+        w.getPayment().succeed(UUID.randomUUID().toString(), Instant.now());
+        var first = w.getPayment().requestRefund("First", Instant.now());
+        w.getPayment().failRefund("Confirmed rejected", Instant.now());
         tx().executeWithoutResult(s -> works.save(w));
-        var second = w.payment.requestRefund("Retry", Instant.now());
+        var second = w.getPayment().requestRefund("Retry", Instant.now());
         tx().executeWithoutResult(s -> works.save(w));
-        var loaded = works.find(w.id).orElseThrow();
-        assertEquals(w.amount, loaded.amount);
-        assertEquals(second.getId(), loaded.payment.getRefund().orElseThrow().getId());
-        assertEquals(2, jdbc.queryForObject("select count(*) from pm_refund_history where payment_id=?", Integer.class, w.id));
+        var loaded = works.find(w.getId()).orElseThrow();
+        assertEquals(w.getAmount(), loaded.getAmount());
+        assertEquals(second.getId(), loaded.getPayment().getRefund().orElseThrow().getId());
+        assertEquals(2, jdbc.queryForObject("select count(*) from pm_refund_history where payment_id=?", Integer.class, w.getId()));
         assertEquals("FAILED", jdbc.queryForObject("select status from pm_refund_history where id=?", String.class, first.getId().value()));
         tx().executeWithoutResult(status -> {
-            jdbc.update("delete from pm_refund_history where payment_id=?", w.id);
-            jdbc.update("delete from pm_payment_work where id=?", w.id);
+            jdbc.update("delete from pm_refund_history where payment_id=?", w.getId());
+            jdbc.update("delete from pm_payment_work where id=?", w.getId());
         });
     }
 
@@ -154,7 +159,7 @@ class PaymentPersistenceIT {
         var ticket = Ticket.issue(
             TicketTypeId.generate(),
             UUID.randomUUID(),
-            new com.biletflow.biletflow.ticketinventory.domain.common.OrderId(UUID.randomUUID()),
+            new OrderId(UUID.randomUUID()),
             new AttendeeEmail("test@example.com"),
             null,
             null,
@@ -199,19 +204,19 @@ class PaymentPersistenceIT {
         tx().executeWithoutResult(status -> works.insert(work));
         try {
             tx().executeWithoutResult(status -> {
-                work.payment.succeed(UUID.randomUUID().toString(), Instant.now());
+                work.getPayment().succeed(UUID.randomUUID().toString(), Instant.now());
                 works.save(work);
                 entities.flush();
                 entities.clear();
-                var stored = entities.find(PaymentWorkJpaEntity.class, work.id);
-                assertEquals(work.amount, stored.amount);
-                assertEquals("SUCCEEDED", stored.status);
+                var stored = entities.find(PaymentWorkJpaEntity.class, work.getId());
+                assertEquals(work.getAmount(), stored.getAmount());
+                assertEquals(PaymentStatus.SUCCEEDED, stored.getStatus());
                 var ledger = new JpaPaymentLedger(entities, key -> {}, Clock.systemUTC());
                 ledger.charge(work);
                 ledger.charge(work);
                 entities.flush();
             });
-            assertEquals(1, jdbc.queryForObject("select count(*) from pm_ledger where payment_id=?", Integer.class, work.id));
+            assertEquals(1, jdbc.queryForObject("select count(*) from pm_ledger where payment_id=?", Integer.class, work.getId()));
             assertEquals(
                 0,
                 jdbc.queryForObject(
@@ -221,8 +226,8 @@ class PaymentPersistenceIT {
             );
         } finally {
             tx().executeWithoutResult(status -> {
-                jdbc.update("delete from pm_ledger where payment_id=?", work.id);
-                jdbc.update("delete from pm_payment_work where id=?", work.id);
+                jdbc.update("delete from pm_ledger where payment_id=?", work.getId());
+                jdbc.update("delete from pm_payment_work where id=?", work.getId());
             });
         }
     }
@@ -237,7 +242,7 @@ class PaymentPersistenceIT {
         try {
             var reader = pool.submit(() ->
                 tx().execute(status -> {
-                    works.find(work.id).orElseThrow();
+                    works.find(work.getId()).orElseThrow();
                     loaded.countDown();
                     try {
                         if (!changed.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Timed out");
@@ -245,13 +250,13 @@ class PaymentPersistenceIT {
                         Thread.currentThread().interrupt();
                         throw new IllegalStateException(e);
                     }
-                    return works.find(work.id).orElseThrow().status();
+                    return works.find(work.getId()).orElseThrow().getStatus().name();
                 })
             );
             assertTrue(loaded.await(10, TimeUnit.SECONDS));
             tx().executeWithoutResult(status -> {
-                var latest = works.find(work.id).orElseThrow();
-                latest.payment.succeed("verified", Instant.now());
+                var latest = works.find(work.getId()).orElseThrow();
+                latest.getPayment().succeed("verified", Instant.now());
                 works.save(latest);
             });
             changed.countDown();
@@ -259,7 +264,7 @@ class PaymentPersistenceIT {
         } finally {
             changed.countDown();
             pool.shutdownNow();
-            jdbc.update("delete from pm_payment_work where id=?", work.id);
+            jdbc.update("delete from pm_payment_work where id=?", work.getId());
         }
     }
 
@@ -273,43 +278,46 @@ class PaymentPersistenceIT {
             second = UUID.randomUUID();
         var form = new PaymentGateway.Session(Map.of(), "sandbox-script", Map.of("auth", Map.of("expires_in", 7200)));
         try {
-            assertNull(store.claim(work.id, first, now));
-            assertThrows(IllegalStateException.class, () -> store.claim(work.id, second, now.plusSeconds(1)));
-            assertNull(store.claim(work.id, second, now.plusSeconds(61)));
-            assertThrows(IllegalStateException.class, () -> store.complete(work.id, first, form, work.deadline, now.plusSeconds(62)));
-            store.release(work.id, first);
-            assertEquals(second, jdbc.queryForObject("select claim_id from pm_payment_session where payment_id=?", UUID.class, work.id));
-            store.complete(work.id, second, form, work.deadline, now.plusSeconds(62));
-            store.release(work.id, second);
-            assertEquals(form, store.claim(work.id, UUID.randomUUID(), now.plusSeconds(63)));
+            assertNull(store.claim(work.getId(), first, now));
+            assertThrows(IllegalStateException.class, () -> store.claim(work.getId(), second, now.plusSeconds(1)));
+            assertNull(store.claim(work.getId(), second, now.plusSeconds(61)));
+            assertThrows(IllegalStateException.class, () ->
+                store.complete(work.getId(), first, form, work.getDeadline(), now.plusSeconds(62))
+            );
+            store.release(work.getId(), first);
+            assertEquals(
+                second,
+                jdbc.queryForObject("select claim_id from pm_payment_session where payment_id=?", UUID.class, work.getId())
+            );
+            store.complete(work.getId(), second, form, work.getDeadline(), now.plusSeconds(62));
+            store.release(work.getId(), second);
+            assertEquals(form, store.claim(work.getId(), UUID.randomUUID(), now.plusSeconds(63)));
             String payload = jdbc.queryForObject(
                 "select encrypted_payload from pm_payment_session where payment_id=?",
                 String.class,
-                work.id
+                work.getId()
             );
             assertFalse(payload.contains("sandbox-script"));
         } finally {
             tx().executeWithoutResult(status -> {
-                jdbc.update("delete from pm_payment_session where payment_id=?", work.id);
-                jdbc.update("delete from pm_payment_work where id=?", work.id);
+                jdbc.update("delete from pm_payment_session where payment_id=?", work.getId());
+                jdbc.update("delete from pm_payment_work where id=?", work.getId());
             });
         }
     }
 
     private PaymentWork work() {
-        var w = new PaymentWork();
-        w.purpose = "TICKET";
-        w.orderId = UUID.randomUUID();
-        w.eventId = UUID.randomUUID();
-        w.payerId = 1;
-        w.organizerId = 7;
-        w.amount = new BigDecimal("1000.00");
-        w.fee = new BigDecimal("30.00");
-        w.invoiceId = works.nextInvoice();
-        w.callbackSecret = "test-secret";
-        w.deadline = Instant.now().plusSeconds(600);
-        w.payment = TicketOrderPayment.initiate(w.orderId, w.eventId, w.organizerId, Money.kzt(w.amount));
-        w.id = w.payment.getId().value();
-        return w;
+        var now = Instant.now();
+        return new PaymentTerms(new BigDecimal("1000"), new BigDecimal("0.03")).ticket(
+            UUID.randomUUID(),
+            UUID.randomUUID(),
+            1,
+            7,
+            new BigDecimal("1000.00"),
+            now.plusSeconds(600),
+            now,
+            works.nextInvoice(),
+            "test-secret"
+        );
     }
 }

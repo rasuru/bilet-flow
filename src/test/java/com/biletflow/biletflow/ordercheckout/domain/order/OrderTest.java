@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.AssignedSeatingCheckoutItem;
+import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutItemCollection;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutSession;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutSessionId;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.GeneralAdmissionCheckoutItem;
@@ -227,7 +228,7 @@ class OrderTest {
             original.getOwnerId(),
             original.getEventId(),
             original.getInventoryMode(),
-            new com.biletflow.biletflow.ordercheckout.domain.checkout.CheckoutItemCollection(original.getItems()),
+            new CheckoutItemCollection(original.getItems()),
             original.getPromotionId(),
             original.getDiscountAmount(),
             original.getTotalPrice(),

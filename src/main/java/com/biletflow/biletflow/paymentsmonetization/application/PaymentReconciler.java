@@ -3,6 +3,7 @@ package com.biletflow.biletflow.paymentsmonetization.application;
 import com.biletflow.biletflow.common.application.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.*;
 import java.time.Clock;
+import java.util.Objects;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,12 +29,12 @@ public class PaymentReconciler {
         Clock clock,
         Transactions tx
     ) {
-        this.works = works;
-        this.bank = bank;
-        this.transitions = transitions;
-        this.locks = locks;
-        this.clock = clock;
-        this.tx = tx;
+        this.works = Objects.requireNonNull(works, "works cannot be null");
+        this.bank = Objects.requireNonNull(bank, "bank cannot be null");
+        this.transitions = Objects.requireNonNull(transitions, "transitions cannot be null");
+        this.locks = Objects.requireNonNull(locks, "locks cannot be null");
+        this.clock = Objects.requireNonNull(clock, "clock cannot be null");
+        this.tx = Objects.requireNonNull(tx, "tx cannot be null");
     }
 
     public void poll() {
@@ -44,7 +45,7 @@ public class PaymentReconciler {
         if (!tx.required(() -> works.lease(id, clock.instant(), clock.instant().plusSeconds(90)))) return;
         try {
             var snapshot = works.find(id).orElseThrow();
-            var observation = bank.inspect(snapshot.invoiceId);
+            var observation = bank.inspect(snapshot.getInvoiceId());
             var command = tx.required(() -> transitions.settle(id, observation));
             if (command != null) {
                 // Domain dispatch intent has committed. An ambiguous send is never automatically repeated.
