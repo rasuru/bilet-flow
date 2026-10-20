@@ -132,6 +132,12 @@ class PaymentSchemaMigrationIT {
                 );
                 jdbc.queryForObject("select setval('pm_halyk_invoice_seq',543210)", Long.class);
                 migrate(isolated, schema, "20261019010000_jpa_payments.xml");
+                jdbc.update("insert into pm_halyk_invoice_allocation(id) values (543210)");
+                migrate(isolated, schema, "20261020090000_randomized_halyk_invoices.xml");
+                assertEquals(
+                    "543210",
+                    jdbc.queryForObject("select invoice_id from pm_halyk_invoice_allocation where id=543210", String.class)
+                );
                 assertEquals(
                     new BigDecimal("2000.00"),
                     jdbc.queryForObject("select amount from pm_payment_work where id=?", BigDecimal.class, payment)

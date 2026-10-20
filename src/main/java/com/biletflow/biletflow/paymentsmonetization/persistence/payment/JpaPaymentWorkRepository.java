@@ -1,11 +1,13 @@
 package com.biletflow.biletflow.paymentsmonetization.persistence.payment;
 
+import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentWorkRepository;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.persistence.payment.entity.HalykInvoiceJpaEntity;
 import com.biletflow.biletflow.paymentsmonetization.persistence.payment.entity.PaymentWorkJpaEntity;
 import com.biletflow.biletflow.paymentsmonetization.persistence.payment.entity.RefundJpaEntity;
 import jakarta.persistence.EntityManager;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.*;
 import org.springframework.data.domain.PageRequest;
@@ -19,19 +21,41 @@ public class JpaPaymentWorkRepository implements PaymentWorkRepository {
     private final EntityManager entities;
     private final SpringDataPaymentWorkJpaRepository rows;
     private final PaymentPersistenceMapper mapper;
+    private final TransactionLocks locks;
+    private final SecureRandom invoiceNumbers = new SecureRandom();
 
-    public JpaPaymentWorkRepository(EntityManager entities, SpringDataPaymentWorkJpaRepository rows, PaymentPersistenceMapper mapper) {
+    public JpaPaymentWorkRepository(
+        EntityManager entities,
+        SpringDataPaymentWorkJpaRepository rows,
+        PaymentPersistenceMapper mapper,
+        TransactionLocks locks
+    ) {
         this.entities = Objects.requireNonNull(entities, "entities cannot be null");
         this.rows = Objects.requireNonNull(rows, "rows cannot be null");
         this.mapper = Objects.requireNonNull(mapper, "mapper cannot be null");
+        this.locks = Objects.requireNonNull(locks, "locks cannot be null");
     }
 
     @Override
     @Transactional
     public String nextInvoice() {
-        var allocation = HalykInvoiceJpaEntity.allocate();
-        entities.persist(allocation);
-        return String.format(Locale.ROOT, "%06d", allocation.getId());
+        // All replicas sharing this database reserve from the same namespace.
+        // Halyk requires the last six digits to be unique as well as the full ID.
+        locks.lock("halyk-invoice-allocation");
+        for (int attempt = 0; attempt < 128; attempt++) {
+            String invoice = Integer.toString(100000 + invoiceNumbers.nextInt(900000));
+            boolean allocated = !entities
+                .createQuery("select a.id from HalykInvoiceJpaEntity a where a.invoiceId = :invoice", Long.class)
+                .setParameter("invoice", invoice)
+                .setMaxResults(1)
+                .getResultList()
+                .isEmpty();
+            if (allocated || rows.findByInvoiceId(invoice).isPresent()) continue;
+            entities.persist(HalykInvoiceJpaEntity.allocate(invoice));
+            entities.flush();
+            return invoice;
+        }
+        throw new IllegalStateException("Cannot reserve a fresh Halyk invoice; allocation namespace may be exhausted");
     }
 
     @Override

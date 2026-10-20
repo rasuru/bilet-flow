@@ -60,6 +60,23 @@ class PaymentPersistenceIT {
     }
 
     @Test
+    void bankInvoiceReservationsAreUniqueAndPersisted() {
+        tx().executeWithoutResult(status -> {
+            var invoices = new HashSet<String>();
+            for (int i = 0; i < 24; i++) {
+                String invoice = works.nextInvoice();
+                assertTrue(invoice.matches("[1-9][0-9]{5}"));
+                assertTrue(invoices.add(invoice), "Bank invoice must not be reused");
+                assertEquals(
+                    1,
+                    jdbc.queryForObject("select count(*) from pm_halyk_invoice_allocation where invoice_id=?", Integer.class, invoice)
+                );
+            }
+            status.setRollbackOnly();
+        });
+    }
+
+    @Test
     void producerRollbackAlsoRollsBackTheOutbox() {
         var bus = new JdbcEventBus(jdbc, json, Clock.systemUTC(), manager, List.of());
         UUID id = UUID.randomUUID();
