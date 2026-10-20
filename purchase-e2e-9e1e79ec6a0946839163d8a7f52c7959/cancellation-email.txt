@@ -1,0 +1,6 @@
+Event cancelled: E2E purchase 9e1e79ec6a09
+
+This event will not take place. Its tickets cannot be used for admission.
+The attached calendar file marks the event as cancelled.
+
+This notice does not confirm a refund. Contact the organizer about refund eligibility and status.

@@ -199,7 +199,9 @@ public class EventResource {
     @PostMapping("/{eventId}/cancel")
     @Operation(
         summary = "Cancel an event",
-        description = "Cancels the event at the server's current time. An event that has already ended cannot be cancelled."
+        description = "Cancels the event and queues cancellation email/calendar updates. Stops new sales and admission; pending checkouts " +
+            "are closed asynchronously. Completed paid orders retain organizer-initiated refunds. Repeating cancellation is idempotent; " +
+            "a first cancellation after the event ended is rejected."
     )
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Event cancelled"),

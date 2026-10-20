@@ -46,6 +46,41 @@ public class PaymentSagaTest {
     }
 
     @Test
+    void cancelledEventClosesPendingCheckoutAndCompensatesLateCapture() {
+        var f = new Fixture();
+        var checkout = f.start();
+        var payment = f.work(checkout);
+        f.events.open = false;
+        f.checkout.expire(checkout.id());
+        check("CANCELLED".equals(f.checkout.get(checkout.id(), 1).status()), "Event cancellation cancels the pending checkout");
+        check(f.stock.released.contains(checkout.id()), "Event cancellation releases reservations");
+        f.observe(payment, "CHARGE");
+        f.deliver();
+        check(f.stock.issued.isEmpty(), "Late capture cannot issue admission to a cancelled event");
+        check(payment.getPayment().getRefund().isPresent(), "Unfulfilled capture is compensated");
+        f.observe(payment, "CHARGE");
+        f.observe(payment, "REFUND");
+        f.deliver();
+        check("REFUNDED".equals(f.checkout.get(checkout.id(), 1).refundState()), "Compensation is reflected in the checkout");
+        fails(() -> f.start());
+    }
+
+    @Test
+    void cancellingEventPreservesCompletedOrderUntilOrganizerRequestsRefund() {
+        var f = new Fixture();
+        var checkout = f.start();
+        var payment = f.work(checkout);
+        f.observe(payment, "CHARGE");
+        f.deliver();
+        f.events.open = false;
+        f.checkout.expire(checkout.id());
+        check("COMPLETED".equals(f.checkout.get(checkout.id(), 1).status()), "Completed financial order is retained");
+        check(payment.getPayment().getRefund().isEmpty(), "Event cancellation does not silently create a refund");
+        f.checkout.refund(checkout.id(), 7, "Event cancelled by organizer");
+        check(payment.getPayment().getRefund().isPresent(), "Organizer refund remains available after cancellation");
+    }
+
+    @Test
     void verifiedCaptureCompletesExactlyOneOrder() {
         var f = new Fixture();
         var v = f.start();

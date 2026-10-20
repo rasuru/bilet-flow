@@ -63,6 +63,7 @@ public class CheckoutService {
         if (request.selections().isEmpty() || request.selections().size() > 30) throw new IllegalArgumentException(
             "Supply 1 to 30 ticket selections"
         );
+        locks.lock("event-lifecycle:" + request.eventId());
         locks.lock("checkout:" + id);
         String fingerprint = fingerprints.of(request);
         var prior = processes.find(id);
@@ -194,6 +195,8 @@ public class CheckoutService {
 
     @Transactional
     public void onOutcome(PaymentOutcome outcome) {
+        var initial = requireProcess(outcome.orderId());
+        locks.lock("event-lifecycle:" + initial.eventId());
         locks.lock("checkout:" + outcome.orderId());
         var p = requireProcess(outcome.orderId());
         var c = requireCheckout(p.id());
@@ -280,8 +283,10 @@ public class CheckoutService {
         var p = requireProcess(id);
         var c = requireCheckout(id);
         if (c.getStatus() != CheckoutSessionStatus.AWAITING_PAYMENT && c.getStatus() != CheckoutSessionStatus.IN_PROGRESS) return;
-        if (clock.instant().isBefore(p.deadline()) && events.salesScope(p.eventId(), clock.instant()).registrationOpen()) return;
-        c.expire();
+        var scope = events.salesScope(p.eventId(), clock.instant());
+        if (clock.instant().isBefore(p.deadline()) && scope.registrationOpen()) return;
+        if (scope.cancelled()) c.cancel();
+        else c.expire();
         release(p);
         if (p.paymentId() != null) payments.abandon(p.paymentId());
         checkouts.save(c);

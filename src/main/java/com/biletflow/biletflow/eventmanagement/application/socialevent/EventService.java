@@ -1,12 +1,15 @@
 package com.biletflow.biletflow.eventmanagement.application.socialevent;
 
 import com.biletflow.biletflow.common.application.AuthorizationException;
+import com.biletflow.biletflow.common.application.TransactionLocks;
+import com.biletflow.biletflow.common.events.EventBus;
 import com.biletflow.biletflow.common.security.CurrentActor;
 import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditRepository;
 import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditService;
 import com.biletflow.biletflow.eventmanagement.application.socialevent.command.*;
 import com.biletflow.biletflow.eventmanagement.domain.*;
 import com.biletflow.biletflow.eventmanagement.domain.exceptions.SocialEventNotFoundException;
+import com.biletflow.biletflow.eventmanagement.ohs.EventCancelled;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Instant;
@@ -21,19 +24,25 @@ public class EventService {
     private final EventAuditService auditService;
     private final CurrentActor currentActor;
     private final Clock clock;
+    private final TransactionLocks locks;
+    private final EventBus events;
 
     public EventService(
         SocialEventRepository eventRepository,
         VenueLayoutRepository venueLayoutRepository,
         EventAuditService auditService,
         CurrentActor currentActor,
-        Clock clock
+        Clock clock,
+        TransactionLocks locks,
+        EventBus events
     ) {
         this.eventRepository = Objects.requireNonNull(eventRepository);
         this.venueLayoutRepository = Objects.requireNonNull(venueLayoutRepository);
         this.auditService = Objects.requireNonNull(auditService);
         this.currentActor = Objects.requireNonNull(currentActor);
         this.clock = Objects.requireNonNull(clock);
+        this.locks = Objects.requireNonNull(locks);
+        this.events = Objects.requireNonNull(events);
     }
 
     @Transactional
@@ -123,8 +132,10 @@ public class EventService {
         SocialEvent event = requireEvent(command.eventId());
         assertCanModifyEvent(event, currentUserId);
 
+        if (event.getStatus() == SocialEventStatus.CANCELLED) return;
         event.cancel(command.cancellationTime());
         eventRepository.save(event);
+        events.publish(new EventCancelled(event.getId().value(), command.cancellationTime()).toEvent());
 
         auditService.record(event.getId().value(), currentUserId, EventAuditRepository.EventAuditType.CANCELLED, "Event cancelled");
     }
@@ -225,6 +236,8 @@ public class EventService {
     }
 
     private SocialEvent requireEvent(SocialEventId eventId) {
+        // Serialize lifecycle changes with checkout issuance and admission.
+        locks.lock("event-lifecycle:" + eventId.value());
         return eventRepository.findById(eventId).orElseThrow(() -> new SocialEventNotFoundException(eventId.value().toString()));
     }
 

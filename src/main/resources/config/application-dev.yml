@@ -16,9 +16,9 @@
 logging:
   level:
     ROOT: INFO
-    tech.jhipster: DEBUG
-    org.hibernate.SQL: DEBUG
-    com.biletflow.biletflow: DEBUG
+    tech.jhipster: INFO
+    org.hibernate.SQL: INFO
+    com.biletflow.biletflow: INFO
     javax.management: INFO
     javax.management.remote.rmi: INFO
     liquibase: WARN
