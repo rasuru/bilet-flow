@@ -1,6 +1,7 @@
 package com.biletflow.biletflow.ticketinventory.application.sale;
 
 import com.biletflow.biletflow.common.application.EntityNotFoundException;
+import com.biletflow.biletflow.ticketinventory.application.delivery.TicketDeliveryStore;
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.command.*;
 import com.biletflow.biletflow.ticketinventory.application.sale.command.CompleteSaleCommand;
 import com.biletflow.biletflow.ticketinventory.application.ticket.command.IssueTicketItem;
@@ -30,17 +31,20 @@ public class TicketSaleService {
     private final TicketRepository ticketRepository;
     private final TicketTypeRepository ticketTypeRepository;
     private final Clock clock;
+    private final TicketDeliveryStore deliveries;
 
     public TicketSaleService(
         EventInventoryRepository inventoryRepository,
         TicketRepository ticketRepository,
         TicketTypeRepository ticketTypeRepository,
-        Clock clock
+        Clock clock,
+        TicketDeliveryStore deliveries
     ) {
         this.inventoryRepository = Objects.requireNonNull(inventoryRepository);
         this.ticketRepository = Objects.requireNonNull(ticketRepository);
         this.ticketTypeRepository = Objects.requireNonNull(ticketTypeRepository);
         this.clock = Objects.requireNonNull(clock);
+        this.deliveries = Objects.requireNonNull(deliveries);
     }
 
     @Transactional
@@ -95,7 +99,15 @@ public class TicketSaleService {
 
         inventoryRepository.save(inventory);
 
-        return ticketRepository.saveAll(tickets).stream().map(this::toView).toList();
+        var saved = ticketRepository.saveAll(tickets);
+        deliveries.enqueue(
+            saved
+                .stream()
+                .map(ticket -> ticket.getId().value())
+                .toList(),
+            now
+        );
+        return saved.stream().map(this::toView).toList();
     }
 
     private void validateHoldItemsMatch(EventInventory inventory, List<HoldReference> holds, List<IssueTicketItem> items) {

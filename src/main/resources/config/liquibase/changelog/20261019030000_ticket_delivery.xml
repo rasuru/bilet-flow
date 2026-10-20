@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="20261019030000-1" author="biletflow">
+        <createTable tableName="ticket_inventory_delivery">
+            <column name="ticket_id" type="uuid"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="message_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="state" type="varchar(16)"><constraints nullable="false"/></column>
+            <column name="attempts" type="int" defaultValueNumeric="0"><constraints nullable="false"/></column>
+            <column name="next_attempt_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="requested_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="claim_token" type="uuid"/>
+            <column name="lease_until" type="timestamp with time zone"/>
+            <column name="completed_at" type="timestamp with time zone"/>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="ticket_inventory_delivery" baseColumnNames="ticket_id"
+            referencedTableName="ticket_inventory_ticket" referencedColumnNames="id"
+            constraintName="fk_ticket_delivery_ticket"/>
+        <createIndex tableName="ticket_inventory_delivery" indexName="idx_ticket_delivery_due">
+            <column name="state"/><column name="next_attempt_at"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

@@ -103,6 +103,35 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
         return new SalesScope(eventId, event.getOrganizerId(), open, cancelled, event.getDateRange().startAt());
     }
 
+    @Override
+    public TicketEventDetailsView ticketDetails(UUID eventId, UUID seatId) {
+        var event = requireEvent(eventId);
+        var venue = requireVenue(event);
+        String seatLabel = "General admission";
+        if (seatId != null) {
+            if (!(venue.getSeatingConfig() instanceof Venue.AssignedSeating assigned)) {
+                throw new IllegalStateException("Ticket seat does not match the event venue");
+            }
+            seatLabel = requireLayout(assigned.layoutId())
+                .getSeats()
+                .stream()
+                .filter(seat -> seat.id().value().equals(seatId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Ticket seat is missing from the event layout"))
+                .location()
+                .toLabel();
+        }
+        return new TicketEventDetailsView(
+            event.getTitle(),
+            event.getDateRange().startAt(),
+            event.getDateRange().endAt(),
+            venue.getName(),
+            venue.getAddress(),
+            seatLabel,
+            event.getStatus() == SocialEventStatus.CANCELLED
+        );
+    }
+
     private SocialEvent requireEvent(UUID eventId) {
         Objects.requireNonNull(eventId, "eventId cannot be null");
 

@@ -17,4 +17,6 @@ public interface EventManagementPort {
     boolean canManageTicketing(UUID eventId, Long userId);
 
     boolean canCheckIn(UUID eventId, Long userId);
+
+    TicketEventDetails ticketDetails(UUID eventId, UUID seatId);
 }

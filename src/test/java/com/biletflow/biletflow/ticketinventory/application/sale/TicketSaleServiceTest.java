@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.*;
 
+import com.biletflow.biletflow.ticketinventory.application.delivery.TicketDeliveryStore;
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.command.GaReservationReference;
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.command.SeatHoldReference;
 import com.biletflow.biletflow.ticketinventory.application.sale.command.CompleteSaleCommand;
@@ -66,6 +67,13 @@ class TicketSaleServiceTest {
         InventoryCounters counters = ((GeneralAdmissionInventory) inventory.getMode()).getCounters().get(ticketTypeId);
 
         assertEquals(2, result.size());
+        verify(fixture.deliveries).enqueue(
+            result
+                .stream()
+                .map(t -> t.id())
+                .toList(),
+            NOW
+        );
         assertEquals(0, counters.reserved());
         assertEquals(2, counters.sold());
 
@@ -117,6 +125,7 @@ class TicketSaleServiceTest {
         verify(fixture.inventoryRepository, times(1)).save(inventory);
 
         verify(fixture.ticketRepository, times(1)).saveAll(anyList());
+        verify(fixture.deliveries, times(1)).enqueue(anyList(), eq(NOW));
     }
 
     @Test
@@ -194,6 +203,13 @@ class TicketSaleServiceTest {
         var result = fixture.service.complete(command);
 
         assertEquals(2, result.size());
+        verify(fixture.deliveries).enqueue(
+            result
+                .stream()
+                .map(t -> t.id())
+                .toList(),
+            NOW
+        );
         assertEquals(SeatHoldStatus.SOLD, holdA.getStatus());
         assertEquals(SeatHoldStatus.SOLD, holdB.getStatus());
         assertEquals(new OrderId(orderId), holdA.getOrderId());
@@ -217,15 +233,22 @@ class TicketSaleServiceTest {
 
         when(ticketType.getEventId()).thenReturn(eventId);
 
+        TicketDeliveryStore deliveries = mock(TicketDeliveryStore.class);
         TicketSaleService service = new TicketSaleService(
             inventoryRepository,
             ticketRepository,
             ticketTypeRepository,
-            Clock.fixed(NOW, ZoneOffset.UTC)
+            Clock.fixed(NOW, ZoneOffset.UTC),
+            deliveries
         );
 
-        return new Fixture(service, inventoryRepository, ticketRepository);
+        return new Fixture(service, inventoryRepository, ticketRepository, deliveries);
     }
 
-    private record Fixture(TicketSaleService service, EventInventoryRepository inventoryRepository, TicketRepository ticketRepository) {}
+    private record Fixture(
+        TicketSaleService service,
+        EventInventoryRepository inventoryRepository,
+        TicketRepository ticketRepository,
+        TicketDeliveryStore deliveries
+    ) {}
 }

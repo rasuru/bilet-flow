@@ -6,6 +6,7 @@ import com.biletflow.biletflow.IntegrationTest;
 import com.biletflow.biletflow.common.persistence.JsonCodec;
 import java.math.BigDecimal;
 import java.sql.Connection;
+import java.time.Instant;
 import java.util.*;
 import javax.sql.DataSource;
 import liquibase.integration.spring.SpringLiquibase;
@@ -30,7 +31,12 @@ class PaymentSchemaMigrationIT {
         String schema = "payment_migration_" + UUID.randomUUID().toString().replace("-", "");
         try (Connection connection = dataSource.getConnection()) {
             String originalSchema = connection.getSchema();
+            boolean originalAutoCommit = connection.getAutoCommit();
             try {
+                // Schema changes are connection state in PostgreSQL, but SET search_path
+                // also participates in transactions. Persist setup and restoration so
+                // pool cleanup cannot roll back to the temporary schema.
+                connection.setAutoCommit(true);
                 connection.createStatement().execute("create schema " + schema);
                 connection.setSchema(schema);
                 var isolated = new SingleConnectionDataSource(connection, true);
@@ -175,8 +181,27 @@ class PaymentSchemaMigrationIT {
                     )
                 );
             } finally {
-                connection.setSchema(originalSchema);
-                connection.createStatement().execute("drop schema if exists " + schema + " cascade");
+                try {
+                    // A failed migration can leave an aborted transaction behind.
+                    if (!connection.getAutoCommit()) connection.rollback();
+                    connection.setAutoCommit(true);
+                    connection.setSchema(originalSchema);
+                    try (var statement = connection.createStatement()) {
+                        statement.execute("drop schema if exists " + schema + " cascade");
+                    }
+                } finally {
+                    connection.setAutoCommit(originalAutoCommit);
+                }
+            }
+            // Reproduce the pool's rollback on return: restoration must survive it.
+            if (!originalAutoCommit) connection.rollback();
+            assertEquals(originalSchema, connection.getSchema(), "Migration test leaked its temporary schema");
+            try (
+                var statement = connection.createStatement();
+                var result = statement.executeQuery("select to_regclass('ticket_inventory_ticket') is not null")
+            ) {
+                assertTrue(result.next());
+                assertTrue(result.getBoolean(1), "Application ticket table must remain visible after migration cleanup");
             }
         }
     }

@@ -3,11 +3,13 @@ package com.biletflow.biletflow.ticketinventory.rest;
 import com.biletflow.biletflow.common.application.AuthorizationException;
 import com.biletflow.biletflow.common.application.EntityNotFoundException;
 import com.biletflow.biletflow.common.security.UnauthenticatedActorException;
+import com.biletflow.biletflow.ticketinventory.application.delivery.TicketDeliveryCooldownException;
 import jakarta.validation.ConstraintViolationException;
 import java.net.URI;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -44,8 +46,8 @@ public class TicketInventoryExceptionHandler {
         return problem(HttpStatus.BAD_REQUEST, "Invalid request", messageFor(exception));
     }
 
-    @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<ProblemDetail> handleConflict(IllegalStateException exception) {
+    @ExceptionHandler({ IllegalStateException.class, TicketDeliveryCooldownException.class })
+    public ResponseEntity<ProblemDetail> handleConflict(RuntimeException exception) {
         return problem(HttpStatus.CONFLICT, "Operation rejected", exception.getMessage());
     }
 
@@ -53,7 +55,7 @@ public class TicketInventoryExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail == null ? status.getReasonPhrase() : detail);
         problem.setTitle(title);
         problem.setType(URI.create("about:blank"));
-        return ResponseEntity.status(status).body(problem);
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_PROBLEM_JSON).body(problem);
     }
 
     private String messageFor(Exception exception) {
