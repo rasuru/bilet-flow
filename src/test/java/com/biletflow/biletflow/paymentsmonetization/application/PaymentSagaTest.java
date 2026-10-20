@@ -665,6 +665,10 @@ public class PaymentSagaTest {
             throw new UnsupportedOperationException();
         }
 
+        public TicketEventDetailsView ticketDetails(UUID id, UUID seatId) {
+            throw new UnsupportedOperationException();
+        }
+
         public EventSeatMapView getSeatMap(UUID id) {
             throw new UnsupportedOperationException();
         }

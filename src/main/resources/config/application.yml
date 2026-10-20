@@ -137,6 +137,12 @@ spring:
       naming:
         physical-strategy: org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy
         implicit-strategy: org.springframework.boot.hibernate.SpringImplicitNamingStrategy
+  mail:
+    properties:
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
+
   messages:
     basename: i18n/messages
   main:

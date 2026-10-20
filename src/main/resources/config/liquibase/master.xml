@@ -19,7 +19,12 @@
 
   <include file="config/liquibase/changelog/20261019020000_required_authorities.xml" relativeToChangelogFile="false"/>
 
+  <include file="config/liquibase/changelog/20261019030000_ticket_delivery.xml" relativeToChangelogFile="false"/>
+
+  <include file="config/liquibase/changelog/20261020090000_randomized_halyk_invoices.xml" relativeToChangelogFile="false"/>
+
   <!-- jhipster-needle-liquibase-add-changelog - JHipster will add liquibase changelogs here -->
     <!-- jhipster-needle-liquibase-add-constraints-changelog - JHipster will add liquibase constraints changelogs here -->
     <!-- jhipster-needle-liquibase-add-incremental-changelog - JHipster will add incremental liquibase changelogs here -->
 </databaseChangeLog>
+

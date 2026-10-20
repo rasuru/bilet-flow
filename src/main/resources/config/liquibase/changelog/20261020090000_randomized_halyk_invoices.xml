@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="20261020090000-1" author="biletflow">
+        <addColumn tableName="pm_halyk_invoice_allocation">
+            <column name="invoice_id" type="varchar(15)"/>
+        </addColumn>
+        <!-- Previous versions sent the sequence-generated allocation ID to Halyk.
+             Preserve these reservations and all existing payment/session IDs. -->
+        <update tableName="pm_halyk_invoice_allocation">
+            <column name="invoice_id" valueComputed="cast(id as varchar(15))"/>
+        </update>
+        <addNotNullConstraint tableName="pm_halyk_invoice_allocation" columnName="invoice_id" columnDataType="varchar(15)"/>
+        <addUniqueConstraint tableName="pm_halyk_invoice_allocation" columnNames="invoice_id" constraintName="uk_pm_halyk_allocation_invoice"/>
+    </changeSet>
+</databaseChangeLog>
+

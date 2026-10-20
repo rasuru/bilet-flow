@@ -51,6 +51,10 @@ eclipse {
 }
 
 dependencies {
+    implementation "com.google.zxing:core:3.5.4"
+    implementation "org.apache.pdfbox:pdfbox:3.0.8"
+    // Unicode font resources only; no second PDF engine or host font installation is needed.
+    runtimeOnly("com.github.librepdf:openpdf-fonts-extra:2.2.1") { transitive = false }
     implementation libs.jackson.databind.nullable
     implementation libs.jhipster.framework
     implementation libs.mapstruct

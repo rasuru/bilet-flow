@@ -6,6 +6,7 @@ import com.biletflow.biletflow.IntegrationTest;
 import com.biletflow.biletflow.common.persistence.JsonCodec;
 import java.math.BigDecimal;
 import java.sql.Connection;
+import java.time.Instant;
 import java.util.*;
 import javax.sql.DataSource;
 import liquibase.integration.spring.SpringLiquibase;
@@ -30,7 +31,12 @@ class PaymentSchemaMigrationIT {
         String schema = "payment_migration_" + UUID.randomUUID().toString().replace("-", "");
         try (Connection connection = dataSource.getConnection()) {
             String originalSchema = connection.getSchema();
+            boolean originalAutoCommit = connection.getAutoCommit();
             try {
+                // Schema changes are connection state in PostgreSQL, but SET search_path
+                // also participates in transactions. Persist setup and restoration so
+                // pool cleanup cannot roll back to the temporary schema.
+                connection.setAutoCommit(true);
                 connection.createStatement().execute("create schema " + schema);
                 connection.setSchema(schema);
                 var isolated = new SingleConnectionDataSource(connection, true);
@@ -126,6 +132,12 @@ class PaymentSchemaMigrationIT {
                 );
                 jdbc.queryForObject("select setval('pm_halyk_invoice_seq',543210)", Long.class);
                 migrate(isolated, schema, "20261019010000_jpa_payments.xml");
+                jdbc.update("insert into pm_halyk_invoice_allocation(id) values (543210)");
+                migrate(isolated, schema, "20261020090000_randomized_halyk_invoices.xml");
+                assertEquals(
+                    "543210",
+                    jdbc.queryForObject("select invoice_id from pm_halyk_invoice_allocation where id=543210", String.class)
+                );
                 assertEquals(
                     new BigDecimal("2000.00"),
                     jdbc.queryForObject("select amount from pm_payment_work where id=?", BigDecimal.class, payment)
@@ -175,8 +187,27 @@ class PaymentSchemaMigrationIT {
                     )
                 );
             } finally {
-                connection.setSchema(originalSchema);
-                connection.createStatement().execute("drop schema if exists " + schema + " cascade");
+                try {
+                    // A failed migration can leave an aborted transaction behind.
+                    if (!connection.getAutoCommit()) connection.rollback();
+                    connection.setAutoCommit(true);
+                    connection.setSchema(originalSchema);
+                    try (var statement = connection.createStatement()) {
+                        statement.execute("drop schema if exists " + schema + " cascade");
+                    }
+                } finally {
+                    connection.setAutoCommit(originalAutoCommit);
+                }
+            }
+            // Reproduce the pool's rollback on return: restoration must survive it.
+            if (!originalAutoCommit) connection.rollback();
+            assertEquals(originalSchema, connection.getSchema(), "Migration test leaked its temporary schema");
+            try (
+                var statement = connection.createStatement();
+                var result = statement.executeQuery("select to_regclass('ticket_inventory_ticket') is not null")
+            ) {
+                assertTrue(result.next());
+                assertTrue(result.getBoolean(1), "Application ticket table must remain visible after migration cleanup");
             }
         }
     }

@@ -6,6 +6,7 @@ import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.ticketinventory.application.common.InventoryKind;
 import com.biletflow.biletflow.ticketinventory.application.eventmanagement.port.EventManagementPort;
 import com.biletflow.biletflow.ticketinventory.application.eventmanagement.port.EventTicketingConfiguration;
+import com.biletflow.biletflow.ticketinventory.application.eventmanagement.port.TicketEventDetails;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -42,6 +43,24 @@ public class EventManagementAcl implements EventManagementPort {
     @Override
     public boolean canManageTicketing(UUID eventId, Long userId) {
         return eventManagementOhs.canManageTicketing(eventId, userId);
+    }
+
+    @Override
+    public TicketEventDetails ticketDetails(UUID eventId, UUID seatId) {
+        try {
+            var details = eventManagementOhs.ticketDetails(eventId, seatId);
+            return new TicketEventDetails(
+                details.title(),
+                details.startsAt(),
+                details.endsAt(),
+                details.venue(),
+                details.address(),
+                details.seat(),
+                details.cancelled()
+            );
+        } catch (SocialEventNotFoundException exception) {
+            throw new EntityNotFoundException("Event not found: " + eventId);
+        }
     }
 
     @Override

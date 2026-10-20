@@ -27,4 +27,7 @@ public interface EventManagementOhs {
     record SalesScope(UUID eventId, long organizerId, boolean registrationOpen, boolean cancelled, java.time.Instant eventStartsAt) {}
 
     SalesScope salesScope(UUID eventId, java.time.Instant now);
+
+    /** Internal composition contract. Consumers must authorize access to the ticket before exposing these details. */
+    com.biletflow.biletflow.eventmanagement.ohs.dto.TicketEventDetailsView ticketDetails(UUID eventId, UUID seatId);
 }
