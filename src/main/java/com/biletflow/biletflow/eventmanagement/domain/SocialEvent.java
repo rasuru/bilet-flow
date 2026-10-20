@@ -138,12 +138,9 @@ public class SocialEvent {
     public void cancel(Instant now) {
         Objects.requireNonNull(now, "now cannot be null");
 
+        if (status == SocialEventStatus.CANCELLED) return;
         if (dateRange.hasEnded(now)) {
             throw new InvalidEventStateException("Cannot cancel an event that has already ended");
-        }
-
-        if (status == SocialEventStatus.CANCELLED) {
-            return;
         }
 
         status = SocialEventStatus.CANCELLED;

@@ -2,7 +2,9 @@ package com.biletflow.biletflow.ticketinventory.application.ticket;
 
 import com.biletflow.biletflow.common.application.AuthorizationException;
 import com.biletflow.biletflow.common.application.EntityNotFoundException;
+import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.common.security.CurrentActor;
+import com.biletflow.biletflow.ticketinventory.application.eventmanagement.port.EventManagementPort;
 import com.biletflow.biletflow.ticketinventory.application.ticket.command.*;
 import com.biletflow.biletflow.ticketinventory.application.ticket.port.VerifiedUserEmailPort;
 import com.biletflow.biletflow.ticketinventory.application.ticket.view.TicketValidationResult;
@@ -25,17 +27,23 @@ public class TicketService {
     private final EventInventoryRepository inventoryRepository;
     private final VerifiedUserEmailPort verifiedUserEmailPort;
     private final CurrentActor currentActor;
+    private final EventManagementPort events;
+    private final TransactionLocks locks;
 
     public TicketService(
         TicketRepository ticketRepository,
         EventInventoryRepository inventoryRepository,
         VerifiedUserEmailPort verifiedUserEmailPort,
-        CurrentActor currentActor
+        CurrentActor currentActor,
+        EventManagementPort events,
+        TransactionLocks locks
     ) {
         this.ticketRepository = Objects.requireNonNull(ticketRepository);
         this.inventoryRepository = Objects.requireNonNull(inventoryRepository);
         this.verifiedUserEmailPort = Objects.requireNonNull(verifiedUserEmailPort);
         this.currentActor = Objects.requireNonNull(currentActor);
+        this.events = Objects.requireNonNull(events);
+        this.locks = Objects.requireNonNull(locks);
     }
 
     @Transactional
@@ -87,6 +95,10 @@ public class TicketService {
     @Transactional
     public TicketView checkIn(CheckInTicketCommand command) {
         Objects.requireNonNull(command, "command cannot be null");
+        locks.lock("event-lifecycle:" + command.expectedEventId());
+        if (events.ticketDetails(command.expectedEventId(), null).cancelled()) {
+            throw new IllegalStateException("Event is cancelled");
+        }
 
         Ticket ticket = requireTicketByCodeForUpdate(command.ticketCode());
 
@@ -100,6 +112,10 @@ public class TicketService {
     @Transactional
     public TicketView reverseCheckIn(ReverseCheckInCommand command) {
         Objects.requireNonNull(command, "command cannot be null");
+        locks.lock("event-lifecycle:" + command.expectedEventId());
+        if (events.ticketDetails(command.expectedEventId(), null).cancelled()) {
+            throw new IllegalStateException("Event is cancelled");
+        }
 
         Ticket ticket = requireTicketByCodeForUpdate(command.ticketCode());
 
@@ -165,7 +181,7 @@ public class TicketService {
             ticket.getTicketTypeId().value(),
             ticket.getSeatId() == null ? null : ticket.getSeatId().value(),
             ticket.getStatus(),
-            ticket.getStatus() == TicketStatus.VALID
+            ticket.getStatus() == TicketStatus.VALID && !events.ticketDetails(ticket.getEventId(), null).cancelled()
         );
     }
 

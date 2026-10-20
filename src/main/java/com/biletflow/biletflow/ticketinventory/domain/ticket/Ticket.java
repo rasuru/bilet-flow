@@ -191,6 +191,11 @@ public class Ticket {
         return ticketCode;
     }
 
+    /** Current ticket holders and admitted attendees need event cancellation updates. */
+    public boolean receivesEventCancellationNotice() {
+        return status == TicketStatus.VALID || status == TicketStatus.CHECKED_IN || status == TicketStatus.REFUND_PENDING;
+    }
+
     public TicketStatus getStatus() {
         return status;
     }

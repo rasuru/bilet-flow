@@ -1,0 +1,4509 @@
+# ./docs/event-cancellation.md
+# Event cancellation
+
+`POST /api/events/{eventId}/cancel` is organizer-only and returns `204` once
+cancellation and its durable notification fact commit. Repeating it does not
+create another audit entry or notification campaign, including after the
+original event end time. A first cancellation after the event ended is rejected.
+Cancellation is terminal; publication and subsequent editing remain forbidden.
+
+## Admission and orders
+
+Cancellation immediately closes registration and admission. Lifecycle changes,
+checkout issuance, and check-in use the same event transaction lock so issuance
+or admission cannot race past a committed cancellation. Existing PDF/QR copies
+cannot be recalled: online validation remains authoritative. Newly generated
+ticket PDFs show cancellation and omit admission QR codes; QR downloads are
+rejected.
+
+The checkout expiry worker closes pending checkouts as `CANCELLED`, releases
+reservations, and abandons their payments on its next pass (normally within five
+seconds). Those operations are retried after failure. An unfulfilled late bank
+capture is compensated through the existing payment saga; it does not issue
+admission to the cancelled event. The bank may require reconciliation before a
+void or refund is confirmed.
+
+Completed orders and their financial history are retained. Event cancellation
+**does not automatically refund completed orders or the paid-sales activation
+fee**. Existing organizer-initiated full-refund eligibility and the bank outcome
+remain authoritative. The cancellation email does not promise a refund.
+
+## Notifications and calendars
+
+The transactional outbox fans cancellation out to current attendee email
+addresses (including unclaimed, checked-in, and refund-pending tickets) plus
+activated organizer/staff email addresses published by IAM. Already cancelled
+or refunded tickets are excluded. One notice is reserved per event and normalized
+email address, even when the same person has multiple tickets or staff roles.
+No account or ticket claim is required for an attendee to receive the notice.
+
+Each notice includes an `.ics` attachment with a stable event UUID-based UID,
+`STATUS:CANCELLED`, a cancellation sequence, and UTC event times. Calendar import
+is a user action; BiletFlow does not have write access to the user's calendar.
+
+Recipient fan-out and outbox acknowledgement commit together. SMTP runs outside
+the database transaction. Notices survive restarts, use a two-minute recoverable
+lease, and retry after 30 seconds with exponential backoff capped at one hour.
+An expired worker cannot acknowledge a replacement worker's claim. Retries keep
+the same Message-ID. Delivery is at least once: an SMTP acceptance followed by a
+crash can produce another copy of the same notice.
+
+`biletflow.events.cancellation-mail-enabled` defaults to `true` and controls the
+SMTP worker. `cancellation-mail-delay-ms` defaults to `5000` and
+`cancellation-mail-initial-delay-ms` to `10000`, under the same prefix. Disabling
+the worker retains queued notices. Monitor the outbox and
+`event_management_cancellation_notice` for unresolved work and SMTP failures.
+
+Ticket-confirmation delivery skips cancelled events. A confirmation already in
+flight may still arrive; the cancellation notice and online admission state
+remain authoritative. Historical cancellations are not automatically mailed by
+deploying this feature; only newly committed cancellation facts create campaigns.
+
+## Verification
+
+Run `./gradlew test integrationTest` with the project's Java toolchain and Docker.
+Focused tests cover authorization, idempotent cancellation, outbox rollback,
+late-payment compensation, retained completed orders, notification recipients,
+SMTP retry, worker lease recovery, and calendar escaping/UTF-8 line folding.
+
+With the development server running, a fully automated free-registration test
+creates its own activated accounts and event, then verifies cancellation,
+blocked sales/admission/QR downloads, retained order history, and the attendee
+cancellation email captured by Mailpit:
+
+```sh
+CANCEL_EVENT=1 PRICE_KZT=0 bash scripts/e2e/biletflow-run-e2e.sh
+```
+
+Omit `PRICE_KZT=0` to also exercise the Halyk activation and ticket payments;
+those payments require the sandbox browser steps. The script uses fresh fixture
+events and leaves cancellation records available for inspection.
+
+# ./scripts/e2e/biletflow-purchase-e2e.sh
+#!/usr/bin/env bash
+# Buy one general-admission ticket, claim it, and download its PDF and QR.
+# Requires bash, curl, jq, python3, a running backend, and two activated accounts.
+# The event must be published, registration/sales open, and inventory available.
+# ATTENDEE_EMAIL must match the buyer account's verified email.
+#
+# Usage (JWTs can instead be entered at the hidden prompts):
+#   export ORGANIZER_JWT='...' BUYER_JWT='...'
+#   EVENT_ID='...' TICKET_TYPE_ID='...' ATTENDEE_EMAIL='buyer@example.com' \
+#     bash biletflow-purchase-e2e.sh
+#
+# For a paid event already activated, use the default ACTIVATE=0.
+# For a new paid event, ACTIVATE=1 requests sandbox activation, accepting the
+# sandbox terms and simulated identity/payout verification. Pay that fee first.
+# Free tickets need no activation or browser payment.
+# Optional: BASE_URL, OUTPUT_DIR, TIMEOUT_SECONDS=480, PAYMENT_PORT=9090.
+# Each run creates a new purchase. The script tests retries within that purchase.
+# CANCEL_EVENT=1 additionally cancels the fixture event and checks admission/email.
+# Otherwise leaves the ticket valid; never requests a refund.
+set -euo pipefail
+umask 077
+
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+for tool in curl jq python3; do command -v "$tool" >/dev/null || fail "Install $tool"; done
+BASE_URL="${BASE_URL:-http://localhost:8080}"
+BASE_URL="${BASE_URL%/}"
+: "${EVENT_ID:?Set EVENT_ID to a published event UUID}"
+: "${TICKET_TYPE_ID:?Set TICKET_TYPE_ID to a general-admission ticket type UUID}"
+: "${ATTENDEE_EMAIL:?Set ATTENDEE_EMAIL to the buyer account verified email}"
+ACTIVATE="${ACTIVATE:-0}"
+CANCEL_EVENT="${CANCEL_EVENT:-0}"
+TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-480}"
+PAYMENT_PORT="${PAYMENT_PORT:-9090}"
+[[ "$ACTIVATE" = 0 || "$ACTIVATE" = 1 ]] || fail 'ACTIVATE must be 0 or 1'
+[[ "$CANCEL_EVENT" = 0 || "$CANCEL_EVENT" = 1 ]] || fail 'CANCEL_EVENT must be 0 or 1'
+[[ "$TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || fail 'TIMEOUT_SECONDS must be positive'
+[[ "$PAYMENT_PORT" =~ ^[0-9]+$ ]] || fail 'PAYMENT_PORT must be numeric'
+python3 - "$EVENT_ID" "$TICKET_TYPE_ID" "$PAYMENT_PORT" <<'PY'
+import sys, uuid
+for value in sys.argv[1:3]: uuid.UUID(value)
+assert 1024 <= int(sys.argv[3]) <= 65535, 'Use an unprivileged TCP port'
+PY
+if [[ -z "${BUYER_JWT:-}" ]]; then
+  read -r -s -p 'Buyer JWT: ' BUYER_JWT; printf '\n'
+fi
+if [[ ( "$ACTIVATE" = 1 || "$CANCEL_EVENT" = 1 ) && -z "${ORGANIZER_JWT:-}" ]]; then
+  read -r -s -p 'Organizer JWT: ' ORGANIZER_JWT; printf '\n'
+fi
+[[ -n "$BUYER_JWT" ]] || fail 'Buyer JWT is empty'
+
+WORK="$(mktemp -d)"
+SERVER_PID=''
+cleanup() {
+  if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
+  rm -rf "$WORK"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+CHECKOUT_ID="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+OUTPUT_DIR="${OUTPUT_DIR:-./purchase-e2e-$CHECKOUT_ID}"
+mkdir -p "$OUTPUT_DIR"
+# Keep bearer credentials out of curl's command-line arguments and output files.
+printf 'Authorization: Bearer %s\n' "$BUYER_JWT" > "$WORK/buyer.headers"
+if [[ "$ACTIVATE" = 1 || "$CANCEL_EVENT" = 1 ]]; then
+  printf 'Authorization: Bearer %s\n' "$ORGANIZER_JWT" > "$WORK/organizer.headers"
+fi
+unset BUYER_JWT ORGANIZER_JWT
+
+# api ROLE METHOD PATH OUTPUT EXPECTED [BODY_FILE] [IDEMPOTENCY_KEY]
+# Never retries POST automatically; checkout replay uses the same explicit key.
+api() {
+  local role="$1" method="$2" path="$3" target="$4" expected="$5"
+  local status
+  local -a args=(--silent --show-error --connect-timeout 10 --max-time 30
+    --request "$method" --header "@$WORK/$role.headers" --output "$target"
+    --write-out '%{http_code}')
+  if [[ -n "${6:-}" ]]; then args+=(--header 'Content-Type: application/json' --data-binary "@$6"); fi
+  if [[ -n "${7:-}" ]]; then args+=(--header "Idempotency-Key: $7"); fi
+  status="$(curl "${args[@]}" "$BASE_URL$path")" || fail "$method $path: connection failed"
+  case ",$expected," in
+    *",$status,"*) ;;
+    *)
+      printf 'HTTP %s: %s %s\n' "$status" "$method" "$path" >&2
+      # Show only ProblemDetail fields, never session/auth response payloads.
+      jq -r '[.title // empty, .detail // empty] | join(": ")' "$target" 2>/dev/null >&2 || true
+      fail 'Unexpected HTTP response'
+      ;;
+  esac
+}
+
+start_server() {
+  [[ -z "$SERVER_PID" ]] || return 0
+  mkdir -p "$WORK/web"
+  # Match the development return URL configured in .env.local.
+  cat > "$WORK/web/halyk-sandbox-checkout.html" <<'HTML'
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>BiletFlow payment return</title>
+<style>body{max-width:640px;margin:64px auto;padding:0 24px;font:18px/1.6 system-ui}</style>
+<h1>Back from Halyk</h1>
+<p>Check the terminal running the purchase test for the confirmed payment result.</p>
+<p>If this was the activation payment, the terminal will show a new link for the ticket payment.</p>
+<p>This return page alone does not confirm a successful payment. Keep the test script running while it checks the bank status.</p>
+</html>
+HTML
+  # Bind synchronously so an occupied port cannot silently serve a different page.
+  python3 - "$WORK/web" "$PAYMENT_PORT" "$WORK/ready" <<'PY' >/dev/null 2>&1 &
+import functools, http.server, pathlib, sys
+handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[1])
+with http.server.ThreadingHTTPServer(('127.0.0.1', int(sys.argv[2])), handler) as server:
+    pathlib.Path(sys.argv[3]).touch()
+    server.serve_forever()
+PY
+  SERVER_PID=$!
+  local tries=0
+  until [[ -f "$WORK/ready" ]]; do
+    kill -0 "$SERVER_PID" 2>/dev/null || fail "Cannot serve payment page; choose a different PAYMENT_PORT ($PAYMENT_PORT is busy?)"
+    tries=$((tries + 1)); [[ "$tries" -le 50 ]] || fail 'Payment page startup timed out'
+    sleep 0.1
+  done
+}
+
+payment_page() {
+  local role="$1" payment_id="$2" phase="$3"
+  start_server
+  api "$role" POST "/api/payments/$payment_id/session" "$WORK/session.json" 200
+  # A bank session contains temporary credentials: serve only on loopback,
+  # never copy it to OUTPUT_DIR, and remove it when this process exits.
+  python3 - "$WORK/session.json" "$WORK/web/$phase.html" <<'PY'
+import json, pathlib, sys
+session = json.loads(pathlib.Path(sys.argv[1]).read_text())
+script = 'https://test-epay.epayment.kz/payform/payment-api.js'
+if session.get('scriptUrl') != script:
+    raise SystemExit('Refusing an unexpected/non-sandbox payment script')
+payment = json.dumps(session['paymentObject']).replace('<', '\\u003c')
+page = '''<!doctype html><meta charset="utf-8"><title>BiletFlow test payment</title>
+<h1>BiletFlow Halyk sandbox</h1><p>Use sandbox card details. Keep the terminal script running.</p>
+<button id="pay" disabled>Open Halyk test payment</button><p id="message">Loading bank form…</p>
+<script src="''' + script + '''" onload="document.getElementById('pay').disabled=false;document.getElementById('message').textContent='Ready'"
+onerror="document.getElementById('message').textContent='Bank script failed to load'"></script>
+<script>const payment = ''' + payment + ''';
+document.getElementById('pay').onclick = () => { halyk.pay(payment); };</script>'''
+pathlib.Path(sys.argv[2]).write_text(page)
+PY
+  printf '\nOpen http://127.0.0.1:%s/%s.html and complete the Halyk sandbox payment.\n' "$PAYMENT_PORT" "$phase"
+  printf 'Waiting for backend confirmation (up to %ss)…\n' "$TIMEOUT_SECONDS"
+}
+
+if [[ "$ACTIVATE" = 1 ]]; then
+  printf '%s\n' '{"acceptSandboxTerms":true,"simulateIdentityAndPayoutVerification":true}' > "$WORK/activation-request.json"
+  api organizer POST "/api/payments/events/$EVENT_ID/activation" "$WORK/activation.json" 200 "$WORK/activation-request.json"
+  api organizer GET "/api/payments/events/$EVENT_ID/activation" "$WORK/activation-status.json" 200
+  if [[ "$(jq -r '.status' "$WORK/activation-status.json")" != ACTIVE ]]; then
+    activation_payment="$(jq -er '.paymentId' "$WORK/activation.json")"
+    payment_page organizer "$activation_payment" activation
+    deadline=$((SECONDS + TIMEOUT_SECONDS))
+    while :; do
+      api organizer GET "/api/payments/events/$EVENT_ID/activation" "$WORK/activation-status.json" 200
+      [[ "$(jq -r '.status' "$WORK/activation-status.json")" != ACTIVE ]] || break
+      [[ "$SECONDS" -lt "$deadline" ]] || fail 'Activation did not become ACTIVE; inspect payment status before retrying'
+      sleep 3
+    done
+    rm -f "$WORK/web/activation.html"
+  fi
+  printf 'PASS: paid-sales activation is ACTIVE\n'
+fi
+
+jq -n --arg event "$EVENT_ID" --arg type "$TICKET_TYPE_ID" --arg email "$ATTENDEE_EMAIL" \
+  '{eventId:$event,selections:[{ticketTypeId:$type,seats:[],attendeeEmails:[$email]}]}' > "$WORK/request.json"
+printf 'Checkout ID: %s\n' "$CHECKOUT_ID"
+api buyer POST /api/checkouts "$WORK/checkout.json" 200 "$WORK/request.json" "$CHECKOUT_ID"
+jq -e --arg id "$CHECKOUT_ID" --arg event "$EVENT_ID" \
+  '.id == $id and .eventId == $event and (.status == "AWAITING_PAYMENT" or .status == "COMPLETED")' "$WORK/checkout.json" >/dev/null || fail 'Unexpected checkout'
+api buyer POST /api/checkouts "$WORK/replay.json" 200 "$WORK/request.json" "$CHECKOUT_ID"
+[[ "$(jq -c '[.id,.paymentId,.amountKzt]' "$WORK/checkout.json")" = "$(jq -c '[.id,.paymentId,.amountKzt]' "$WORK/replay.json")" ]] || fail 'Checkout retry changed purchase identity/price'
+printf 'PASS: checkout retry reused the same purchase and price\n'
+
+if [[ "$(jq -r '.status' "$WORK/checkout.json")" = AWAITING_PAYMENT ]]; then
+  payment_id="$(jq -er '.paymentId' "$WORK/checkout.json")"
+  payment_page buyer "$payment_id" checkout
+  deadline=$((SECONDS + TIMEOUT_SECONDS))
+  while :; do
+    api buyer GET "/api/checkouts/$CHECKOUT_ID" "$WORK/checkout.json" 200
+    status="$(jq -r '.status' "$WORK/checkout.json")"
+    [[ "$status" != COMPLETED ]] || break
+    [[ "$status" = AWAITING_PAYMENT ]] || fail "Checkout ended with status $status"
+    [[ "$SECONDS" -lt "$deadline" ]] || fail "Checkout timed out. Inspect $CHECKOUT_ID before starting another purchase"
+    sleep 3
+  done
+  rm -f "$WORK/web/checkout.html"
+fi
+jq -e --arg type "$TICKET_TYPE_ID" --arg email "$ATTENDEE_EMAIL" \
+  '.status == "COMPLETED" and (.tickets | length) == 1 and .tickets[0].status == "VALID" and .tickets[0].ticketTypeId == $type and (.tickets[0].attendeeEmail | ascii_downcase) == ($email | ascii_downcase)' \
+  "$WORK/checkout.json" >/dev/null || fail 'Expected exactly one valid ticket for the buyer'
+ticket_id="$(jq -er '.tickets[0].id' "$WORK/checkout.json")"
+api buyer POST /api/checkouts "$WORK/replay.json" 200 "$WORK/request.json" "$CHECKOUT_ID"
+[[ "$(jq -c '.tickets | map(.id) | sort' "$WORK/checkout.json")" = "$(jq -c '.tickets | map(.id) | sort' "$WORK/replay.json")" ]] || fail 'Replay issued different tickets'
+printf 'PASS: purchase completed and replay returned the same ticket\n'
+
+api buyer POST "/api/tickets/$ticket_id/claim" "$WORK/claim.json" 200,204
+api buyer POST "/api/tickets/$ticket_id/claim" "$WORK/claim-replay.json" 200,204
+api buyer GET "/api/tickets/$ticket_id/pdf" "$OUTPUT_DIR/ticket-$ticket_id.pdf" 200
+api buyer GET "/api/tickets/$ticket_id/qr" "$OUTPUT_DIR/ticket-$ticket_id.png" 200
+python3 - "$OUTPUT_DIR/ticket-$ticket_id.pdf" "$OUTPUT_DIR/ticket-$ticket_id.png" <<'PY'
+import pathlib, sys
+assert pathlib.Path(sys.argv[1]).read_bytes().startswith(b'%PDF-'), 'Invalid PDF response'
+assert pathlib.Path(sys.argv[2]).read_bytes().startswith(b'\x89PNG\r\n\x1a\n'), 'Invalid PNG response'
+PY
+cp "$WORK/checkout.json" "$OUTPUT_DIR/checkout.json"
+printf 'PASS: verified-email claim is repeatable; ticket PDF and QR downloaded\n'
+printf '\nPurchase passed. Ticket: %s\nFiles: %s\n' "$ticket_id" "$OUTPUT_DIR"
+printf 'Automatic email delivery is asynchronous; inspect the attendee inbox (Mailpit in dev).\n'
+if [[ "$CANCEL_EVENT" = 1 ]]; then
+  printf '\nTesting event cancellation…\n'
+  api organizer POST "/api/events/$EVENT_ID/cancel" "$WORK/cancel.json" 204
+  api organizer POST "/api/events/$EVENT_ID/cancel" "$WORK/cancel-replay.json" 204
+  api buyer GET "/api/events/$EVENT_ID" "$WORK/cancelled-event.json" 200
+  jq -e '.status == "CANCELLED"' "$WORK/cancelled-event.json" >/dev/null || fail 'Event is not cancelled'
+  api buyer GET "/api/tickets/$ticket_id/qr" "$WORK/rejected-qr.json" 409
+  api buyer GET "/api/tickets/$ticket_id/pdf" "$OUTPUT_DIR/ticket-$ticket_id-cancelled.pdf" 200
+  rejected_key="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+  api buyer POST /api/checkouts "$WORK/rejected-checkout.json" 409 "$WORK/request.json" "$rejected_key"
+  ticket_code="$(jq -er '.tickets[0].code' "$WORK/checkout.json")"
+  api organizer POST "/api/events/$EVENT_ID/check-in/tickets/$ticket_code" "$WORK/rejected-admission.json" 403
+  api buyer GET "/api/checkouts/$CHECKOUT_ID" "$WORK/retained-order.json" 200
+  jq -e '.status == "COMPLETED" and .refundId == null' "$WORK/retained-order.json" >/dev/null || fail 'Cancellation altered the completed financial order'
+  printf 'PASS: repeated cancellation is safe; sales, QR download, and admission are blocked; completed order retained\n'
+  printf 'Waiting for the attendee cancellation notice in Mailpit…\n'
+  mail_base="${MAILPIT_URL:-http://localhost:8025}"
+  deadline=$((SECONDS + 60))
+  while :; do
+    mail_status="$(curl --silent --show-error --connect-timeout 5 --max-time 10 --get \
+      --data-urlencode "query=to:$ATTENDEE_EMAIL subject:\"BiletFlow event cancelled:\"" \
+      --output "$WORK/cancellation-email.txt" --write-out '%{http_code}' "${mail_base%/}/view/latest.txt")" || fail 'Cannot reach Mailpit'
+    if [[ "$mail_status" = 200 ]]; then
+      cp "$WORK/cancellation-email.txt" "$OUTPUT_DIR/cancellation-email.txt"
+      break
+    fi
+    [[ "$mail_status" = 404 ]] || fail "Mailpit returned HTTP $mail_status"
+    [[ "$SECONDS" -lt "$deadline" ]] || fail 'Cancellation email did not arrive within 60s; check outbox, cancellation queue, and SMTP logs'
+    sleep 2
+  done
+  printf 'PASS: attendee cancellation email arrived in Mailpit\n'
+else
+  printf 'This script does not assert SMTP delivery or admission scanning. Set CANCEL_EVENT=1 to check cancellation and its email.\n'
+fi
+
+# ./scripts/e2e/biletflow-run-e2e.sh
+#!/usr/bin/env bash
+# Create fresh fixtures via public APIs, activate accounts through Mailpit,
+# then run biletflow-purchase-e2e.sh from the same directory.
+# Requires a running dev backend + Mailpit, curl, jq, Python 3, and Bash.
+#   bash biletflow-run-e2e.sh              # Halyk activation + paid purchase
+#   PRICE_KZT=0 bash biletflow-run-e2e.sh  # fully automated free purchase
+# Options: BASE_URL, MAILPIT_URL, PRICE_KZT (0 or >=10, max 2 decimals),
+# MAIL_TIMEOUT_SECONDS=60, E2E_SCRIPT, OUTPUT_DIR, PAYMENT_PORT, TIMEOUT_SECONDS.
+# CANCEL_EVENT=1 runs cancellation checks after purchase (also works with PRICE_KZT=0).
+# Each run creates two accounts and an UNLISTED published event. Fixtures remain
+# for inspection; no SQL, admin seed account, inbox deletion, or auth bypass.
+set -euo pipefail
+umask 077
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+for tool in curl jq python3; do command -v "$tool" >/dev/null || fail "Install $tool"; done
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+E2E_SCRIPT="${E2E_SCRIPT:-$ROOT/biletflow-purchase-e2e.sh}"
+[[ -f "$E2E_SCRIPT" ]] || fail "Put biletflow-purchase-e2e.sh next to this script, or set E2E_SCRIPT to its path"
+BASE_URL="${BASE_URL:-http://localhost:8080}"
+BASE_URL="${BASE_URL%/}"
+MAILPIT_URL="${MAILPIT_URL:-http://localhost:8025}"
+MAILPIT_URL="${MAILPIT_URL%/}"
+PRICE_KZT="${PRICE_KZT:-1000}"
+MAIL_TIMEOUT_SECONDS="${MAIL_TIMEOUT_SECONDS:-60}"
+[[ "$MAIL_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || fail 'MAIL_TIMEOUT_SECONDS must be positive'
+python3 - "$PRICE_KZT" <<'PY'
+from decimal import Decimal
+import re, sys
+s=sys.argv[1]
+if not re.fullmatch(r'\d+(?:\.\d{1,2})?',s): raise SystemExit('PRICE_KZT must be a nonnegative amount with at most 2 decimals')
+p=Decimal(s)
+if p != 0 and p < 10: raise SystemExit('Paid checkout must be at least 10 KZT')
+PY
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+RUN_ID="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
+PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+
+# request ROLE METHOD PATH TARGET EXPECTED [BODY_FILE]
+# ROLE is public or organizer. JWTs stay in a private temporary header file.
+request() {
+    local role="$1" method="$2" path="$3" target="$4" expected="$5" code
+    local -a args=(--silent --show-error --connect-timeout 10 --max-time 30
+        --request "$method" --output "$target" --write-out '%{http_code}')
+    if [[ "$role" != public ]]; then args+=(--header "@$WORK/$role.headers"); fi
+    if [[ -n "${6:-}" ]]; then args+=(--header 'Content-Type: application/json' --data-binary "@$6"); fi
+    code="$(curl "${args[@]}" "$BASE_URL$path")" || fail "Cannot reach $BASE_URL ($method $path)"
+    [[ "$code" = "$expected" ]] || {
+        printf 'HTTP %s: %s %s\n' "$code" "$method" "$path" >&2
+        jq -r '[.title // empty, .detail // empty] | join(": ")' "$target" 2>/dev/null >&2 || true
+        fail 'Unexpected API response'
+    }
+}
+request public GET /api/events "$WORK/events.json" 200
+code="$(curl --silent --show-error --connect-timeout 5 --max-time 10 --output /dev/null --write-out '%{http_code}' "$MAILPIT_URL/")" || fail 'Start Mailpit (bash dev.sh services)'
+[[ "$code" = 200 ]] || fail "Mailpit is unavailable at $MAILPIT_URL (HTTP $code)"
+
+create_account() {
+    local role="$1" login="e2e-$1-$RUN_ID" email="e2e-$1-$RUN_ID@example.com"
+    jq -n --arg login "$login" --arg email "$email" --arg password "$PASSWORD" \
+        '{login:$login,email:$email,password:$password,firstName:"E2E",lastName:"Test",langKey:"en"}' > "$WORK/register.json"
+    request public POST /api/register "$WORK/register-response.json" 201 "$WORK/register.json"
+    local deadline=$((SECONDS + MAIL_TIMEOUT_SECONDS)) code key
+    while :; do
+        # Official Mailpit latest-message HTML endpoint, filtered to this unique recipient.
+        code="$(curl --silent --show-error --connect-timeout 5 --max-time 10 --get \
+            --data-urlencode "query=to:$email" --output "$WORK/activation.html" --write-out '%{http_code}' \
+            "$MAILPIT_URL/view/latest.html")" || fail 'Mailpit connection failed'
+        case "$code" in
+            200) break ;;
+            404) ;;
+            *) fail "Mailpit returned HTTP $code while waiting for $role activation email" ;;
+        esac
+        [[ "$SECONDS" -lt "$deadline" ]] || fail "No activation email for $email. Check backend SMTP settings (localhost:1025) and Mailpit"
+        sleep 1
+    done
+    key="$(python3 - "$WORK/activation.html" <<'PY'
+from html.parser import HTMLParser
+from pathlib import Path
+from urllib.parse import urlparse, parse_qs
+import sys
+class Activation(HTMLParser):
+    key=None
+    def handle_starttag(self,tag,attrs):
+        if tag != 'a': return
+        link=dict(attrs).get('href','')
+        parsed=urlparse(link)
+        if parsed.path.endswith('/account/activate'):
+            values=parse_qs(parsed.query).get('key',[])
+            if values: self.key=values[0]
+p=Activation(); p.feed(Path(sys.argv[1]).read_text())
+if not p.key: raise SystemExit('Activation email has no account activation link')
+print(p.key)
+PY
+)"
+    # Call only the configured backend, never an arbitrary URL from the email.
+    code="$(curl --silent --show-error --connect-timeout 10 --max-time 30 --get \
+        --data-urlencode "key=$key" --output "$WORK/activate-response.json" --write-out '%{http_code}' \
+        "$BASE_URL/api/activate")" || fail 'Account activation connection failed'
+    [[ "$code" = 200 ]] || fail "Account activation returned HTTP $code"
+    jq -n --arg user "$login" --arg password "$PASSWORD" \
+        '{username:$user,password:$password,rememberMe:false}' > "$WORK/login.json"
+    request public POST /api/authenticate "$WORK/login-response.json" 200 "$WORK/login.json"
+    local jwt
+    jwt="$(jq -er '.id_token | select(type == "string" and length > 0)' "$WORK/login-response.json")"
+    if [[ "$role" = organizer ]]; then
+        ORGANIZER_JWT="$jwt"
+        printf 'Authorization: Bearer %s\n' "$jwt" > "$WORK/organizer.headers"
+    else
+        BUYER_JWT="$jwt"
+        ATTENDEE_EMAIL="$email"
+    fi
+    printf 'PASS: registered, email-activated, and logged in %s\n' "$role"
+}
+create_account organizer
+create_account buyer
+unset PASSWORD
+
+python3 - "$WORK" "$RUN_ID" "$PRICE_KZT" <<'PY'
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from decimal import Decimal
+import json, sys
+root=Path(sys.argv[1]); now=datetime.now(timezone.utc)
+iso=lambda dt: dt.isoformat(timespec='seconds').replace('+00:00','Z')
+start=now+timedelta(days=7); end=start+timedelta(hours=3)
+event=dict(title='E2E purchase '+sys.argv[2][:12], description='Automated development smoke test',
+    category='Technology',visibility='UNLISTED',startAt=iso(start),endAt=iso(end),
+    registrationWindow=dict(mode='ALWAYS_OPEN'))
+venue=dict(name='E2E venue',address='Development fixture, Astana',capacity=10,seatingMode='GENERAL_ADMISSION')
+ticket=dict(name='E2E admission',description='Smoke-test ticket',price=str(Decimal(sys.argv[3])),
+    capacity=10,maxPerOrder=2,salesStartAt=iso(now-timedelta(days=1)),salesEndAt=iso(start-timedelta(hours=1)))
+# BigDecimal accepts a JSON string, but emit the numeric amount explicitly.
+ticket['price']=float(Decimal(sys.argv[3]))
+for name,value in [('event',event),('venue',venue),('ticket',ticket)]:
+    (root/(name+'.json')).write_text(json.dumps(value))
+PY
+request organizer POST /api/events "$WORK/event-response.json" 201 "$WORK/event.json"
+EVENT_ID="$(jq -er '.id' "$WORK/event-response.json")"
+request organizer POST "/api/events/$EVENT_ID/venue" "$WORK/venue-response.json" 204 "$WORK/venue.json"
+request organizer POST "/api/events/$EVENT_ID/ticket-types/general-admission" "$WORK/ticket-response.json" 201 "$WORK/ticket.json"
+TICKET_TYPE_ID="$(jq -er '.id' "$WORK/ticket-response.json")"
+request organizer POST "/api/events/$EVENT_ID/publish" "$WORK/publish-response.json" 204
+printf 'PASS: published event %s with ticket type %s (%s KZT)\n' "$EVENT_ID" "$TICKET_TYPE_ID" "$PRICE_KZT"
+
+ACTIVATE="$(python3 - "$PRICE_KZT" <<'PY'
+from decimal import Decimal
+import sys
+print(0 if Decimal(sys.argv[1]) == 0 else 1)
+PY
+)"
+OUTPUT_DIR="${OUTPUT_DIR:-./purchase-e2e-$RUN_ID}"
+export BASE_URL ORGANIZER_JWT BUYER_JWT EVENT_ID TICKET_TYPE_ID ATTENDEE_EMAIL ACTIVATE OUTPUT_DIR
+printf '\nStarting purchase checks. Paid mode needs two Halyk sandbox payments: activation fee, then ticket.\n'
+bash "$E2E_SCRIPT"
+printf '\nFixture event: %s\nBuyer email: %s\n' "$EVENT_ID" "$ATTENDEE_EMAIL"
+
+# ./src/main/java/com/biletflow/biletflow/common/notifications/EmailSender.java
+package com.biletflow.biletflow.common.notifications;
+
+import java.util.Objects;
+import java.util.UUID;
+
+/** Synchronous transport port: successful return means SMTP accepted the message, not inbox receipt. */
+public interface EmailSender {
+    record Email(UUID id, String recipient, String subject, String text, String filename, byte[] attachment, String attachmentContentType) {
+        public Email(UUID id, String recipient, String subject, String text, String filename, byte[] attachment) {
+            this(id, recipient, subject, text, filename, attachment, "application/pdf");
+        }
+
+        public Email {
+            Objects.requireNonNull(attachmentContentType);
+            Objects.requireNonNull(id);
+            Objects.requireNonNull(recipient);
+            Objects.requireNonNull(subject);
+            Objects.requireNonNull(text);
+            Objects.requireNonNull(filename);
+            attachment = attachment.clone();
+        }
+
+        @Override
+        public byte[] attachment() {
+            return attachment.clone();
+        }
+    }
+
+    void send(Email message);
+}
+
+# ./src/main/java/com/biletflow/biletflow/common/notifications/infrastructure/SmtpEmailSender.java
+package com.biletflow.biletflow.common.notifications.infrastructure;
+
+import com.biletflow.biletflow.common.notifications.EmailSender;
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.InternetAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.Objects;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.mail.MailPreparationException;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.stereotype.Component;
+import tech.jhipster.config.JHipsterProperties;
+
+@Component
+public class SmtpEmailSender implements EmailSender {
+
+    private final JavaMailSender mail;
+    private final JHipsterProperties properties;
+
+    public SmtpEmailSender(JavaMailSender mail, JHipsterProperties properties) {
+        this.mail = Objects.requireNonNull(mail);
+        this.properties = Objects.requireNonNull(properties);
+    }
+
+    @Override
+    public void send(Email email) {
+        try {
+            var mime = mail.createMimeMessage();
+            var message = new MimeMessageHelper(mime, true, StandardCharsets.UTF_8.name());
+            message.setFrom(properties.getMail().getFrom());
+            message.setTo(new InternetAddress(email.recipient(), true));
+            message.setSubject(email.subject().replaceAll("[\r\n]+", " "));
+            message.setText(email.text(), false);
+            message.addAttachment(email.filename(), new ByteArrayResource(email.attachment()), email.attachmentContentType());
+            mime.setHeader("Message-ID", "<" + email.id() + "@biletflow.invalid>");
+            mail.send(mime);
+        } catch (MessagingException failure) {
+            throw new MailPreparationException("Email could not be prepared", failure);
+        }
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/eventmanagement/application/cancellation/CancellationNotice.java
+package com.biletflow.biletflow.eventmanagement.application.cancellation;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.UUID;
+
+/** Immutable delivery snapshot. The message ID is stable across event redelivery and SMTP retries. */
+public record CancellationNotice(
+    UUID id,
+    UUID eventId,
+    String recipient,
+    String title,
+    Instant startsAt,
+    Instant endsAt,
+    Instant cancelledAt
+) {
+    public CancellationNotice {
+        Objects.requireNonNull(id);
+        Objects.requireNonNull(eventId);
+        recipient = Objects.requireNonNull(recipient).trim().toLowerCase(Locale.ROOT);
+        Objects.requireNonNull(title);
+        Objects.requireNonNull(startsAt);
+        Objects.requireNonNull(endsAt);
+        Objects.requireNonNull(cancelledAt);
+        if (recipient.isBlank()) throw new IllegalArgumentException("Cancellation notice recipient is blank");
+    }
+
+    public static CancellationNotice forRecipient(
+        UUID eventId,
+        String recipient,
+        String title,
+        Instant startsAt,
+        Instant endsAt,
+        Instant cancelledAt
+    ) {
+        String email = recipient.trim().toLowerCase(Locale.ROOT);
+        UUID id = UUID.nameUUIDFromBytes(("event-cancellation:" + eventId + ":" + email).getBytes(StandardCharsets.UTF_8));
+        return new CancellationNotice(id, eventId, email, title, startsAt, endsAt, cancelledAt);
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/eventmanagement/application/cancellation/CancellationNoticeSender.java
+package com.biletflow.biletflow.eventmanagement.application.cancellation;
+
+public interface CancellationNoticeSender {
+    void send(CancellationNotice notice);
+}
+
+# ./src/main/java/com/biletflow/biletflow/eventmanagement/application/cancellation/CancellationNoticeStore.java
+package com.biletflow.biletflow.eventmanagement.application.cancellation;
+
+import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
+
+public interface CancellationNoticeStore {
+    record Claim(CancellationNotice notice, UUID token) {}
+
+    void enqueue(CancellationNotice notice);
+    Optional<Claim> claim(Instant now);
+    void complete(Claim claim, Instant now);
+    void retry(Claim claim, Instant now);
+}
+
+# ./src/main/java/com/biletflow/biletflow/eventmanagement/application/cancellation/CancellationNoticeWorker.java
+package com.biletflow.biletflow.eventmanagement.application.cancellation;
+
+import java.time.Clock;
+import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+@Service
+public class CancellationNoticeWorker {
+
+    private static final Logger LOG = LoggerFactory.getLogger(CancellationNoticeWorker.class);
+    private final CancellationNoticeStore notices;
+    private final CancellationNoticeSender sender;
+    private final Clock clock;
+
+    public CancellationNoticeWorker(CancellationNoticeStore notices, CancellationNoticeSender sender, Clock clock) {
+        this.notices = Objects.requireNonNull(notices);
+        this.sender = Objects.requireNonNull(sender);
+        this.clock = Objects.requireNonNull(clock);
+    }
+
+    public void deliverPending() {
+        for (int i = 0; i < 20; i++) {
+            var next = notices.claim(clock.instant());
+            if (next.isEmpty()) return;
+            var claim = next.orElseThrow();
+            try {
+                sender.send(claim.notice());
+                notices.complete(claim, clock.instant());
+            } catch (RuntimeException failure) {
+                notices.retry(claim, clock.instant());
+                LOG.warn("Cancellation notice {} will be retried ({})", claim.notice().id(), failure.getClass().getSimpleName());
+            }
+        }
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/eventmanagement/application/cancellation/CancellationNotices.java
+package com.biletflow.biletflow.eventmanagement.application.cancellation;
+
+import com.biletflow.biletflow.common.events.IntegrationEvent;
+import com.biletflow.biletflow.common.events.IntegrationEventHandler;
+import com.biletflow.biletflow.eventmanagement.domain.*;
+import com.biletflow.biletflow.eventmanagement.domain.exceptions.SocialEventNotFoundException;
+import com.biletflow.biletflow.eventmanagement.ohs.EventCancelled;
+import java.util.LinkedHashSet;
+import java.util.Objects;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+/** Fan-out and outbox acknowledgement commit together; SMTP delivery is a separate worker. */
+@Component
+public class CancellationNotices implements IntegrationEventHandler {
+
+    private final SocialEventRepository events;
+    private final CancellationRecipients recipients;
+    private final CancellationNoticeStore notices;
+
+    public CancellationNotices(SocialEventRepository events, CancellationRecipients recipients, CancellationNoticeStore notices) {
+        this.events = Objects.requireNonNull(events);
+        this.recipients = Objects.requireNonNull(recipients);
+        this.notices = Objects.requireNonNull(notices);
+    }
+
+    @Override
+    public String eventType() {
+        return EventCancelled.TYPE;
+    }
+
+    @Override
+    @Transactional
+    public void handle(IntegrationEvent message) {
+        var cancelled = EventCancelled.from(message);
+        var event = events
+            .findById(new SocialEventId(cancelled.eventId()))
+            .orElseThrow(() -> new SocialEventNotFoundException(cancelled.eventId().toString()));
+        if (event.getStatus() != SocialEventStatus.CANCELLED) throw new IllegalStateException("Event is not cancelled");
+        var emails = new LinkedHashSet<>(recipients.attendees(cancelled.eventId()));
+        recipients.verifiedEmail(event.getOrganizerId()).ifPresent(emails::add);
+        for (var staff : event.getStaffAssignments()) recipients.verifiedEmail(staff.userId()).ifPresent(emails::add);
+        for (String email : emails)
+            notices.enqueue(
+                CancellationNotice.forRecipient(
+                    cancelled.eventId(),
+                    email,
+                    event.getTitle(),
+                    event.getDateRange().startAt(),
+                    event.getDateRange().endAt(),
+                    cancelled.cancelledAt()
+                )
+            );
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/eventmanagement/application/cancellation/CancellationRecipients.java
+package com.biletflow.biletflow.eventmanagement.application.cancellation;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+public interface CancellationRecipients {
+    List<String> attendees(UUID eventId);
+    Optional<String> verifiedEmail(long userId);
+}
+
+# ./src/main/java/com/biletflow/biletflow/eventmanagement/application/socialevent/EventService.java
+package com.biletflow.biletflow.eventmanagement.application.socialevent;
+
+import com.biletflow.biletflow.common.application.AuthorizationException;
+import com.biletflow.biletflow.common.application.TransactionLocks;
+import com.biletflow.biletflow.common.events.EventBus;
+import com.biletflow.biletflow.common.security.CurrentActor;
+import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditRepository;
+import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditService;
+import com.biletflow.biletflow.eventmanagement.application.socialevent.command.*;
+import com.biletflow.biletflow.eventmanagement.domain.*;
+import com.biletflow.biletflow.eventmanagement.domain.exceptions.SocialEventNotFoundException;
+import com.biletflow.biletflow.eventmanagement.ohs.EventCancelled;
+import jakarta.transaction.Transactional;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.Objects;
+import org.springframework.stereotype.Service;
+
+@Service
+public class EventService {
+
+    private final SocialEventRepository eventRepository;
+    private final VenueLayoutRepository venueLayoutRepository;
+    private final EventAuditService auditService;
+    private final CurrentActor currentActor;
+    private final Clock clock;
+    private final TransactionLocks locks;
+    private final EventBus events;
+
+    public EventService(
+        SocialEventRepository eventRepository,
+        VenueLayoutRepository venueLayoutRepository,
+        EventAuditService auditService,
+        CurrentActor currentActor,
+        Clock clock,
+        TransactionLocks locks,
+        EventBus events
+    ) {
+        this.eventRepository = Objects.requireNonNull(eventRepository);
+        this.venueLayoutRepository = Objects.requireNonNull(venueLayoutRepository);
+        this.auditService = Objects.requireNonNull(auditService);
+        this.currentActor = Objects.requireNonNull(currentActor);
+        this.clock = Objects.requireNonNull(clock);
+        this.locks = Objects.requireNonNull(locks);
+        this.events = Objects.requireNonNull(events);
+    }
+
+    @Transactional
+    public SocialEventId handle(CreateDraftEventCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Long currentUserId = currentActor.requireUserId();
+
+        SocialEvent draftEvent = SocialEvent.createDraft(
+            currentUserId,
+            command.title(),
+            command.description(),
+            command.category(),
+            command.imageUrl(),
+            command.visibility(),
+            command.dateRange(),
+            command.registrationWindow()
+        );
+
+        SocialEvent savedEvent = eventRepository.save(draftEvent);
+
+        auditService.record(savedEvent.getId().value(), currentUserId, EventAuditRepository.EventAuditType.CREATED, "Event draft created");
+
+        return savedEvent.getId();
+    }
+
+    @Transactional
+    public void handle(UpdateEventDetailsCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Long currentUserId = currentActor.requireUserId();
+
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
+
+        event.updateDetails(
+            command.title(),
+            command.description(),
+            command.category(),
+            command.imageUrl(),
+            command.visibility(),
+            command.dateRange(),
+            command.registrationWindow()
+        );
+
+        eventRepository.save(event);
+
+        auditService.record(event.getId().value(), currentUserId, EventAuditRepository.EventAuditType.UPDATED, "Event details updated");
+    }
+
+    @Transactional
+    public void handle(PublishSocialEventCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Long currentUserId = currentActor.requireUserId();
+
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
+
+        event.publish();
+        eventRepository.save(event);
+
+        auditService.record(event.getId().value(), currentUserId, EventAuditRepository.EventAuditType.PUBLISHED, "Event published");
+    }
+
+    @Transactional
+    public void handle(UnpublishEventCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Long currentUserId = currentActor.requireUserId();
+
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
+
+        event.unpublish();
+        eventRepository.save(event);
+
+        auditService.record(event.getId().value(), currentUserId, EventAuditRepository.EventAuditType.UNPUBLISHED, "Event unpublished");
+    }
+
+    @Transactional
+    public void handle(CancelSocialEventCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Long currentUserId = currentActor.requireUserId();
+
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
+
+        if (event.getStatus() == SocialEventStatus.CANCELLED) return;
+        event.cancel(command.cancellationTime());
+        eventRepository.save(event);
+        events.publish(new EventCancelled(event.getId().value(), command.cancellationTime()).toEvent());
+
+        auditService.record(event.getId().value(), currentUserId, EventAuditRepository.EventAuditType.CANCELLED, "Event cancelled");
+    }
+
+    @Transactional
+    public SocialEventId handle(DuplicateEventCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Long currentUserId = currentActor.requireUserId();
+
+        SocialEvent source = requireEvent(command.sourceEventId());
+        assertCanModifyEvent(source, currentUserId);
+
+        SocialEvent duplicated = source.duplicate(command.newDateRange(), command.newRegistrationWindow());
+
+        SocialEvent saved = eventRepository.save(duplicated);
+
+        auditService.record(saved.getId().value(), currentUserId, EventAuditRepository.EventAuditType.CREATED, "Event duplicated");
+
+        return saved.getId();
+    }
+
+    @Transactional
+    public void handle(AttachVenueCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Long currentUserId = currentActor.requireUserId();
+
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
+
+        validateVenueConfiguration(command.venue());
+
+        event.attachVenue(command.venue());
+        eventRepository.save(event);
+
+        auditService.record(
+            event.getId().value(),
+            currentUserId,
+            EventAuditRepository.EventAuditType.VENUE_ATTACHED,
+            "Venue attached to event"
+        );
+    }
+
+    @Transactional
+    public void handle(AssignStaffCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Long currentUserId = currentActor.requireUserId();
+
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
+
+        event.assignStaff(command.staffUserId(), command.role(), Instant.now(clock));
+
+        eventRepository.save(event);
+
+        auditService.record(
+            event.getId().value(),
+            currentUserId,
+            EventAuditRepository.EventAuditType.STAFF_ASSIGNED,
+            "Staff member assigned"
+        );
+    }
+
+    @Transactional
+    public void handle(RemoveStaffCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Long currentUserId = currentActor.requireUserId();
+
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
+
+        event.removeStaff(command.staffUserId());
+        eventRepository.save(event);
+
+        auditService.record(
+            event.getId().value(),
+            currentUserId,
+            EventAuditRepository.EventAuditType.STAFF_REMOVED,
+            "Staff member removed"
+        );
+    }
+
+    private void validateVenueConfiguration(Venue venue) {
+        if (!(venue.getSeatingConfig() instanceof Venue.AssignedSeating assigned)) {
+            return;
+        }
+
+        VenueLayout layout = venueLayoutRepository
+            .findById(assigned.layoutId())
+            .orElseThrow(() -> new IllegalArgumentException("Unknown VenueLayoutId: " + assigned.layoutId().value()));
+
+        if (venue.getTotalCapacity() > layout.getSeats().size()) {
+            throw new IllegalArgumentException("Venue capacity cannot exceed assigned-seating layout size");
+        }
+    }
+
+    private SocialEvent requireEvent(SocialEventId eventId) {
+        // Serialize lifecycle changes with checkout issuance and admission.
+        locks.lock("event-lifecycle:" + eventId.value());
+        return eventRepository.findById(eventId).orElseThrow(() -> new SocialEventNotFoundException(eventId.value().toString()));
+    }
+
+    private void assertCanModifyEvent(SocialEvent event, Long currentUserId) {
+        if (!event.canBeManagedBy(currentUserId)) {
+            throw new AuthorizationException("User is not authorized to modify event: " + event.getId().value());
+        }
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/eventmanagement/domain/SocialEvent.java
+package com.biletflow.biletflow.eventmanagement.domain;
+
+import com.biletflow.biletflow.eventmanagement.domain.exceptions.InvalidEventStateException;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+
+public class SocialEvent {
+
+    private final SocialEventId id;
+    private final Long organizerId;
+
+    private String title;
+    private String description;
+    private String category;
+    private String imageUrl;
+
+    private SocialEventStatus status;
+    private EventVisibility visibility;
+    private EventDateRange dateRange;
+    private RegistrationWindow registrationWindow;
+    private Venue venue;
+
+    private final List<StaffAssignment> staffAssignments;
+
+    private SocialEvent(
+        SocialEventId id,
+        Long organizerId,
+        String title,
+        String description,
+        String category,
+        String imageUrl,
+        EventVisibility visibility,
+        EventDateRange dateRange,
+        RegistrationWindow registrationWindow
+    ) {
+        this.id = Objects.requireNonNull(id, "Id cannot be null");
+        this.organizerId = Objects.requireNonNull(organizerId, "Organizer ID cannot be null");
+
+        setTitle(title);
+        setDescription(description);
+        setCategory(category);
+
+        this.imageUrl = imageUrl != null ? imageUrl.trim() : "";
+
+        this.visibility = Objects.requireNonNull(visibility, "Visibility cannot be null");
+
+        this.dateRange = Objects.requireNonNull(dateRange, "Date range cannot be null");
+
+        this.registrationWindow = Objects.requireNonNull(registrationWindow, "Registration window cannot be null");
+
+        this.status = SocialEventStatus.DRAFT;
+        this.staffAssignments = new ArrayList<>();
+    }
+
+    public static SocialEvent createDraft(
+        Long organizerId,
+        String title,
+        String description,
+        String category,
+        String imageUrl,
+        EventVisibility visibility,
+        EventDateRange dateRange,
+        RegistrationWindow registrationWindow
+    ) {
+        return new SocialEvent(
+            SocialEventId.generate(),
+            organizerId,
+            title,
+            description,
+            category,
+            imageUrl,
+            visibility,
+            dateRange,
+            registrationWindow
+        );
+    }
+
+    public static SocialEvent rehydrate(
+        SocialEventId id,
+        Long organizerId,
+        String title,
+        String description,
+        String category,
+        String imageUrl,
+        SocialEventStatus status,
+        EventVisibility visibility,
+        EventDateRange dateRange,
+        RegistrationWindow registrationWindow,
+        Venue venue,
+        List<StaffAssignment> staffAssignments
+    ) {
+        SocialEvent event = new SocialEvent(
+            id,
+            organizerId,
+            title,
+            description,
+            category,
+            imageUrl,
+            visibility,
+            dateRange,
+            registrationWindow
+        );
+
+        event.status = Objects.requireNonNull(status, "SocialEventStatus cannot be null");
+
+        event.venue = venue;
+
+        event.staffAssignments.clear();
+        event.staffAssignments.addAll(Objects.requireNonNull(staffAssignments, "staffAssignments cannot be null"));
+
+        return event;
+    }
+
+    public void publish() {
+        if (status == SocialEventStatus.CANCELLED) {
+            throw new InvalidEventStateException("Cannot publish a cancelled event");
+        }
+
+        if (venue == null) {
+            throw new InvalidEventStateException("Cannot publish an event without a venue configured");
+        }
+
+        status = SocialEventStatus.PUBLISHED;
+    }
+
+    public void unpublish() {
+        if (status != SocialEventStatus.PUBLISHED) {
+            throw new InvalidEventStateException("Only published events can be unpublished");
+        }
+
+        status = SocialEventStatus.UNPUBLISHED;
+    }
+
+    public void cancel(Instant now) {
+        Objects.requireNonNull(now, "now cannot be null");
+
+        if (status == SocialEventStatus.CANCELLED) return;
+        if (dateRange.hasEnded(now)) {
+            throw new InvalidEventStateException("Cannot cancel an event that has already ended");
+        }
+
+        status = SocialEventStatus.CANCELLED;
+    }
+
+    public void updateDetails(
+        String title,
+        String description,
+        String category,
+        String imageUrl,
+        EventVisibility visibility,
+        EventDateRange dateRange,
+        RegistrationWindow registrationWindow
+    ) {
+        ensureNotCancelled();
+
+        setTitle(title);
+        setDescription(description);
+        setCategory(category);
+
+        this.imageUrl = imageUrl != null ? imageUrl.trim() : "";
+
+        this.visibility = Objects.requireNonNull(visibility, "Visibility cannot be null");
+
+        this.dateRange = Objects.requireNonNull(dateRange, "Date range cannot be null");
+
+        this.registrationWindow = Objects.requireNonNull(registrationWindow, "Registration window cannot be null");
+    }
+
+    public void attachVenue(Venue venue) {
+        ensureNotCancelled();
+
+        if (status != SocialEventStatus.DRAFT) {
+            throw new InvalidEventStateException("Venue and seating configuration can only be attached while the event is a draft");
+        }
+
+        if (this.venue != null) {
+            throw new InvalidEventStateException("Venue and seating configuration are immutable once attached");
+        }
+
+        this.venue = Objects.requireNonNull(venue, "Venue cannot be null");
+    }
+
+    public void assignStaff(Long userId, StaffRole role, Instant now) {
+        ensureNotCancelled();
+
+        Objects.requireNonNull(userId, "Staff UserId cannot be null");
+
+        Objects.requireNonNull(role, "StaffRole cannot be null");
+
+        boolean alreadyAssigned = staffAssignments
+            .stream()
+            .anyMatch(assignment -> assignment.userId().equals(userId) && assignment.role() == role);
+
+        if (!alreadyAssigned) {
+            staffAssignments.add(StaffAssignment.create(userId, role, now));
+        }
+    }
+
+    public boolean removeStaff(Long userId) {
+        ensureNotCancelled();
+
+        Objects.requireNonNull(userId, "Staff UserId cannot be null");
+
+        return staffAssignments.removeIf(assignment -> assignment.userId().equals(userId));
+    }
+
+    public SocialEvent duplicate(EventDateRange newDateRange, RegistrationWindow newRegistrationWindow) {
+        Objects.requireNonNull(newDateRange, "New date range cannot be null");
+
+        Objects.requireNonNull(newRegistrationWindow, "New registration window cannot be null");
+
+        SocialEvent copy = SocialEvent.createDraft(
+            organizerId,
+            title + " (Copy)",
+            description,
+            category,
+            imageUrl,
+            visibility,
+            newDateRange,
+            newRegistrationWindow
+        );
+
+        if (venue != null) {
+            copy.attachVenue(venue.copy());
+        }
+
+        return copy;
+    }
+
+    public boolean canBeManagedBy(Long userId) {
+        Objects.requireNonNull(userId, "userId cannot be null");
+        return organizerId.equals(userId);
+    }
+
+    public boolean canCheckIn(Long userId) {
+        Objects.requireNonNull(userId, "userId cannot be null");
+        return (
+            organizerId.equals(userId) ||
+            staffAssignments
+                .stream()
+                .anyMatch(assignment -> assignment.userId().equals(userId) && assignment.role() == StaffRole.EVENT_ADMIN)
+        );
+    }
+
+    private void ensureNotCancelled() {
+        if (status == SocialEventStatus.CANCELLED) {
+            throw new InvalidEventStateException("Cannot modify a cancelled event");
+        }
+    }
+
+    private void setTitle(String title) {
+        if (title == null || title.isBlank()) {
+            throw new IllegalArgumentException("Event title cannot be empty");
+        }
+
+        this.title = title.trim();
+    }
+
+    private void setDescription(String description) {
+        this.description = description != null ? description.trim() : "";
+    }
+
+    private void setCategory(String category) {
+        if (category == null || category.isBlank()) {
+            throw new IllegalArgumentException("Event category cannot be empty");
+        }
+
+        this.category = category.trim();
+    }
+
+    public SocialEventId getId() {
+        return id;
+    }
+
+    public Long getOrganizerId() {
+        return organizerId;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public String getCategory() {
+        return category;
+    }
+
+    public String getImageUrl() {
+        return imageUrl;
+    }
+
+    public SocialEventStatus getStatus() {
+        return status;
+    }
+
+    public EventVisibility getVisibility() {
+        return visibility;
+    }
+
+    public EventDateRange getDateRange() {
+        return dateRange;
+    }
+
+    public RegistrationWindow getRegistrationWindow() {
+        return registrationWindow;
+    }
+
+    public Optional<Venue> getVenue() {
+        return Optional.ofNullable(venue);
+    }
+
+    public List<StaffAssignment> getStaffAssignments() {
+        return Collections.unmodifiableList(staffAssignments);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+
+        if (!(o instanceof SocialEvent other)) {
+            return false;
+        }
+
+        return Objects.equals(id, other.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/eventmanagement/external/CancellationRecipientsAdapter.java
+package com.biletflow.biletflow.eventmanagement.external;
+
+import com.biletflow.biletflow.eventmanagement.application.cancellation.CancellationRecipients;
+import com.biletflow.biletflow.iam.ohs.IamOhs;
+import com.biletflow.biletflow.ticketinventory.ohs.EventCancellationRecipientsOhs;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.stereotype.Component;
+
+@Component
+public class CancellationRecipientsAdapter implements CancellationRecipients {
+
+    private final EventCancellationRecipientsOhs tickets;
+    private final IamOhs users;
+
+    public CancellationRecipientsAdapter(EventCancellationRecipientsOhs tickets, IamOhs users) {
+        this.tickets = Objects.requireNonNull(tickets);
+        this.users = Objects.requireNonNull(users);
+    }
+
+    @Override
+    public List<String> attendees(UUID eventId) {
+        return tickets.attendeeEmails(eventId);
+    }
+
+    @Override
+    public Optional<String> verifiedEmail(long userId) {
+        return users.findVerifiedUserEmail(userId).map(email -> email.email());
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/eventmanagement/infrastructure/cancellation/CancellationNoticeJob.java
+package com.biletflow.biletflow.eventmanagement.infrastructure.cancellation;
+
+import com.biletflow.biletflow.eventmanagement.application.cancellation.CancellationNoticeWorker;
+import java.util.Objects;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+@Component
+@ConditionalOnProperty(name = "biletflow.events.cancellation-mail-enabled", havingValue = "true", matchIfMissing = true)
+public class CancellationNoticeJob {
+
+    private final CancellationNoticeWorker worker;
+
+    public CancellationNoticeJob(CancellationNoticeWorker worker) {
+        this.worker = Objects.requireNonNull(worker);
+    }
+
+    @Scheduled(
+        fixedDelayString = "${biletflow.events.cancellation-mail-delay-ms:5000}",
+        initialDelayString = "${biletflow.events.cancellation-mail-initial-delay-ms:10000}"
+    )
+    public void deliver() {
+        worker.deliverPending();
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/eventmanagement/infrastructure/cancellation/SmtpCancellationNoticeSender.java
+package com.biletflow.biletflow.eventmanagement.infrastructure.cancellation;
+
+import com.biletflow.biletflow.common.notifications.EmailSender;
+import com.biletflow.biletflow.eventmanagement.application.cancellation.*;
+import java.nio.charset.StandardCharsets;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.Objects;
+import org.springframework.stereotype.Component;
+
+@Component
+public class SmtpCancellationNoticeSender implements CancellationNoticeSender {
+
+    private static final DateTimeFormatter UTC = DateTimeFormatter.ofPattern("uuuuMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC);
+    private final EmailSender emails;
+
+    public SmtpCancellationNoticeSender(EmailSender emails) {
+        this.emails = Objects.requireNonNull(emails);
+    }
+
+    @Override
+    public void send(CancellationNotice notice) {
+        String text =
+            "Event cancelled: " +
+            notice.title() +
+            "\n\n" +
+            "This event will not take place. Its tickets cannot be used for admission.\n" +
+            "The attached calendar file marks the event as cancelled.\n\n" +
+            "This notice does not confirm a refund. Contact the organizer about refund eligibility and status.\n";
+        String calendar = String.join(
+            "\r\n",
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//BiletFlow//Events//EN",
+            "METHOD:PUBLISH",
+            "BEGIN:VEVENT",
+            "UID:" + notice.eventId() + "@biletflow.invalid",
+            "SEQUENCE:1",
+            "DTSTAMP:" + UTC.format(notice.cancelledAt()),
+            "LAST-MODIFIED:" + UTC.format(notice.cancelledAt()),
+            "DTSTART:" + UTC.format(notice.startsAt()),
+            "DTEND:" + UTC.format(notice.endsAt()),
+            "SUMMARY:" + escape(notice.title()),
+            "STATUS:CANCELLED",
+            "END:VEVENT",
+            "END:VCALENDAR",
+            ""
+        );
+        emails.send(
+            new EmailSender.Email(
+                notice.id(),
+                notice.recipient(),
+                "BiletFlow event cancelled: " + notice.title(),
+                text,
+                "event-" + notice.eventId() + "-cancelled.ics",
+                fold(calendar).getBytes(StandardCharsets.UTF_8),
+                "text/calendar; charset=UTF-8"
+            )
+        );
+    }
+
+    private static String escape(String value) {
+        return value
+            .replace("\\", "\\\\")
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+            .replace("\n", "\\n")
+            .replace(";", "\\;")
+            .replace(",", "\\,");
+    }
+
+    /** RFC 5545 physical lines are at most 75 UTF-8 octets, including continuation whitespace. */
+    private static String fold(String calendar) {
+        var out = new StringBuilder();
+        for (String line : calendar.split("\r\n", -1)) {
+            if (!out.isEmpty()) out.append("\r\n");
+            int bytes = 0;
+            for (int cp : line.codePoints().toArray()) {
+                String c = new String(Character.toChars(cp));
+                int size = c.getBytes(StandardCharsets.UTF_8).length;
+                if (bytes + size > 75) {
+                    out.append("\r\n ");
+                    bytes = 1;
+                }
+                out.append(c);
+                bytes += size;
+            }
+        }
+        return out.toString();
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/eventmanagement/ohs/EventCancelled.java
+package com.biletflow.biletflow.eventmanagement.ohs;
+
+import com.biletflow.biletflow.common.events.IntegrationEvent;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+
+/** Durable fact: cancellation has committed, not a request to refund orders. */
+public record EventCancelled(UUID eventId, Instant cancelledAt) {
+    public static final String TYPE = "eventmanagement.event-cancelled.v1";
+
+    public EventCancelled {
+        Objects.requireNonNull(eventId);
+        Objects.requireNonNull(cancelledAt);
+    }
+
+    public IntegrationEvent toEvent() {
+        var id = UUID.nameUUIDFromBytes((TYPE + ":" + eventId).getBytes(StandardCharsets.UTF_8));
+        return new IntegrationEvent(id, TYPE, eventId, Map.of("cancelledAt", cancelledAt.toString()));
+    }
+
+    public static EventCancelled from(IntegrationEvent event) {
+        if (!TYPE.equals(event.type())) throw new IllegalArgumentException("Unexpected cancellation event type");
+        return new EventCancelled(event.aggregateId(), Instant.parse(event.attributes().get("cancelledAt")));
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/eventmanagement/persistence/cancellation/JpaCancellationNoticeStore.java
+package com.biletflow.biletflow.eventmanagement.persistence.cancellation;
+
+import com.biletflow.biletflow.eventmanagement.application.cancellation.*;
+import com.biletflow.biletflow.eventmanagement.persistence.cancellation.entity.CancellationNoticeJpaEntity;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import java.time.Instant;
+import java.util.Objects;
+import java.util.Optional;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+@Repository
+@Transactional
+public class JpaCancellationNoticeStore implements CancellationNoticeStore {
+
+    private final EntityManager entities;
+
+    public JpaCancellationNoticeStore(EntityManager entities) {
+        this.entities = Objects.requireNonNull(entities);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void enqueue(CancellationNotice notice) {
+        if (entities.find(CancellationNoticeJpaEntity.class, notice.id()) == null) {
+            entities.persist(new CancellationNoticeJpaEntity(notice));
+        }
+    }
+
+    @Override
+    public Optional<Claim> claim(Instant now) {
+        return entities
+            .createQuery(
+                "select n from CancellationNoticeJpaEntity n where n.sentAt is null and n.nextAttemptAt <= :now " +
+                    "and (n.leaseUntil is null or n.leaseUntil <= :now) order by n.nextAttemptAt, n.id",
+                CancellationNoticeJpaEntity.class
+            )
+            .setParameter("now", now)
+            .setMaxResults(1)
+            .setLockMode(LockModeType.PESSIMISTIC_WRITE)
+            .getResultList()
+            .stream()
+            .findFirst()
+            .map(row -> row.claim(now));
+    }
+
+    @Override
+    public void complete(Claim claim, Instant now) {
+        var row = entities.find(CancellationNoticeJpaEntity.class, claim.notice().id(), LockModeType.PESSIMISTIC_WRITE);
+        if (row != null) row.complete(claim, now);
+    }
+
+    @Override
+    public void retry(Claim claim, Instant now) {
+        var row = entities.find(CancellationNoticeJpaEntity.class, claim.notice().id(), LockModeType.PESSIMISTIC_WRITE);
+        if (row != null) row.retry(claim, now);
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/eventmanagement/persistence/cancellation/entity/CancellationNoticeJpaEntity.java
+package com.biletflow.biletflow.eventmanagement.persistence.cancellation.entity;
+
+import com.biletflow.biletflow.eventmanagement.application.cancellation.CancellationNotice;
+import com.biletflow.biletflow.eventmanagement.application.cancellation.CancellationNoticeStore.Claim;
+import jakarta.persistence.*;
+import java.time.Instant;
+import java.util.UUID;
+
+@Entity
+@Table(
+    name = "event_management_cancellation_notice",
+    uniqueConstraints = @UniqueConstraint(name = "uk_event_cancellation_recipient", columnNames = { "event_id", "recipient" })
+)
+public class CancellationNoticeJpaEntity {
+
+    @Id
+    private UUID id;
+
+    @Column(name = "event_id", nullable = false, updatable = false)
+    private UUID eventId;
+
+    @Column(nullable = false, updatable = false, length = 254)
+    private String recipient;
+
+    @Column(nullable = false, updatable = false, length = 255)
+    private String title;
+
+    @Column(name = "starts_at", nullable = false, updatable = false)
+    private Instant startsAt;
+
+    @Column(name = "ends_at", nullable = false, updatable = false)
+    private Instant endsAt;
+
+    @Column(name = "cancelled_at", nullable = false, updatable = false)
+    private Instant cancelledAt;
+
+    @Column(name = "next_attempt_at", nullable = false)
+    private Instant nextAttemptAt;
+
+    @Column(nullable = false)
+    private int attempts;
+
+    @Column(name = "claim_token")
+    private UUID claimToken;
+
+    @Column(name = "lease_until")
+    private Instant leaseUntil;
+
+    @Column(name = "sent_at")
+    private Instant sentAt;
+
+    @Version
+    private long version;
+
+    protected CancellationNoticeJpaEntity() {}
+
+    public CancellationNoticeJpaEntity(CancellationNotice notice) {
+        id = notice.id();
+        eventId = notice.eventId();
+        recipient = notice.recipient();
+        title = notice.title();
+        startsAt = notice.startsAt();
+        endsAt = notice.endsAt();
+        cancelledAt = notice.cancelledAt();
+        nextAttemptAt = notice.cancelledAt();
+    }
+
+    public Claim claim(Instant now) {
+        if (sentAt != null || nextAttemptAt.isAfter(now) || (leaseUntil != null && leaseUntil.isAfter(now))) {
+            throw new IllegalStateException("Cancellation notice is not available");
+        }
+        claimToken = UUID.randomUUID();
+        leaseUntil = now.plusSeconds(120);
+        attempts = Math.min(attempts + 1, 1000000);
+        return new Claim(new CancellationNotice(id, eventId, recipient, title, startsAt, endsAt, cancelledAt), claimToken);
+    }
+
+    public void complete(Claim claim, Instant now) {
+        if (!owns(claim)) return;
+        sentAt = now;
+        claimToken = null;
+        leaseUntil = null;
+    }
+
+    public void retry(Claim claim, Instant now) {
+        if (!owns(claim)) return;
+        nextAttemptAt = now.plusSeconds(Math.min(3600, 30L << Math.min(Math.max(0, attempts - 1), 7)));
+        claimToken = null;
+        leaseUntil = null;
+    }
+
+    private boolean owns(Claim claim) {
+        return sentAt == null && claim.token().equals(claimToken);
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/eventmanagement/rest/EventResource.java
+package com.biletflow.biletflow.eventmanagement.rest;
+
+import com.biletflow.biletflow.eventmanagement.application.socialevent.EventQueryService;
+import com.biletflow.biletflow.eventmanagement.application.socialevent.EventService;
+import com.biletflow.biletflow.eventmanagement.application.socialevent.command.*;
+import com.biletflow.biletflow.eventmanagement.application.socialevent.view.ManagedEventView;
+import com.biletflow.biletflow.eventmanagement.application.socialevent.view.PublicEventView;
+import com.biletflow.biletflow.eventmanagement.domain.*;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import java.net.URI;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/events")
+@Tag(name = "Events", description = "Public event discovery and organizer event-management operations.")
+public class EventResource {
+
+    private final EventService eventService;
+    private final EventQueryService eventQueryService;
+    private final Clock clock;
+
+    public EventResource(EventService eventService, EventQueryService eventQueryService, Clock clock) {
+        this.eventService = Objects.requireNonNull(eventService, "eventService cannot be null");
+        this.eventQueryService = Objects.requireNonNull(eventQueryService, "eventQueryService cannot be null");
+        this.clock = Objects.requireNonNull(clock, "clock cannot be null");
+    }
+
+    @GetMapping
+    @Operation(
+        summary = "List public events",
+        description = "Returns published events with PUBLIC visibility, ordered by event start time."
+    )
+    @ApiResponse(responseCode = "200", description = "Public events returned")
+    public List<PublicEventView> listPublic() {
+        return eventQueryService.listPublic();
+    }
+
+    @GetMapping("/{eventId}")
+    @Operation(
+        summary = "Get a publicly readable event",
+        description = "Returns a PUBLIC or UNLISTED event when its status is PUBLISHED or CANCELLED. " +
+            "Private, draft, and unpublished events are exposed as not found."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Event returned"),
+        @ApiResponse(responseCode = "404", description = "Event does not exist or is not publicly readable", content = @Content),
+    })
+    public PublicEventView getPublic(@Parameter(description = "Event ID", required = true) @PathVariable UUID eventId) {
+        return eventQueryService.getPublic(new SocialEventId(eventId));
+    }
+
+    @GetMapping("/mine")
+    @Operation(
+        summary = "List events owned by the current organizer",
+        description = "Returns events for which the authenticated user is the organizer, newest event start first."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Managed events returned"),
+        @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content),
+    })
+    public List<ManagedEventView> listMine() {
+        return eventQueryService.listMine();
+    }
+
+    @GetMapping("/assigned-for-check-in")
+    @Operation(summary = "List published events assigned to the current check-in user")
+    public List<PublicEventView> listAssignedForCheckIn() {
+        return eventQueryService.listAssignedForCheckIn();
+    }
+
+    @GetMapping("/{eventId}/manage")
+    @Operation(
+        summary = "Get an event for organizer management",
+        description = "Returns the management view, including staff assignments, to the event organizer."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Management view returned"),
+        @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content),
+        @ApiResponse(responseCode = "403", description = "Current user does not manage this event", content = @Content),
+        @ApiResponse(responseCode = "404", description = "Event not found", content = @Content),
+    })
+    public ManagedEventView getForManagement(@Parameter(description = "Event ID", required = true) @PathVariable UUID eventId) {
+        return eventQueryService.getForManagement(new SocialEventId(eventId));
+    }
+
+    @PostMapping
+    @Operation(
+        summary = "Create a draft event",
+        description = "Creates a new DRAFT event owned by the authenticated user. Venue configuration is attached separately."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "201", description = "Draft created"),
+        @ApiResponse(responseCode = "400", description = "Request validation or domain validation failed", content = @Content),
+        @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content),
+    })
+    public ResponseEntity<IdResponse> create(@Valid @RequestBody EventDetailsRequest request) {
+        SocialEventId id = eventService.handle(
+            new CreateDraftEventCommand(
+                request.title(),
+                request.description(),
+                request.category(),
+                request.imageUrl(),
+                request.visibility(),
+                new EventDateRange(request.startAt(), request.endAt()),
+                toRegistrationWindow(request.registrationWindow())
+            )
+        );
+
+        return ResponseEntity.created(URI.create("/api/events/" + id.value() + "/manage")).body(new IdResponse(id.value()));
+    }
+
+    @PutMapping("/{eventId}")
+    @Operation(summary = "Update event details", description = "Replaces the editable event details. Cancelled events cannot be modified.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "Event updated"),
+        @ApiResponse(responseCode = "400", description = "Request validation or domain validation failed", content = @Content),
+        @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content),
+        @ApiResponse(responseCode = "403", description = "Current user does not manage this event", content = @Content),
+        @ApiResponse(responseCode = "404", description = "Event not found", content = @Content),
+        @ApiResponse(responseCode = "409", description = "Event state rejects the operation", content = @Content),
+    })
+    public ResponseEntity<Void> update(
+        @Parameter(description = "Event ID", required = true) @PathVariable UUID eventId,
+        @Valid @RequestBody EventDetailsRequest request
+    ) {
+        eventService.handle(
+            new UpdateEventDetailsCommand(
+                new SocialEventId(eventId),
+                request.title(),
+                request.description(),
+                request.category(),
+                request.imageUrl(),
+                request.visibility(),
+                new EventDateRange(request.startAt(), request.endAt()),
+                toRegistrationWindow(request.registrationWindow())
+            )
+        );
+
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{eventId}/publish")
+    @Operation(
+        summary = "Publish an event",
+        description = "Publishes an organizer-managed event. A venue must already be attached and a cancelled event cannot be published."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "Event published"),
+        @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content),
+        @ApiResponse(responseCode = "403", description = "Current user does not manage this event", content = @Content),
+        @ApiResponse(responseCode = "404", description = "Event not found", content = @Content),
+        @ApiResponse(responseCode = "409", description = "Event cannot be published in its current state", content = @Content),
+    })
+    public ResponseEntity<Void> publish(@Parameter(description = "Event ID", required = true) @PathVariable UUID eventId) {
+        eventService.handle(new PublishSocialEventCommand(new SocialEventId(eventId)));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{eventId}/unpublish")
+    @Operation(
+        summary = "Unpublish an event",
+        description = "Moves a PUBLISHED event to UNPUBLISHED. Only currently published events can be unpublished."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "Event unpublished"),
+        @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content),
+        @ApiResponse(responseCode = "403", description = "Current user does not manage this event", content = @Content),
+        @ApiResponse(responseCode = "404", description = "Event not found", content = @Content),
+        @ApiResponse(responseCode = "409", description = "Event is not currently published", content = @Content),
+    })
+    public ResponseEntity<Void> unpublish(@Parameter(description = "Event ID", required = true) @PathVariable UUID eventId) {
+        eventService.handle(new UnpublishEventCommand(new SocialEventId(eventId)));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{eventId}/cancel")
+    @Operation(
+        summary = "Cancel an event",
+        description = "Cancels the event and queues cancellation email/calendar updates. Stops new sales and admission; pending checkouts " +
+            "are closed asynchronously. Completed paid orders retain organizer-initiated refunds. Repeating cancellation is idempotent; " +
+            "a first cancellation after the event ended is rejected."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "Event cancelled"),
+        @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content),
+        @ApiResponse(responseCode = "403", description = "Current user does not manage this event", content = @Content),
+        @ApiResponse(responseCode = "404", description = "Event not found", content = @Content),
+        @ApiResponse(responseCode = "409", description = "Event has already ended", content = @Content),
+    })
+    public ResponseEntity<Void> cancel(@Parameter(description = "Event ID", required = true) @PathVariable UUID eventId) {
+        eventService.handle(new CancelSocialEventCommand(new SocialEventId(eventId), Instant.now(clock)));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{eventId}/duplicate")
+    @Operation(
+        summary = "Duplicate an event into a new draft",
+        description = "Copies reusable event configuration into a new DRAFT with a new date range and registration window. " +
+            "Staff assignments are not copied."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "201", description = "Duplicate draft created"),
+        @ApiResponse(responseCode = "400", description = "Request validation or domain validation failed", content = @Content),
+        @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content),
+        @ApiResponse(responseCode = "403", description = "Current user does not manage the source event", content = @Content),
+        @ApiResponse(responseCode = "404", description = "Source event not found", content = @Content),
+    })
+    public ResponseEntity<IdResponse> duplicate(
+        @Parameter(description = "Source event ID", required = true) @PathVariable UUID eventId,
+        @Valid @RequestBody DuplicateEventRequest request
+    ) {
+        SocialEventId duplicatedId = eventService.handle(
+            new DuplicateEventCommand(
+                new SocialEventId(eventId),
+                new EventDateRange(request.startAt(), request.endAt()),
+                toRegistrationWindow(request.registrationWindow())
+            )
+        );
+
+        return ResponseEntity.created(URI.create("/api/events/" + duplicatedId.value() + "/manage")).body(
+            new IdResponse(duplicatedId.value())
+        );
+    }
+
+    @PostMapping("/{eventId}/venue")
+    @Operation(
+        summary = "Attach venue and seating configuration",
+        description = "Attaches the event's immutable venue configuration. This is allowed only while the event is a DRAFT " +
+            "and only once. ASSIGNED_SEATING requires venueLayoutId; capacity cannot exceed the referenced layout size."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "Venue attached"),
+        @ApiResponse(responseCode = "400", description = "Invalid venue configuration or unknown venue layout", content = @Content),
+        @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content),
+        @ApiResponse(responseCode = "403", description = "Current user does not manage this event", content = @Content),
+        @ApiResponse(responseCode = "404", description = "Event not found", content = @Content),
+        @ApiResponse(responseCode = "409", description = "Venue cannot be attached in the event's current state", content = @Content),
+    })
+    public ResponseEntity<Void> attachVenue(
+        @Parameter(description = "Event ID", required = true) @PathVariable UUID eventId,
+        @Valid @RequestBody VenueRequest request
+    ) {
+        eventService.handle(new AttachVenueCommand(new SocialEventId(eventId), toVenue(request)));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{eventId}/staff")
+    @Operation(
+        summary = "Assign event staff",
+        description = "Assigns a user to the event with the requested staff role. Repeating the same assignment is idempotent."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "Staff assignment present"),
+        @ApiResponse(responseCode = "400", description = "Invalid request", content = @Content),
+        @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content),
+        @ApiResponse(responseCode = "403", description = "Current user does not manage this event", content = @Content),
+        @ApiResponse(responseCode = "404", description = "Event not found", content = @Content),
+        @ApiResponse(responseCode = "409", description = "Cancelled event cannot be modified", content = @Content),
+    })
+    public ResponseEntity<Void> assignStaff(
+        @Parameter(description = "Event ID", required = true) @PathVariable UUID eventId,
+        @Valid @RequestBody AssignStaffRequest request
+    ) {
+        eventService.handle(new AssignStaffCommand(new SocialEventId(eventId), request.staffUserId(), request.role()));
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/{eventId}/staff/{staffUserId}")
+    @Operation(summary = "Remove event staff", description = "Removes all staff assignments for the supplied user from the event.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "Staff assignment absent"),
+        @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content),
+        @ApiResponse(responseCode = "403", description = "Current user does not manage this event", content = @Content),
+        @ApiResponse(responseCode = "404", description = "Event not found", content = @Content),
+        @ApiResponse(responseCode = "409", description = "Cancelled event cannot be modified", content = @Content),
+    })
+    public ResponseEntity<Void> removeStaff(
+        @Parameter(description = "Event ID", required = true) @PathVariable UUID eventId,
+        @Parameter(description = "User ID of the staff member to remove", required = true) @PathVariable Long staffUserId
+    ) {
+        eventService.handle(new RemoveStaffCommand(new SocialEventId(eventId), staffUserId));
+        return ResponseEntity.noContent().build();
+    }
+
+    private RegistrationWindow toRegistrationWindow(RegistrationWindowRequest request) {
+        return switch (request.mode()) {
+            case ALWAYS_OPEN -> new RegistrationWindow.AlwaysOpen();
+            case OPENS_AT -> new RegistrationWindow.OpensAt(requireInstant(request.startAt(), "registrationWindow.startAt"));
+            case BOUNDED -> new RegistrationWindow.Bounded(
+                requireInstant(request.startAt(), "registrationWindow.startAt"),
+                requireInstant(request.endAt(), "registrationWindow.endAt")
+            );
+        };
+    }
+
+    private Venue toVenue(VenueRequest request) {
+        return switch (request.seatingMode()) {
+            case GENERAL_ADMISSION -> Venue.createGeneralAdmission(request.name(), request.address(), request.capacity());
+            case ASSIGNED_SEATING -> Venue.createAssignedSeating(
+                request.name(),
+                request.address(),
+                request.capacity(),
+                new VenueLayoutId(requireUuid(request.venueLayoutId(), "venueLayoutId"))
+            );
+        };
+    }
+
+    private Instant requireInstant(Instant value, String field) {
+        if (value == null) {
+            throw new IllegalArgumentException(field + " is required");
+        }
+        return value;
+    }
+
+    private UUID requireUuid(UUID value, String field) {
+        if (value == null) {
+            throw new IllegalArgumentException(field + " is required");
+        }
+        return value;
+    }
+
+    @Schema(description = "Identifier returned after creating an event resource.")
+    public record IdResponse(@Schema(description = "Created event ID", example = "7d24db20-2e37-4ac3-a781-cf6725cab5ef") UUID id) {
+        public IdResponse {
+            Objects.requireNonNull(id, "id cannot be null");
+        }
+    }
+
+    @Schema(description = "Editable event details used when creating or updating an event.")
+    public record EventDetailsRequest(
+        @Schema(description = "Event title", example = "Astana Tech Meetup") @NotBlank String title,
+        @Schema(description = "Event description", example = "An evening of talks and networking.") String description,
+        @Schema(description = "Event category", example = "Technology") @NotBlank String category,
+        @Schema(description = "Optional event image URL", example = "https://example.com/events/tech-meetup.jpg") String imageUrl,
+        @Schema(description = "Discovery visibility. UNLISTED events are readable by direct link; PRIVATE events are not public.")
+        @NotNull
+        EventVisibility visibility,
+        @Schema(description = "Event start time as an ISO-8601 instant", example = "2026-10-15T13:00:00Z") @NotNull Instant startAt,
+        @Schema(description = "Event end time; must be strictly after startAt", example = "2026-10-15T17:00:00Z") @NotNull Instant endAt,
+        @Valid @NotNull RegistrationWindowRequest registrationWindow
+    ) {}
+
+    @Schema(description = "New scheduling data for a duplicated event.")
+    public record DuplicateEventRequest(
+        @Schema(description = "Start time for the new draft", example = "2026-11-20T13:00:00Z") @NotNull Instant startAt,
+        @Schema(description = "End time for the new draft; must be after startAt", example = "2026-11-20T17:00:00Z") @NotNull Instant endAt,
+        @Valid @NotNull RegistrationWindowRequest registrationWindow
+    ) {}
+
+    @Schema(
+        description = "Ticket-registration availability. ALWAYS_OPEN ignores startAt/endAt; OPENS_AT requires startAt; " +
+            "BOUNDED requires both startAt and endAt."
+    )
+    public record RegistrationWindowRequest(
+        @Schema(description = "Registration-window mode") @NotNull RegistrationWindowMode mode,
+        @Schema(description = "Required for OPENS_AT and BOUNDED", example = "2026-09-15T06:00:00Z") Instant startAt,
+        @Schema(description = "Required for BOUNDED; must not be before startAt", example = "2026-10-15T12:00:00Z") Instant endAt
+    ) {}
+
+    @Schema(description = "How registration availability is scheduled.")
+    public enum RegistrationWindowMode {
+        ALWAYS_OPEN,
+        OPENS_AT,
+        BOUNDED,
+    }
+
+    @Schema(description = "Venue configuration attached to a draft event. venueLayoutId is required only for ASSIGNED_SEATING.")
+    public record VenueRequest(
+        @Schema(description = "Venue name", example = "Astana Hub") @NotBlank String name,
+        @Schema(description = "Human-readable venue address", example = "Mangilik El Ave 55/8, Astana") @NotBlank String address,
+        @Schema(description = "Maximum event capacity", example = "250") @Positive int capacity,
+        @Schema(description = "General-admission or assigned-seating event") @NotNull SeatingMode seatingMode,
+        @Schema(
+            description = "Predefined venue layout ID. Required for ASSIGNED_SEATING and ignored for GENERAL_ADMISSION.",
+            example = "62965c40-ab0a-42ba-976f-d85b74d7d03a"
+        )
+        UUID venueLayoutId
+    ) {}
+
+    @Schema(description = "Seating model used by the event.")
+    public enum SeatingMode {
+        GENERAL_ADMISSION,
+        ASSIGNED_SEATING,
+    }
+
+    @Schema(description = "Event staff assignment request.")
+    public record AssignStaffRequest(
+        @Schema(description = "User ID to assign", example = "42") @NotNull Long staffUserId,
+        @Schema(description = "Role granted for this event") @NotNull StaffRole role
+    ) {}
+}
+
+# ./src/main/java/com/biletflow/biletflow/ordercheckout/application/CheckoutService.java
+package com.biletflow.biletflow.ordercheckout.application;
+
+import com.biletflow.biletflow.common.application.AuthorizationException;
+import com.biletflow.biletflow.common.application.EntityNotFoundException;
+import com.biletflow.biletflow.common.application.FinancialAudit;
+import com.biletflow.biletflow.common.application.TransactionLocks;
+import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
+import com.biletflow.biletflow.ordercheckout.application.command.CreateCheckoutCommand;
+import com.biletflow.biletflow.ordercheckout.application.view.CheckoutView;
+import com.biletflow.biletflow.ordercheckout.domain.checkout.*;
+import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
+import com.biletflow.biletflow.ordercheckout.domain.order.*;
+import com.biletflow.biletflow.paymentsmonetization.ohs.*;
+import com.biletflow.biletflow.paymentsmonetization.ohs.dto.StartPaymentCommand;
+import com.biletflow.biletflow.ticketinventory.ohs.CheckoutInventoryOhs;
+import java.time.Clock;
+import java.util.*;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/** O&C process manager. Local OHS/database effects commit atomically; bank settlement is asynchronous. */
+@Service
+@Transactional(readOnly = true)
+public class CheckoutService {
+
+    private final CheckoutSessionRepository checkouts;
+    private final OrderRepository orders;
+    private final CheckoutProcessRepository processes;
+    private final CheckoutInventoryOhs inventory;
+    private final PaymentsOhs payments;
+    private final EventManagementOhs events;
+    private final TransactionLocks locks;
+    private final FinancialAudit audit;
+    private final CheckoutFingerprint fingerprints;
+    private final Clock clock;
+
+    public CheckoutService(
+        CheckoutSessionRepository checkouts,
+        OrderRepository orders,
+        CheckoutProcessRepository processes,
+        CheckoutInventoryOhs inventory,
+        PaymentsOhs payments,
+        EventManagementOhs events,
+        TransactionLocks locks,
+        FinancialAudit audit,
+        CheckoutFingerprint fingerprints,
+        Clock clock
+    ) {
+        this.checkouts = Objects.requireNonNull(checkouts, "checkouts cannot be null");
+        this.orders = Objects.requireNonNull(orders, "orders cannot be null");
+        this.processes = Objects.requireNonNull(processes, "processes cannot be null");
+        this.inventory = Objects.requireNonNull(inventory, "inventory cannot be null");
+        this.payments = Objects.requireNonNull(payments, "payments cannot be null");
+        this.events = Objects.requireNonNull(events, "events cannot be null");
+        this.locks = Objects.requireNonNull(locks, "locks cannot be null");
+        this.audit = Objects.requireNonNull(audit, "audit cannot be null");
+        this.fingerprints = Objects.requireNonNull(fingerprints, "fingerprints cannot be null");
+        this.clock = Objects.requireNonNull(clock, "clock cannot be null");
+    }
+
+    @Transactional
+    public CheckoutView create(UUID id, long owner, CreateCheckoutCommand request) {
+        if (request.selections().isEmpty() || request.selections().size() > 30) throw new IllegalArgumentException(
+            "Supply 1 to 30 ticket selections"
+        );
+        locks.lock("event-lifecycle:" + request.eventId());
+        locks.lock("checkout:" + id);
+        String fingerprint = fingerprints.of(request);
+        var prior = processes.find(id);
+        if (prior.isPresent()) {
+            var p = prior.orElseThrow();
+            authorizeOwner(p, owner);
+            if (!p.fingerprint().equals(fingerprint)) throw new IllegalStateException("Idempotency-Key was used for a different checkout");
+            return view(p, requireCheckout(id));
+        }
+        var scope = events.salesScope(request.eventId(), clock.instant());
+        if (!scope.registrationOpen()) throw new IllegalStateException("Event is not accepting registrations");
+        var held = inventory.reserve(request.eventId(), id, request.selections());
+        var checkout = new CheckoutSession(
+            new CheckoutSessionId(id),
+            owner,
+            request.eventId(),
+            held.assignedSeating() ? InventoryMode.RESERVED_SEATING : InventoryMode.GENERAL_ADMISSION
+        );
+        for (var line : held.lines())
+            checkout.addItem(
+                line.seatId() == null
+                    ? new GeneralAdmissionCheckoutItem(line.ticketTypeId(), line.price())
+                    : new AssignedSeatingCheckoutItem(line.ticketTypeId(), line.seatId(), line.price())
+            );
+        var process = new CheckoutProcess(
+            id,
+            owner,
+            request.eventId(),
+            fingerprint,
+            held.expiresAt(),
+            held.lines(),
+            held.holds(),
+            null,
+            null,
+            null
+        );
+        if (checkout.getFinalPrice().isZero()) {
+            inventory.issue(process.eventId(), id, owner, process.lines(), process.holds());
+            checkout.completeFreeCheckout();
+            orders.save(Order.createFromCheckout(checkout));
+            audit.record("ordercheckout", id, owner, "FREE_CHECKOUT_COMPLETED");
+        } else {
+            checkout.awaitPayment();
+            var payment = payments.initiate(
+                new StartPaymentCommand(id, process.eventId(), owner, checkout.getFinalPrice().amount(), process.deadline())
+            );
+            process = process.payment(payment.id());
+            audit.record("ordercheckout", id, owner, "PAID_CHECKOUT_AWAITING_PAYMENT");
+        }
+        checkouts.save(checkout);
+        processes.save(process);
+        return view(process, checkout);
+    }
+
+    public CheckoutView get(UUID id, long actor) {
+        var p = requireProcess(id);
+        authorizeRead(p, actor);
+        return view(p, requireCheckout(id));
+    }
+
+    public List<CheckoutView> mine(long actor) {
+        return checkouts
+            .findAllByOwnerUserId(actor)
+            .stream()
+            .map(c -> view(requireProcess(c.getId().value()), c))
+            .toList();
+    }
+
+    @Transactional
+    public CheckoutView cancel(UUID id, long actor) {
+        locks.lock("checkout:" + id);
+        var p = requireProcess(id);
+        authorizeOwner(p, actor);
+        var c = requireCheckout(id);
+        if (
+            c.getStatus() == CheckoutSessionStatus.CANCELLED ||
+            c.getStatus() == CheckoutSessionStatus.EXPIRED ||
+            c.getStatus() == CheckoutSessionStatus.PAYMENT_FAILED
+        ) return view(p, c);
+        if (c.getStatus() == CheckoutSessionStatus.COMPLETED) throw new IllegalStateException(
+            "A completed order requires organizer cancellation or refund"
+        );
+        c.cancel();
+        release(p);
+        if (p.paymentId() != null) payments.abandon(p.paymentId());
+        checkouts.save(c);
+        audit.record("ordercheckout", id, actor, "CHECKOUT_CANCELLED");
+        return view(p, c);
+    }
+
+    /** MVP policy: only organizers initiate full refunds of unused tickets; no partial refund or automatic customer entitlement. */
+    @Transactional
+    public CheckoutView refund(UUID id, long organizer, String reason) {
+        locks.lock("checkout:" + id);
+        var p = requireProcess(id);
+        if (!events.canManageTicketing(p.eventId(), organizer)) throw new AuthorizationException(
+            "Only the organizer can refund this order"
+        );
+        var c = requireCheckout(id);
+        var existingOrder = orders.findById(new OrderId(id));
+        if (existingOrder.isEmpty()) {
+            if (p.paymentId() == null || !"SUCCEEDED".equals(payments.get(p.paymentId()).status())) throw new IllegalStateException(
+                "No captured payment to refund"
+            );
+            UUID refund = payments.refund(p.paymentId(), reason);
+            p = p.refund(CheckoutRefundStatus.PENDING, refund);
+            processes.save(p);
+            audit.record("ordercheckout", id, organizer, "UNFULFILLED_ORDER_REFUND_REQUESTED");
+            return view(p, c);
+        }
+        var order = existingOrder.orElseThrow();
+        if (p.refundState() == CheckoutRefundStatus.PENDING || p.refundState() == CheckoutRefundStatus.REFUNDED) return view(p, c);
+        if (order.getFinalPrice().isZero()) {
+            if (order.getStatus() != OrderStatus.CANCELLED) {
+                inventory.cancelFreeOrder(p.eventId(), id);
+                order.cancelOrderByManager();
+                orders.save(order);
+            }
+            audit.record("ordercheckout", id, organizer, "FREE_ORDER_CANCELLED");
+            return view(p, c);
+        }
+        inventory.prepareRefund(p.eventId(), id);
+        UUID refund = payments.refund(p.paymentId(), reason);
+        p = p.refund(CheckoutRefundStatus.PENDING, refund);
+        processes.save(p);
+        audit.record("ordercheckout", id, organizer, "ORDER_REFUND_REQUESTED");
+        return view(p, c);
+    }
+
+    @Transactional
+    public void onOutcome(PaymentOutcome outcome) {
+        var initial = requireProcess(outcome.orderId());
+        locks.lock("event-lifecycle:" + initial.eventId());
+        locks.lock("checkout:" + outcome.orderId());
+        var p = requireProcess(outcome.orderId());
+        var c = requireCheckout(p.id());
+        if (!Objects.equals(p.paymentId(), outcome.paymentId())) throw new IllegalStateException(
+            "Payment outcome belongs to a different checkout"
+        );
+        switch (outcome.outcome()) {
+            case "SUCCEEDED" -> {
+                var financial = payments.get(outcome.paymentId());
+                if ("REFUNDED".equals(financial.status())) {
+                    onOutcome(new PaymentOutcome(outcome.paymentId(), outcome.orderId(), "REFUNDED", financial.refundId()));
+                    return;
+                }
+                if (financial.reviewRequired()) throw new IllegalStateException("Payment settlement requires review before fulfillment");
+                if ("REQUESTED".equals(financial.refundStatus()) && c.getStatus() == CheckoutSessionStatus.AWAITING_PAYMENT) {
+                    c.cancel();
+                    release(p);
+                    checkouts.save(c);
+                    processes.save(p.refund(CheckoutRefundStatus.PENDING, financial.refundId()));
+                    return;
+                }
+                if (c.getStatus() == CheckoutSessionStatus.COMPLETED || p.refundState() == CheckoutRefundStatus.REFUNDED) return;
+                if (
+                    c.getStatus() != CheckoutSessionStatus.AWAITING_PAYMENT ||
+                    !clock.instant().isBefore(p.deadline()) ||
+                    !events.salesScope(p.eventId(), clock.instant()).registrationOpen()
+                ) {
+                    if (c.getStatus() == CheckoutSessionStatus.AWAITING_PAYMENT) {
+                        c.expire();
+                        checkouts.save(c);
+                        release(p);
+                    }
+                    UUID refund = payments.refund(p.paymentId(), "Payment settled after checkout became unavailable");
+                    processes.save(p.refund(CheckoutRefundStatus.PENDING, refund));
+                    audit.record("ordercheckout", p.id(), null, "UNFULFILLED_PAYMENT_COMPENSATING");
+                    return;
+                }
+                // Failures roll back event handling and are retried by the durable bus. They cannot lose a paid purchase.
+                inventory.issue(p.eventId(), p.id(), p.ownerId(), p.lines(), p.holds());
+                c.confirmPayment(outcome.paymentId());
+                if (orders.findById(new OrderId(p.id())).isEmpty()) orders.save(Order.createFromCheckout(c));
+                checkouts.save(c);
+                audit.record("ordercheckout", p.id(), null, "PAID_ORDER_COMPLETED");
+            }
+            case "FAILED" -> {
+                if (c.getStatus() == CheckoutSessionStatus.AWAITING_PAYMENT) {
+                    c.markPaymentFailed();
+                    checkouts.save(c);
+                    release(p);
+                    audit.record("ordercheckout", p.id(), null, "CHECKOUT_PAYMENT_FAILED");
+                }
+            }
+            case "REFUNDED" -> {
+                if (p.refundState() == CheckoutRefundStatus.REFUNDED) return;
+                inventory.completeRefund(p.eventId(), p.id());
+                var order = orders.findById(new OrderId(p.id()));
+                if (order.isPresent()) {
+                    var o = order.orElseThrow();
+                    if (o.getStatus() == OrderStatus.COMPLETED) o.cancelOrderByManager();
+                    o.markRefunded(outcome.refundId());
+                    orders.save(o);
+                } else if (c.getStatus() == CheckoutSessionStatus.AWAITING_PAYMENT) {
+                    c.cancel();
+                    release(p);
+                    checkouts.save(c);
+                }
+                processes.save(p.refund(CheckoutRefundStatus.REFUNDED, outcome.refundId()));
+                audit.record("ordercheckout", p.id(), null, "ORDER_REFUND_COMPLETED");
+            }
+            case "REFUND_FAILED" -> {
+                if (p.refundState() != CheckoutRefundStatus.REFUNDED && Objects.equals(p.refundId(), outcome.refundId())) {
+                    inventory.failRefund(p.eventId(), p.id());
+                    processes.save(p.refund(CheckoutRefundStatus.FAILED, outcome.refundId()));
+                    audit.record("ordercheckout", p.id(), null, "ORDER_REFUND_FAILED");
+                }
+            }
+            default -> throw new IllegalArgumentException("Unknown payment outcome");
+        }
+    }
+
+    @Transactional
+    public void expire(UUID id) {
+        locks.lock("checkout:" + id);
+        var p = requireProcess(id);
+        var c = requireCheckout(id);
+        if (c.getStatus() != CheckoutSessionStatus.AWAITING_PAYMENT && c.getStatus() != CheckoutSessionStatus.IN_PROGRESS) return;
+        var scope = events.salesScope(p.eventId(), clock.instant());
+        if (clock.instant().isBefore(p.deadline()) && scope.registrationOpen()) return;
+        if (scope.cancelled()) c.cancel();
+        else c.expire();
+        release(p);
+        if (p.paymentId() != null) payments.abandon(p.paymentId());
+        checkouts.save(c);
+        audit.record("ordercheckout", id, null, "CHECKOUT_EXPIRED_OR_EVENT_CLOSED");
+    }
+
+    private void release(CheckoutProcess p) {
+        inventory.release(p.eventId(), p.id(), p.holds());
+    }
+
+    private CheckoutProcess requireProcess(UUID id) {
+        return processes.find(id).orElseThrow(() -> new EntityNotFoundException("Checkout not found"));
+    }
+
+    private CheckoutSession requireCheckout(UUID id) {
+        return checkouts.findById(new CheckoutSessionId(id)).orElseThrow();
+    }
+
+    private void authorizeOwner(CheckoutProcess p, long user) {
+        if (p.ownerId() != user) throw new AuthorizationException("Checkout is private");
+    }
+
+    private void authorizeRead(CheckoutProcess p, long user) {
+        if (p.ownerId() != user && !events.canManageTicketing(p.eventId(), user)) throw new AuthorizationException("Checkout is private");
+    }
+
+    private CheckoutView view(CheckoutProcess p, CheckoutSession c) {
+        String status = orders
+            .findById(new OrderId(p.id()))
+            .map(o -> o.getStatus().name())
+            .orElse(c.getStatus().name());
+        return new CheckoutView(
+            p.id(),
+            p.eventId(),
+            status,
+            c.getFinalPrice().amount(),
+            p.deadline(),
+            p.paymentId(),
+            p.refundState() == null ? null : p.refundState().name(),
+            p.refundId(),
+            inventory.tickets(p.id()),
+            true
+        );
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/ticketinventory/application/ticket/TicketService.java
+package com.biletflow.biletflow.ticketinventory.application.ticket;
+
+import com.biletflow.biletflow.common.application.AuthorizationException;
+import com.biletflow.biletflow.common.application.EntityNotFoundException;
+import com.biletflow.biletflow.common.application.TransactionLocks;
+import com.biletflow.biletflow.common.security.CurrentActor;
+import com.biletflow.biletflow.ticketinventory.application.eventmanagement.port.EventManagementPort;
+import com.biletflow.biletflow.ticketinventory.application.ticket.command.*;
+import com.biletflow.biletflow.ticketinventory.application.ticket.port.VerifiedUserEmailPort;
+import com.biletflow.biletflow.ticketinventory.application.ticket.view.TicketValidationResult;
+import com.biletflow.biletflow.ticketinventory.application.ticket.view.TicketView;
+import com.biletflow.biletflow.ticketinventory.domain.common.OrderId;
+import com.biletflow.biletflow.ticketinventory.domain.eventinventory.EventInventory;
+import com.biletflow.biletflow.ticketinventory.domain.eventinventory.EventInventoryRepository;
+import com.biletflow.biletflow.ticketinventory.domain.ticket.*;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@Transactional(readOnly = true)
+public class TicketService {
+
+    private final TicketRepository ticketRepository;
+    private final EventInventoryRepository inventoryRepository;
+    private final VerifiedUserEmailPort verifiedUserEmailPort;
+    private final CurrentActor currentActor;
+    private final EventManagementPort events;
+    private final TransactionLocks locks;
+
+    public TicketService(
+        TicketRepository ticketRepository,
+        EventInventoryRepository inventoryRepository,
+        VerifiedUserEmailPort verifiedUserEmailPort,
+        CurrentActor currentActor,
+        EventManagementPort events,
+        TransactionLocks locks
+    ) {
+        this.ticketRepository = Objects.requireNonNull(ticketRepository);
+        this.inventoryRepository = Objects.requireNonNull(inventoryRepository);
+        this.verifiedUserEmailPort = Objects.requireNonNull(verifiedUserEmailPort);
+        this.currentActor = Objects.requireNonNull(currentActor);
+        this.events = Objects.requireNonNull(events);
+        this.locks = Objects.requireNonNull(locks);
+    }
+
+    @Transactional
+    public void cancel(CancelTicketCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Ticket ticket = requireTicketForUpdate(command.ticketId());
+
+        boolean changed = ticket.cancel();
+        if (!changed) {
+            return;
+        }
+
+        EventInventory inventory = requireInventory(ticket.getEventId());
+
+        if (ticket.getSeatId() == null) {
+            inventory.reverseGASale(ticket.getTicketTypeId(), 1);
+        } else {
+            inventory.cancelSoldSeat(ticket.getSeatId(), ticket.getOrderId());
+        }
+
+        ticketRepository.save(ticket);
+        inventoryRepository.save(inventory);
+    }
+
+    @Transactional
+    public void refund(RefundTicketCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Ticket ticket = requireTicketForUpdate(command.ticketId());
+
+        boolean changed = ticket.markRefunded();
+        if (!changed) {
+            return;
+        }
+
+        EventInventory inventory = requireInventory(ticket.getEventId());
+
+        if (ticket.getSeatId() == null) {
+            inventory.reverseGASale(ticket.getTicketTypeId(), 1);
+        } else {
+            inventory.refundSoldSeat(ticket.getSeatId(), ticket.getOrderId());
+        }
+
+        ticketRepository.save(ticket);
+        inventoryRepository.save(inventory);
+    }
+
+    @Transactional
+    public TicketView checkIn(CheckInTicketCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+        locks.lock("event-lifecycle:" + command.expectedEventId());
+        if (events.ticketDetails(command.expectedEventId(), null).cancelled()) {
+            throw new IllegalStateException("Event is cancelled");
+        }
+
+        Ticket ticket = requireTicketByCodeForUpdate(command.ticketCode());
+
+        ensureExpectedEvent(ticket, command.expectedEventId());
+
+        ticket.checkIn();
+
+        return toView(ticketRepository.save(ticket));
+    }
+
+    @Transactional
+    public TicketView reverseCheckIn(ReverseCheckInCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+        locks.lock("event-lifecycle:" + command.expectedEventId());
+        if (events.ticketDetails(command.expectedEventId(), null).cancelled()) {
+            throw new IllegalStateException("Event is cancelled");
+        }
+
+        Ticket ticket = requireTicketByCodeForUpdate(command.ticketCode());
+
+        ensureExpectedEvent(ticket, command.expectedEventId());
+
+        ticket.reverseCheckIn();
+
+        return toView(ticketRepository.save(ticket));
+    }
+
+    @Transactional
+    public TicketView claim(ClaimTicketCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Long userId = currentActor.requireUserId();
+        Ticket ticket = requireTicketForUpdate(command.ticketId());
+
+        String verifiedEmail = verifiedUserEmailPort
+            .findVerifiedEmail(userId)
+            .orElseThrow(() -> new AuthorizationException("Authenticated user does not have a verified email"));
+
+        AttendeeEmail normalizedVerifiedEmail = new AttendeeEmail(verifiedEmail);
+
+        if (!ticket.getAttendeeEmail().equals(normalizedVerifiedEmail)) {
+            throw new AuthorizationException("Ticket attendee email does not match the authenticated user");
+        }
+
+        ticket.linkOwner(userId);
+
+        return toView(ticketRepository.save(ticket));
+    }
+
+    public List<TicketView> getMine() {
+        Long userId = currentActor.requireUserId();
+
+        return ticketRepository.findAllByOwnerUserId(userId).stream().map(this::toView).toList();
+    }
+
+    public TicketView get(UUID ticketId) {
+        return toView(requireTicket(ticketId));
+    }
+
+    public List<TicketView> getByOrder(UUID orderId) {
+        Objects.requireNonNull(orderId, "orderId cannot be null");
+
+        return ticketRepository.findAllByOrderId(new OrderId(orderId)).stream().map(this::toView).toList();
+    }
+
+    public List<TicketView> getByOwnerUserId(Long userId) {
+        Objects.requireNonNull(userId, "userId cannot be null");
+
+        return ticketRepository.findAllByOwnerUserId(userId).stream().map(this::toView).toList();
+    }
+
+    public TicketValidationResult validate(UUID ticketCode, UUID expectedEventId) {
+        Ticket ticket = requireTicketByCode(ticketCode);
+
+        ensureExpectedEvent(ticket, expectedEventId);
+
+        return new TicketValidationResult(
+            ticket.getId().value(),
+            ticket.getEventId(),
+            ticket.getTicketTypeId().value(),
+            ticket.getSeatId() == null ? null : ticket.getSeatId().value(),
+            ticket.getStatus(),
+            ticket.getStatus() == TicketStatus.VALID && !events.ticketDetails(ticket.getEventId(), null).cancelled()
+        );
+    }
+
+    private Ticket requireTicketForUpdate(UUID ticketId) {
+        Ticket ticket = requireTicket(ticketId);
+        return requireTicketByCodeForUpdate(ticket.getTicketCode().value());
+    }
+
+    private Ticket requireTicket(UUID ticketId) {
+        Objects.requireNonNull(ticketId, "ticketId cannot be null");
+
+        return ticketRepository
+            .findById(new TicketId(ticketId))
+            .orElseThrow(() -> new EntityNotFoundException("Ticket not found: " + ticketId));
+    }
+
+    private Ticket requireTicketByCode(UUID rawTicketCode) {
+        Objects.requireNonNull(rawTicketCode, "ticketCode cannot be null");
+
+        TicketCode ticketCode = new TicketCode(rawTicketCode);
+
+        return ticketRepository
+            .findByTicketCode(ticketCode)
+            .orElseThrow(() -> new EntityNotFoundException("Ticket not found for supplied ticket code"));
+    }
+
+    private Ticket requireTicketByCodeForUpdate(UUID rawTicketCode) {
+        Objects.requireNonNull(rawTicketCode, "ticketCode cannot be null");
+        return ticketRepository
+            .findByTicketCodeForUpdate(new TicketCode(rawTicketCode))
+            .orElseThrow(() -> new EntityNotFoundException("Ticket not found for supplied ticket code"));
+    }
+
+    private EventInventory requireInventory(UUID eventId) {
+        return inventoryRepository
+            .findByEventId(eventId)
+            .orElseThrow(() -> new EntityNotFoundException("EventInventory not found for event: " + eventId));
+    }
+
+    private void ensureExpectedEvent(Ticket ticket, UUID expectedEventId) {
+        if (!ticket.getEventId().equals(expectedEventId)) {
+            throw new IllegalStateException("Ticket is not valid for the selected event");
+        }
+    }
+
+    private TicketView toView(Ticket ticket) {
+        return new TicketView(
+            ticket.getId().value(),
+            ticket.getTicketTypeId().value(),
+            ticket.getEventId(),
+            ticket.getOrderId().value(),
+            ticket.getAttendeeEmail().value(),
+            ticket.getOwnerUserId(),
+            ticket.getSeatId() == null ? null : ticket.getSeatId().value(),
+            ticket.getTicketCode().value(),
+            ticket.getStatus(),
+            ticket.getIssuedAt()
+        );
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/ticketinventory/domain/ticket/Ticket.java
+package com.biletflow.biletflow.ticketinventory.domain.ticket;
+
+import com.biletflow.biletflow.ticketinventory.domain.common.OrderId;
+import com.biletflow.biletflow.ticketinventory.domain.common.SeatId;
+import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeId;
+import java.time.Instant;
+import java.util.Objects;
+import java.util.UUID;
+
+public class Ticket {
+
+    private final TicketId id;
+    private final TicketTypeId ticketTypeId;
+    private final UUID eventId;
+    private final OrderId orderId;
+    private final AttendeeEmail attendeeEmail;
+    private final SeatId seatId; // null for GA
+    private final TicketCode ticketCode;
+    private final Instant issuedAt;
+
+    private Long ownerUserId;
+    private TicketStatus status;
+
+    public Ticket(
+        TicketId id,
+        TicketTypeId ticketTypeId,
+        UUID eventId,
+        OrderId orderId,
+        AttendeeEmail attendeeEmail,
+        Long ownerUserId,
+        SeatId seatId,
+        TicketCode ticketCode,
+        TicketStatus status,
+        Instant issuedAt
+    ) {
+        this.id = Objects.requireNonNull(id, "TicketId cannot be null");
+        this.ticketTypeId = Objects.requireNonNull(ticketTypeId, "TicketTypeId cannot be null");
+        this.eventId = Objects.requireNonNull(eventId, "eventId cannot be null");
+        this.orderId = Objects.requireNonNull(orderId, "OrderId cannot be null");
+        this.attendeeEmail = Objects.requireNonNull(attendeeEmail, "AttendeeEmail cannot be null");
+        this.ownerUserId = ownerUserId;
+        this.seatId = seatId;
+        this.ticketCode = Objects.requireNonNull(ticketCode, "TicketCode cannot be null");
+        this.status = Objects.requireNonNull(status, "Status cannot be null");
+        this.issuedAt = Objects.requireNonNull(issuedAt, "issuedAt cannot be null");
+    }
+
+    public static Ticket issue(
+        TicketTypeId ticketTypeId,
+        UUID eventId,
+        OrderId orderId,
+        AttendeeEmail attendeeEmail,
+        Long ownerUserId,
+        SeatId seatId,
+        Instant now
+    ) {
+        return new Ticket(
+            TicketId.generate(),
+            ticketTypeId,
+            eventId,
+            orderId,
+            attendeeEmail,
+            ownerUserId,
+            seatId,
+            TicketCode.generate(),
+            TicketStatus.VALID,
+            now
+        );
+    }
+
+    /**
+     * Application layer may call this only after Identity confirms that the
+     * verified user's email matches attendeeEmail.
+     *
+     * Same-user retries are idempotent; reassignment to another account fails.
+     */
+    public void linkOwner(Long userId) {
+        Objects.requireNonNull(userId, "UserId cannot be null");
+
+        if (ownerUserId == null) {
+            ownerUserId = userId;
+            return;
+        }
+
+        if (!ownerUserId.equals(userId)) {
+            throw new IllegalStateException("Ticket is already linked to another user");
+        }
+    }
+
+    public void checkIn() {
+        if (status != TicketStatus.VALID) {
+            throw new IllegalStateException("Only VALID tickets can be checked in; current status: " + status);
+        }
+
+        status = TicketStatus.CHECKED_IN;
+    }
+
+    public void reverseCheckIn() {
+        if (status != TicketStatus.CHECKED_IN) {
+            throw new IllegalStateException("Only CHECKED_IN tickets can have check-in reversed");
+        }
+
+        status = TicketStatus.VALID;
+    }
+
+    /**
+     * @return true only when VALID -> CANCELLED occurs.
+     *         Same-state retries return false.
+     */
+    public boolean cancel() {
+        if (status == TicketStatus.CANCELLED) {
+            return false;
+        }
+
+        if (status != TicketStatus.VALID) {
+            throw new IllegalStateException("Cannot cancel ticket with status: " + status);
+        }
+
+        status = TicketStatus.CANCELLED;
+        return true;
+    }
+
+    /**
+     * @return true only when VALID -> REFUNDED occurs.
+     *         Same-state retries return false.
+     */
+    public boolean markRefunded() {
+        if (status == TicketStatus.REFUNDED) {
+            return false;
+        }
+
+        if (status != TicketStatus.VALID) {
+            throw new IllegalStateException("Cannot refund ticket with status: " + status);
+        }
+
+        status = TicketStatus.REFUNDED;
+        return true;
+    }
+
+    /** Locks admission while the bank refund is unresolved; inventory remains sold until confirmation. */
+    public void prepareRefund() {
+        if (status == TicketStatus.REFUND_PENDING || status == TicketStatus.REFUNDED) return;
+        if (status != TicketStatus.VALID) throw new IllegalStateException("Only unused tickets can be refunded");
+        status = TicketStatus.REFUND_PENDING;
+    }
+
+    public void restoreAfterFailedRefund() {
+        if (status == TicketStatus.REFUND_PENDING) status = TicketStatus.VALID;
+    }
+
+    /** A verified bank refund must invalidate admission even if it was performed outside this application. */
+    public boolean applyConfirmedRefund() {
+        if (status == TicketStatus.REFUNDED) return false;
+        if (status == TicketStatus.CANCELLED) {
+            status = TicketStatus.REFUNDED;
+            return false; // Cancellation already released this allocation; a refund must not release it again.
+        }
+        status = TicketStatus.REFUNDED;
+        return true;
+    }
+
+    public TicketId getId() {
+        return id;
+    }
+
+    public TicketTypeId getTicketTypeId() {
+        return ticketTypeId;
+    }
+
+    public UUID getEventId() {
+        return eventId;
+    }
+
+    public OrderId getOrderId() {
+        return orderId;
+    }
+
+    public AttendeeEmail getAttendeeEmail() {
+        return attendeeEmail;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public SeatId getSeatId() {
+        return seatId;
+    }
+
+    public TicketCode getTicketCode() {
+        return ticketCode;
+    }
+
+    /** Current ticket holders and admitted attendees need event cancellation updates. */
+    public boolean receivesEventCancellationNotice() {
+        return status == TicketStatus.VALID || status == TicketStatus.CHECKED_IN || status == TicketStatus.REFUND_PENDING;
+    }
+
+    public TicketStatus getStatus() {
+        return status;
+    }
+
+    public Instant getIssuedAt() {
+        return issuedAt;
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/ticketinventory/ohs/DefaultEventCancellationRecipientsOhs.java
+package com.biletflow.biletflow.ticketinventory.ohs;
+
+import com.biletflow.biletflow.ticketinventory.domain.ticket.Ticket;
+import com.biletflow.biletflow.ticketinventory.domain.ticket.TicketRepository;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@Transactional(readOnly = true)
+public class DefaultEventCancellationRecipientsOhs implements EventCancellationRecipientsOhs {
+
+    private final TicketRepository tickets;
+
+    public DefaultEventCancellationRecipientsOhs(TicketRepository tickets) {
+        this.tickets = Objects.requireNonNull(tickets);
+    }
+
+    @Override
+    public List<String> attendeeEmails(UUID eventId) {
+        return tickets
+            .findAllByEventId(eventId)
+            .stream()
+            .filter(Ticket::receivesEventCancellationNotice)
+            .map(ticket -> ticket.getAttendeeEmail().value())
+            .distinct()
+            .toList();
+    }
+}
+
+# ./src/main/java/com/biletflow/biletflow/ticketinventory/ohs/EventCancellationRecipientsOhs.java
+package com.biletflow.biletflow.ticketinventory.ohs;
+
+import java.util.List;
+import java.util.UUID;
+
+/** Published event-notification audience; no ticket internals cross the boundary. */
+public interface EventCancellationRecipientsOhs {
+    List<String> attendeeEmails(UUID eventId);
+}
+
+# ./src/main/resources/config/liquibase/changelog/20261020100000_event_cancellation.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="20261020100000-1" author="biletflow">
+        <createTable tableName="event_management_cancellation_notice">
+            <column name="id" type="uuid"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="event_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="recipient" type="varchar(254)"><constraints nullable="false"/></column>
+            <column name="title" type="varchar(255)"><constraints nullable="false"/></column>
+            <column name="starts_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="ends_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="cancelled_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="next_attempt_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="attempts" type="int" defaultValueNumeric="0"><constraints nullable="false"/></column>
+            <column name="claim_token" type="uuid"/>
+            <column name="lease_until" type="timestamp with time zone"/>
+            <column name="sent_at" type="timestamp with time zone"/>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+        <addUniqueConstraint tableName="event_management_cancellation_notice" columnNames="event_id,recipient" constraintName="uk_event_cancellation_recipient"/>
+        <createIndex tableName="event_management_cancellation_notice" indexName="idx_event_cancellation_due">
+            <column name="sent_at"/><column name="next_attempt_at"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>
+
+# ./src/main/resources/config/liquibase/master.xml
+<?xml version="1.0" encoding="utf-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <property name="now" value="current_timestamp" dbms="postgresql"/>
+    <property name="floatType" value="float4" dbms="postgresql"/>
+    <property name="clobType" value="clob" dbms="postgresql"/>
+    <property name="blobType" value="blob" dbms="postgresql"/>
+    <property name="uuidType" value="uuid" dbms="postgresql"/>
+    <property name="datetimeType" value="datetime" dbms="postgresql"/>
+    <property name="timeType" value="time(6)" dbms="postgresql"/>
+
+  <include file="config/liquibase/changelog/20260903220344_changelog.xml" relativeToChangelogFile="false"/>
+
+  <include file="config/liquibase/changelog/20261018190000_payment_saga.xml" relativeToChangelogFile="false"/>
+
+  <include file="config/liquibase/changelog/20261019010000_jpa_payments.xml" relativeToChangelogFile="false"/>
+
+  <include file="config/liquibase/changelog/20261019020000_required_authorities.xml" relativeToChangelogFile="false"/>
+
+  <include file="config/liquibase/changelog/20261019030000_ticket_delivery.xml" relativeToChangelogFile="false"/>
+
+  <include file="config/liquibase/changelog/20261020090000_randomized_halyk_invoices.xml" relativeToChangelogFile="false"/>
+
+  <include file="config/liquibase/changelog/20261020100000_event_cancellation.xml" relativeToChangelogFile="false"/>
+
+  <!-- jhipster-needle-liquibase-add-changelog - JHipster will add liquibase changelogs here -->
+    <!-- jhipster-needle-liquibase-add-constraints-changelog - JHipster will add liquibase constraints changelogs here -->
+    <!-- jhipster-needle-liquibase-add-incremental-changelog - JHipster will add incremental liquibase changelogs here -->
+</databaseChangeLog>
+
+# ./src/test/java/com/biletflow/biletflow/eventmanagement/application/cancellation/CancellationNoticeWorkerTest.java
+package com.biletflow.biletflow.eventmanagement.application.cancellation;
+
+import static org.mockito.Mockito.*;
+
+import java.time.*;
+import java.util.*;
+import org.junit.jupiter.api.Test;
+
+class CancellationNoticeWorkerTest {
+
+    private final Instant now = Instant.parse("2026-10-20T12:00:00Z");
+    private final CancellationNoticeStore store = mock(CancellationNoticeStore.class);
+    private final CancellationNoticeSender sender = mock(CancellationNoticeSender.class);
+    private final CancellationNoticeStore.Claim claim = new CancellationNoticeStore.Claim(
+        CancellationNotice.forRecipient(
+            UUID.randomUUID(),
+            "attendee@example.com",
+            "Event",
+            now.plusSeconds(3600),
+            now.plusSeconds(7200),
+            now
+        ),
+        UUID.randomUUID()
+    );
+
+    @Test
+    void smtpFailureRetainsNoticeForRetry() {
+        when(store.claim(now)).thenReturn(Optional.of(claim), Optional.empty());
+        doThrow(new IllegalStateException("SMTP unavailable")).when(sender).send(claim.notice());
+        new CancellationNoticeWorker(store, sender, Clock.fixed(now, ZoneOffset.UTC)).deliverPending();
+        verify(store).retry(claim, now);
+        verify(store, never()).complete(any(), any());
+    }
+
+    @Test
+    void acknowledgesOnlyAfterSmtpAcceptedTheNotice() {
+        when(store.claim(now)).thenReturn(Optional.of(claim), Optional.empty());
+        new CancellationNoticeWorker(store, sender, Clock.fixed(now, ZoneOffset.UTC)).deliverPending();
+        var order = inOrder(sender, store);
+        order.verify(sender).send(claim.notice());
+        order.verify(store).complete(claim, now);
+        verify(store, never()).retry(any(), any());
+    }
+}
+
+# ./src/test/java/com/biletflow/biletflow/eventmanagement/application/cancellation/CancellationNoticesTest.java
+package com.biletflow.biletflow.eventmanagement.application.cancellation;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+import com.biletflow.biletflow.eventmanagement.domain.*;
+import com.biletflow.biletflow.eventmanagement.ohs.EventCancelled;
+import java.time.Instant;
+import java.util.*;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+class CancellationNoticesTest {
+
+    @Test
+    void notifiesCurrentAttendeesOrganizerAndStaffWithoutPromisingRefundsOrReissuingTickets() {
+        Instant now = Instant.parse("2026-10-20T12:00:00Z");
+        var event = SocialEvent.createDraft(
+            7L,
+            "Meetup",
+            "Description",
+            "Technology",
+            "https://example.com/image.png",
+            EventVisibility.UNLISTED,
+            new EventDateRange(now.plusSeconds(3600), now.plusSeconds(7200)),
+            new RegistrationWindow.AlwaysOpen()
+        );
+        event.assignStaff(8L, StaffRole.EVENT_ADMIN, now);
+        event.cancel(now);
+        var events = mock(SocialEventRepository.class);
+        var recipients = mock(CancellationRecipients.class);
+        var store = mock(CancellationNoticeStore.class);
+        when(events.findById(event.getId())).thenReturn(Optional.of(event));
+        when(recipients.attendees(event.getId().value())).thenReturn(List.of("attendee@example.com", "organizer@example.com"));
+        when(recipients.verifiedEmail(7L)).thenReturn(Optional.of("organizer@example.com"));
+        when(recipients.verifiedEmail(8L)).thenReturn(Optional.of("staff@example.com"));
+        var handler = new CancellationNotices(events, recipients, store);
+        handler.handle(new EventCancelled(event.getId().value(), now).toEvent());
+        var notices = ArgumentCaptor.forClass(CancellationNotice.class);
+        verify(store, times(3)).enqueue(notices.capture());
+        assertEquals(
+            Set.of("attendee@example.com", "organizer@example.com", "staff@example.com"),
+            new HashSet<>(notices.getAllValues().stream().map(CancellationNotice::recipient).toList())
+        );
+        assertEquals(
+            notices.getAllValues().get(0).id(),
+            CancellationNotice.forRecipient(
+                event.getId().value(),
+                " ATTENDEE@EXAMPLE.COM ",
+                "Meetup",
+                now.plusSeconds(3600),
+                now.plusSeconds(7200),
+                now
+            ).id()
+        );
+    }
+}
+
+# ./src/test/java/com/biletflow/biletflow/eventmanagement/application/cancellation/EventCancellationTest.java
+package com.biletflow.biletflow.eventmanagement.application.cancellation;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+import com.biletflow.biletflow.common.application.AuthorizationException;
+import com.biletflow.biletflow.common.application.TransactionLocks;
+import com.biletflow.biletflow.common.events.EventBus;
+import com.biletflow.biletflow.common.security.CurrentActor;
+import com.biletflow.biletflow.eventmanagement.application.audit.*;
+import com.biletflow.biletflow.eventmanagement.application.socialevent.EventService;
+import com.biletflow.biletflow.eventmanagement.application.socialevent.command.CancelSocialEventCommand;
+import com.biletflow.biletflow.eventmanagement.domain.*;
+import com.biletflow.biletflow.eventmanagement.domain.exceptions.InvalidEventStateException;
+import java.time.*;
+import java.util.*;
+import org.junit.jupiter.api.Test;
+
+class EventCancellationTest {
+
+    private final Instant now = Instant.parse("2026-10-20T12:00:00Z");
+    private final SocialEventRepository repository = mock(SocialEventRepository.class);
+    private final EventAuditService audit = mock(EventAuditService.class);
+    private final EventBus bus = mock(EventBus.class);
+    private final CurrentActor actor = mock(CurrentActor.class);
+    private final TransactionLocks locks = mock(TransactionLocks.class);
+    private final EventService service = new EventService(
+        repository,
+        mock(VenueLayoutRepository.class),
+        audit,
+        actor,
+        Clock.fixed(now, ZoneOffset.UTC),
+        locks,
+        bus
+    );
+
+    private SocialEvent event() {
+        var event = SocialEvent.createDraft(
+            7L,
+            "Meetup",
+            "Description",
+            "Technology",
+            "https://example.com/image.png",
+            EventVisibility.PUBLIC,
+            new EventDateRange(now.plusSeconds(3600), now.plusSeconds(7200)),
+            new RegistrationWindow.AlwaysOpen()
+        );
+        event.attachVenue(Venue.createGeneralAdmission("Venue", "Address", 10));
+        event.publish();
+        when(repository.findById(event.getId())).thenReturn(Optional.of(event));
+        return event;
+    }
+
+    @Test
+    void cancellationPublishesOneDurableFactAndAuditEvenWhenRetriedAfterEventEnd() {
+        var event = event();
+        when(actor.requireUserId()).thenReturn(7L);
+        service.handle(new CancelSocialEventCommand(event.getId(), now));
+        service.handle(new CancelSocialEventCommand(event.getId(), now.plusSeconds(10000)));
+        assertEquals(SocialEventStatus.CANCELLED, event.getStatus());
+        verify(bus, times(1)).publish(any());
+        verify(repository, times(1)).save(event);
+        verify(audit, times(1)).record(eq(event.getId().value()), eq(7L), eq(EventAuditRepository.EventAuditType.CANCELLED), anyString());
+        var order = inOrder(locks, repository, bus);
+        order.verify(locks).lock("event-lifecycle:" + event.getId().value());
+        order.verify(repository).findById(event.getId());
+        order.verify(repository).save(event);
+        order.verify(bus).publish(any());
+    }
+
+    @Test
+    void anotherUserCannotCancelOrPublishNotices() {
+        var event = event();
+        when(actor.requireUserId()).thenReturn(8L);
+        assertThrows(AuthorizationException.class, () -> service.handle(new CancelSocialEventCommand(event.getId(), now)));
+        assertEquals(SocialEventStatus.PUBLISHED, event.getStatus());
+        verifyNoInteractions(bus, audit);
+    }
+
+    @Test
+    void firstCancellationAfterEventEndIsRejected() {
+        var event = event();
+        when(actor.requireUserId()).thenReturn(7L);
+        assertThrows(InvalidEventStateException.class, () ->
+            service.handle(new CancelSocialEventCommand(event.getId(), now.plusSeconds(10000)))
+        );
+        verifyNoInteractions(bus, audit);
+    }
+}
+
+# ./src/test/java/com/biletflow/biletflow/eventmanagement/infrastructure/cancellation/SmtpCancellationNoticeSenderTest.java
+package com.biletflow.biletflow.eventmanagement.infrastructure.cancellation;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+import com.biletflow.biletflow.common.notifications.EmailSender;
+import com.biletflow.biletflow.eventmanagement.application.cancellation.CancellationNotice;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+class SmtpCancellationNoticeSenderTest {
+
+    @Test
+    void sendsCancellationCalendarWithStableUidEscapedContentAndUtf8LineFolding() {
+        var emails = mock(EmailSender.class);
+        Instant now = Instant.parse("2026-10-20T12:00:00Z");
+        var event = UUID.randomUUID();
+        String title = "Қазақша кездесу ".repeat(12) + ",;\r\nBEGIN:VEVENT";
+        var notice = CancellationNotice.forRecipient(
+            event,
+            "attendee@example.com",
+            title,
+            now.plusSeconds(3600),
+            now.plusSeconds(7200),
+            now
+        );
+        new SmtpCancellationNoticeSender(emails).send(notice);
+        var argument = ArgumentCaptor.forClass(EmailSender.Email.class);
+        verify(emails).send(argument.capture());
+        var email = argument.getValue();
+        assertEquals(notice.id(), email.id());
+        assertEquals("text/calendar; charset=UTF-8", email.attachmentContentType());
+        String calendar = new String(email.attachment(), StandardCharsets.UTF_8);
+        for (String line : calendar.split("\r\n")) assertTrue(line.getBytes(StandardCharsets.UTF_8).length <= 75);
+        String unfolded = calendar.replace("\r\n ", "");
+        assertTrue(unfolded.contains("UID:" + event + "@biletflow.invalid\r\n"));
+        assertTrue(unfolded.contains("STATUS:CANCELLED\r\n"));
+        assertTrue(unfolded.contains("SUMMARY:" + title.replace("\r\n", "\\n").replace(";", "\\;").replace(",", "\\,")));
+        assertEquals(
+            1,
+            calendar
+                .lines()
+                .filter(line -> line.equals("BEGIN:VEVENT"))
+                .count()
+        );
+        assertTrue(email.text().contains("does not confirm a refund"));
+    }
+}
+
+# ./src/test/java/com/biletflow/biletflow/eventmanagement/persistence/cancellation/CancellationNoticeStateTest.java
+package com.biletflow.biletflow.eventmanagement.persistence.cancellation;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import com.biletflow.biletflow.eventmanagement.application.cancellation.CancellationNotice;
+import com.biletflow.biletflow.eventmanagement.persistence.cancellation.entity.CancellationNoticeJpaEntity;
+import java.time.Instant;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+
+class CancellationNoticeStateTest {
+
+    @Test
+    void expiredLeaseCanBeRecoveredAndOldWorkerCannotAcknowledgeOrRescheduleIt() {
+        Instant now = Instant.parse("2026-10-20T12:00:00Z");
+        var row = new CancellationNoticeJpaEntity(
+            CancellationNotice.forRecipient(UUID.randomUUID(), "a@example.com", "Event", now.plusSeconds(3600), now.plusSeconds(7200), now)
+        );
+        var first = row.claim(now);
+        assertThrows(IllegalStateException.class, () -> row.claim(now.plusSeconds(119)));
+        var replacement = row.claim(now.plusSeconds(121));
+        assertEquals(first.notice().id(), replacement.notice().id());
+        assertNotEquals(first.token(), replacement.token());
+        row.complete(first, now.plusSeconds(122));
+        row.retry(first, now.plusSeconds(122));
+        row.retry(replacement, now.plusSeconds(122));
+        assertThrows(IllegalStateException.class, () -> row.claim(now.plusSeconds(181)));
+        var retried = row.claim(now.plusSeconds(182));
+        row.complete(retried, now.plusSeconds(183));
+        assertThrows(IllegalStateException.class, () -> row.claim(now.plusSeconds(10000)));
+    }
+}
+
+# ./src/test/java/com/biletflow/biletflow/eventmanagement/persistence/cancellation/EventCancellationPersistenceIT.java
+package com.biletflow.biletflow.eventmanagement.persistence.cancellation;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import com.biletflow.biletflow.IntegrationTest;
+import com.biletflow.biletflow.common.application.TransactionLocks;
+import com.biletflow.biletflow.common.events.EventBus;
+import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditService;
+import com.biletflow.biletflow.eventmanagement.application.cancellation.*;
+import com.biletflow.biletflow.eventmanagement.application.socialevent.EventService;
+import com.biletflow.biletflow.eventmanagement.application.socialevent.command.CancelSocialEventCommand;
+import com.biletflow.biletflow.eventmanagement.domain.*;
+import com.biletflow.biletflow.eventmanagement.ohs.EventCancelled;
+import java.time.*;
+import java.util.*;
+import java.util.concurrent.*;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+@IntegrationTest
+class EventCancellationPersistenceIT {
+
+    @Autowired
+    SocialEventRepository events;
+
+    @Autowired
+    VenueLayoutRepository layouts;
+
+    @Autowired
+    EventAuditService audit;
+
+    @Autowired
+    TransactionLocks locks;
+
+    @Autowired
+    EventBus bus;
+
+    @Autowired
+    CancellationNoticeStore notices;
+
+    @Autowired
+    PlatformTransactionManager manager;
+
+    @Autowired
+    JdbcTemplate jdbc;
+
+    private final Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    private final Set<UUID> noticeIds = new HashSet<>();
+    private final Set<UUID> eventIds = new HashSet<>();
+
+    private TransactionTemplate tx() {
+        return new TransactionTemplate(manager);
+    }
+
+    private CancellationNotice notice() {
+        var n = CancellationNotice.forRecipient(
+            UUID.randomUUID(),
+            "attendee@example.com",
+            "Cancelled event",
+            now.plusSeconds(3600),
+            now.plusSeconds(7200),
+            now
+        );
+        noticeIds.add(n.id());
+        return n;
+    }
+
+    @AfterEach
+    void cleanup() {
+        tx().executeWithoutResult(status -> {
+            for (UUID id : noticeIds) jdbc.update("delete from event_management_cancellation_notice where id=?", id);
+            for (UUID id : eventIds) {
+                jdbc.update("delete from common_outbox where id=?", new EventCancelled(id, now).toEvent().id());
+                jdbc.update("delete from event_activity_log where event_id=?", id);
+                events.deleteById(new SocialEventId(id));
+            }
+        });
+    }
+
+    @Test
+    void eventStateAuditAndDurableFactRollbackTogetherAndRetryPublishesOnce() {
+        var event = SocialEvent.createDraft(
+            7L,
+            "Cancelled event",
+            "Description",
+            "Technology",
+            "https://example.com/image.png",
+            EventVisibility.PUBLIC,
+            new EventDateRange(now.plusSeconds(3600), now.plusSeconds(7200)),
+            new RegistrationWindow.AlwaysOpen()
+        );
+        event.attachVenue(Venue.createGeneralAdmission("Venue", "Address", 10));
+        event.publish();
+        eventIds.add(event.getId().value());
+        tx().executeWithoutResult(status -> events.save(event));
+        var service = new EventService(events, layouts, audit, () -> Optional.of(7L), Clock.fixed(now, ZoneOffset.UTC), locks, bus);
+        var command = new CancelSocialEventCommand(event.getId(), now);
+        assertThrows(IllegalStateException.class, () ->
+            tx().executeWithoutResult(status -> {
+                service.handle(command);
+                throw new IllegalStateException("Rollback cancellation");
+            })
+        );
+        assertEquals(SocialEventStatus.PUBLISHED, tx().execute(status -> events.findById(event.getId()).orElseThrow().getStatus()));
+        UUID factId = new EventCancelled(event.getId().value(), now).toEvent().id();
+        assertEquals(0, jdbc.queryForObject("select count(*) from common_outbox where id=?", Integer.class, factId));
+        tx().executeWithoutResult(status -> service.handle(command));
+        tx().executeWithoutResult(status -> service.handle(command));
+        assertEquals(1, jdbc.queryForObject("select count(*) from common_outbox where id=?", Integer.class, factId));
+        assertEquals(
+            1,
+            jdbc.queryForObject("select count(*) from event_activity_log where event_id=?", Integer.class, event.getId().value())
+        );
+    }
+
+    @Test
+    void noticeFanoutIsTransactionalAndRepeatedEnqueueDoesNotResetDelivery() {
+        var n = notice();
+        assertThrows(IllegalStateException.class, () ->
+            tx().executeWithoutResult(status -> {
+                notices.enqueue(n);
+                throw new IllegalStateException("Rollback fanout");
+            })
+        );
+        assertEquals(0, jdbc.queryForObject("select count(*) from event_management_cancellation_notice where id=?", Integer.class, n.id()));
+        tx().executeWithoutResult(status -> {
+            notices.enqueue(n);
+            notices.enqueue(n);
+        });
+        var claim = notices.claim(now).orElseThrow();
+        assertEquals(n.id(), claim.notice().id());
+        notices.complete(claim, now.plusSeconds(1));
+        tx().executeWithoutResult(status -> notices.enqueue(n));
+        assertTrue(notices.claim(now.plusSeconds(1000)).isEmpty());
+    }
+
+    @Test
+    void parallelWorkersCannotClaimTheSameNoticeAndAnExpiredWorkerCannotAcknowledgeIt() throws Exception {
+        var n = notice();
+        tx().executeWithoutResult(status -> notices.enqueue(n));
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var start = new CountDownLatch(1);
+            Callable<Optional<CancellationNoticeStore.Claim>> claim = () -> {
+                start.await();
+                return notices.claim(now);
+            };
+            var first = pool.submit(claim);
+            var second = pool.submit(claim);
+            start.countDown();
+            var a = first.get(10, TimeUnit.SECONDS);
+            var b = second.get(10, TimeUnit.SECONDS);
+            assertNotEquals(a.isPresent(), b.isPresent());
+            var old = a.orElseGet(b::orElseThrow);
+            var replacement = notices.claim(now.plusSeconds(121)).orElseThrow();
+            notices.complete(old, now.plusSeconds(122));
+            assertEquals(
+                1,
+                jdbc.queryForObject(
+                    "select count(*) from event_management_cancellation_notice where id=? and sent_at is null",
+                    Integer.class,
+                    n.id()
+                )
+            );
+            notices.retry(replacement, now.plusSeconds(122));
+            assertTrue(notices.claim(now.plusSeconds(181)).isEmpty());
+            var retry = notices.claim(now.plusSeconds(182)).orElseThrow();
+            assertEquals(n.id(), retry.notice().id());
+            notices.complete(retry, now.plusSeconds(183));
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+}
+
+# ./src/test/java/com/biletflow/biletflow/paymentsmonetization/application/PaymentSagaTest.java
+package com.biletflow.biletflow.paymentsmonetization.application;
+
+import com.biletflow.biletflow.common.application.*;
+import com.biletflow.biletflow.common.domain.Money;
+import com.biletflow.biletflow.common.events.*;
+import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
+import com.biletflow.biletflow.eventmanagement.ohs.dto.*;
+import com.biletflow.biletflow.ordercheckout.application.*;
+import com.biletflow.biletflow.ordercheckout.application.command.CreateCheckoutCommand;
+import com.biletflow.biletflow.ordercheckout.application.view.CheckoutView;
+import com.biletflow.biletflow.ordercheckout.domain.checkout.*;
+import com.biletflow.biletflow.ordercheckout.domain.order.*;
+import com.biletflow.biletflow.paymentsmonetization.application.command.ActivatePaidSalesCommand;
+import com.biletflow.biletflow.paymentsmonetization.application.command.ResolvePaymentOperationCommand;
+import com.biletflow.biletflow.paymentsmonetization.domain.activation.*;
+import com.biletflow.biletflow.paymentsmonetization.domain.activationfeepayment.*;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.*;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
+import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.*;
+import com.biletflow.biletflow.paymentsmonetization.ohs.*;
+import com.biletflow.biletflow.ticketinventory.domain.ticket.AttendeeEmail;
+import com.biletflow.biletflow.ticketinventory.domain.ticket.Ticket;
+import com.biletflow.biletflow.ticketinventory.domain.ticket.TicketStatus;
+import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeId;
+import com.biletflow.biletflow.ticketinventory.ohs.CheckoutInventoryOhs;
+import java.math.BigDecimal;
+import java.time.*;
+import java.util.*;
+import org.junit.jupiter.api.Test;
+
+/** Isolated application tests: real services/domain, fake bank and repositories. Database guarantees have separate ITs. */
+public class PaymentSagaTest {
+
+    private static void check(boolean condition, String message) {
+        if (!condition) throw new AssertionError(message);
+    }
+
+    private static void fails(Runnable code) {
+        boolean failed = false;
+        try {
+            code.run();
+        } catch (RuntimeException expected) {
+            failed = true;
+        }
+        check(failed, "Expected rejection");
+    }
+
+    @Test
+    void cancelledEventClosesPendingCheckoutAndCompensatesLateCapture() {
+        var f = new Fixture();
+        var checkout = f.start();
+        var payment = f.work(checkout);
+        f.events.open = false;
+        f.checkout.expire(checkout.id());
+        check("CANCELLED".equals(f.checkout.get(checkout.id(), 1).status()), "Event cancellation cancels the pending checkout");
+        check(f.stock.released.contains(checkout.id()), "Event cancellation releases reservations");
+        f.observe(payment, "CHARGE");
+        f.deliver();
+        check(f.stock.issued.isEmpty(), "Late capture cannot issue admission to a cancelled event");
+        check(payment.getPayment().getRefund().isPresent(), "Unfulfilled capture is compensated");
+        f.observe(payment, "CHARGE");
+        f.observe(payment, "REFUND");
+        f.deliver();
+        check("REFUNDED".equals(f.checkout.get(checkout.id(), 1).refundState()), "Compensation is reflected in the checkout");
+        fails(() -> f.start());
+    }
+
+    @Test
+    void cancellingEventPreservesCompletedOrderUntilOrganizerRequestsRefund() {
+        var f = new Fixture();
+        var checkout = f.start();
+        var payment = f.work(checkout);
+        f.observe(payment, "CHARGE");
+        f.deliver();
+        f.events.open = false;
+        f.checkout.expire(checkout.id());
+        check("COMPLETED".equals(f.checkout.get(checkout.id(), 1).status()), "Completed financial order is retained");
+        check(payment.getPayment().getRefund().isEmpty(), "Event cancellation does not silently create a refund");
+        f.checkout.refund(checkout.id(), 7, "Event cancelled by organizer");
+        check(payment.getPayment().getRefund().isPresent(), "Organizer refund remains available after cancellation");
+    }
+
+    @Test
+    void verifiedCaptureCompletesExactlyOneOrder() {
+        var f = new Fixture();
+        var v = f.start();
+        var w = f.work(v);
+        check(f.stock.issued.isEmpty(), "No tickets before capture");
+        f.observe(w, "CHARGE");
+        check(f.stock.issued.isEmpty(), "Outbox delivery is the asynchronous boundary");
+        f.deliver();
+        check(f.orders.rows.size() == 1, "One order");
+        check(f.stock.issued.size() == 1, "One ticket issuance");
+        f.checkout.onOutcome(new PaymentOutcome(w.getId(), w.getOrderId(), "SUCCEEDED", null));
+        f.observe(w, "CHARGE");
+        f.deliver();
+        check(f.orders.rows.size() == 1 && f.stock.issued.size() == 1, "Duplicate success does not duplicate fulfillment");
+        check(f.ledger.charges.size() == 1, "One ledger charge");
+    }
+
+    @Test
+    void authorizationIsNotPaymentAndCaptureIsNotRepeated() {
+        var f = new Fixture();
+        var v = f.start();
+        var w = f.work(v);
+        f.observe(w, "AUTH");
+        check(f.bank.commands.equals(List.of("charge")), "Capture dispatched once");
+        f.observe(w, "AUTH");
+        check(f.bank.commands.size() == 1, "Unresolved capture is not retried");
+        check(f.stock.issued.isEmpty(), "AUTH cannot issue tickets");
+        f.observe(w, "CHARGE");
+        f.deliver();
+        check(f.orders.rows.size() == 1, "Verified capture fulfills");
+    }
+
+    @Test
+    void unknownRefundIsReconciledWithoutReposting() {
+        var f = new Fixture();
+        var v = f.paid();
+        var w = f.work(v);
+        f.checkout.refund(v.id(), 7, "Customer requested full refund");
+        check(f.stock.refundPending, "Admission blocked before bank call");
+        f.bank.throwAfterMutation = true;
+        f.observe(w, "CHARGE");
+        f.observe(w, "CHARGE");
+        check(Collections.frequency(f.bank.commands, "refund") == 1, "Timeout must not cause a second refund");
+        check("PENDING".equals(f.checkout.get(v.id(), 1).refundState()), "Timeout is not refund failure");
+        f.observe(w, "REFUND");
+        check(w.isReviewRequired(), "An ambiguous response cannot prove the full refund amount");
+        f.access.resolve(
+            new ResolvePaymentOperationCommand(
+                w.getId(),
+                99,
+                w.getOperationId(),
+                OperationResolution.FULL_REFUND_CONFIRMED_COMPLETED,
+                "Bank case confirms full amount returned"
+            )
+        );
+        f.deliver();
+        check("REFUNDED".equals(f.checkout.get(v.id(), 1).refundState()), "Verified full refund completes saga");
+        check(f.ledger.refunds.size() == 1 && !f.stock.refundPending, "Refund booked exactly once");
+        f.observe(w, "REFUND");
+        f.deliver();
+        check(f.stock.refundCompletions == 1, "Repeated refund is idempotent");
+    }
+
+    @Test
+    void abandonedCheckoutVoidsAuthorization() {
+        var f = new Fixture();
+        var v = f.start();
+        var w = f.work(v);
+        f.checkout.cancel(v.id(), 1);
+        f.observe(w, "AUTH");
+        check(f.bank.commands.equals(List.of("cancel")), "Abandoned AUTH is voided, never captured");
+        f.observe(w, "CANCEL");
+        f.deliver();
+        check(f.orders.rows.isEmpty(), "Cancelled checkout has no order");
+    }
+
+    @Test
+    void capturedPaymentAfterExpiryIsRefunded() {
+        var f = new Fixture();
+        var v = f.start();
+        var w = f.work(v);
+        f.clock.advance(601);
+        f.checkout.expire(v.id());
+        f.observe(w, "CHARGE");
+        f.deliver();
+        check(f.orders.rows.isEmpty(), "No overselling after hold expiry");
+        check(w.getPayment().getRefund().isPresent(), "Late payment gets compensation");
+        f.observe(w, "CHARGE");
+        check(f.bank.commands.contains("refund"), "Compensation reaches bank");
+        f.observe(w, "REFUND");
+        f.deliver();
+        check("REFUNDED".equals(f.checkout.get(v.id(), 1).refundState()), "Expired checkout records refund");
+    }
+
+    @Test
+    void delayedOutcomeAfterHoldExpiryCannotIssueTickets() {
+        var f = new Fixture();
+        var v = f.start();
+        var w = f.work(v);
+        f.observe(w, "CHARGE");
+        f.clock.advance(601);
+        f.deliver();
+        check(f.stock.issued.isEmpty() && w.getPayment().getRefund().isPresent(), "Delayed consumer compensates expired hold");
+    }
+
+    @Test
+    void ticketIssuanceFailureLeavesSuccessAvailableForRetry() {
+        var f = new Fixture();
+        var v = f.start();
+        var w = f.work(v);
+        f.observe(w, "CHARGE");
+        f.stock.failIssuance = true;
+        var e = f.queue.remove(0);
+        fails(() -> f.checkout.onOutcome(PaymentOutcome.from(e)));
+        check(f.orders.rows.isEmpty(), "No completed order after issuance failure");
+        f.stock.failIssuance = false;
+        f.checkout.onOutcome(PaymentOutcome.from(e));
+        check(f.orders.rows.size() == 1, "Retry finishes the paid order");
+    }
+
+    @Test
+    void refundCanArriveBeforeSuccessDelivery() {
+        var f = new Fixture();
+        var v = f.start();
+        var w = f.work(v);
+        f.observe(w, "CHARGE");
+        f.observe(w, "REFUND");
+        f.access.resolve(
+            new ResolvePaymentOperationCommand(
+                w.getId(),
+                99,
+                w.getOperationId(),
+                OperationResolution.FULL_REFUND_CONFIRMED_COMPLETED,
+                "Bank case confirms external full refund"
+            )
+        );
+        Collections.reverse(f.queue);
+        f.deliver();
+        check(f.stock.issued.isEmpty() && f.orders.rows.isEmpty(), "Reordered outcomes cannot issue refunded tickets");
+        check("REFUNDED".equals(f.checkout.get(v.id(), 1).refundState()), "Refund survives reordering");
+    }
+
+    @Test
+    void providerMismatchesNeverFulfillOrMutateBank() {
+        var f = new Fixture();
+        var v = f.start();
+        var w = f.work(v);
+        f.bank.next = new SettlementEvidence(
+            w.getInvoiceId(),
+            UUID.randomUUID().toString(),
+            new BigDecimal("0.01"),
+            "KZT",
+            true,
+            SettlementStatus.CAPTURED,
+            w.getId().toString()
+        );
+        f.reconciler.reconcile(w.getId());
+        check(w.isReviewRequired() && f.queue.isEmpty() && f.bank.commands.isEmpty(), "Amount mismatch requires review");
+    }
+
+    @Test
+    void callbackIsOnlyAHintAndRequiresItsSecret() {
+        var f = new Fixture();
+        var v = f.start();
+        var w = f.work(v);
+        fails(() -> f.access.callback(w.getInvoiceId(), "wrong"));
+        f.access.callback(w.getInvoiceId(), w.getCallbackSecret());
+        check("PENDING".equals(w.getStatus().name()) && f.queue.isEmpty(), "Callback cannot confirm payment");
+    }
+
+    @Test
+    void failedPaymentReleasesHoldAndLateCaptureCompensates() {
+        var f = new Fixture();
+        var v = f.start();
+        var w = f.work(v);
+        f.observe(w, "FAILED");
+        f.deliver();
+        check("PAYMENT_FAILED".equals(f.checkout.get(v.id(), 1).status()), "Failed payment terminates checkout");
+        check(f.stock.released.contains(v.id()), "Hold released");
+        f.observe(w, "CHARGE");
+        f.deliver();
+        check(w.getPayment().getRefund().isPresent() && f.orders.rows.isEmpty(), "Late contradictory capture is recovered");
+    }
+
+    @Test
+    void idempotencyAndAuthorizationAreEnforced() {
+        var f = new Fixture();
+        UUID id = UUID.randomUUID();
+        var req = f.request();
+        var a = f.checkout.create(id, 1, req);
+        var b = f.checkout.create(id, 1, req);
+        check(a.paymentId().equals(b.paymentId()) && f.works.rows.size() == 1, "One payment per checkout");
+        fails(() -> f.checkout.create(id, 2, req));
+        fails(() -> f.checkout.get(id, 2));
+        fails(() -> f.checkout.refund(id, 2, "No permission"));
+        fails(() ->
+            f.checkout.create(
+                id,
+                1,
+                new CreateCheckoutCommand(
+                    f.event,
+                    List.of(new CheckoutInventoryOhs.Selection(UUID.randomUUID(), List.of(), List.of("other@example.com")))
+                )
+            )
+        );
+    }
+
+    @Test
+    void freeCheckoutNeverCallsBank() {
+        var f = new Fixture();
+        f.stock.price = Money.zeroKzt();
+        var v = f.start();
+        check("COMPLETED".equals(v.status()) && v.paymentId() == null && f.works.rows.isEmpty(), "Free checkout completes without payment");
+        f.checkout.refund(v.id(), 7, "Cancel registration");
+        check("CANCELLED".equals(f.checkout.get(v.id(), 1).status()), "Organizer can cancel free order");
+    }
+
+    @Test
+    void bankOutageIsNotPaymentFailure() {
+        var f = new Fixture();
+        var v = f.start();
+        var w = f.work(v);
+        f.bank.unavailable = true;
+        f.reconciler.reconcile(w.getId());
+        check("PENDING".equals(w.getStatus().name()) && f.queue.isEmpty(), "Transport failure leaves payment unresolved");
+    }
+
+    @Test
+    void activationFeesAreNotOrganizerRevenueAndLateFeesAreRefunded() {
+        var f = new Fixture();
+        f.activations.rows.clear();
+        UUID id = f.service.activate(new ActivatePaidSalesCommand(f.event, 7, true, true));
+        var w = f.works.find(id).orElseThrow();
+        f.observe(w, "CHARGE");
+        check(f.activations.find(f.event).orElseThrow().aggregate().permitsPaidSales(), "Verified activation fee enables paid sales");
+        check(f.ledger.charges.isEmpty(), "Activation fee is not ticket revenue");
+        var g = new Fixture();
+        g.activations.rows.clear();
+        UUID late = g.service.activate(new ActivatePaidSalesCommand(g.event, 7, true, true));
+        var old = g.works.find(late).orElseThrow();
+        g.clock.advance(1801);
+        UUID replacement = g.service.activate(new ActivatePaidSalesCommand(g.event, 7, true, true));
+        check(!replacement.equals(late), "Expired activation may be restarted");
+        g.observe(old, "CHARGE");
+        check("REFUND_REQUESTED".equals(old.getStatus().name()), "Old fee settles to compensation");
+        g.observe(old, "CHARGE");
+        check(g.bank.commands.contains("refund"), "Late activation fee is refunded");
+    }
+
+    @Test
+    void pendingRefundPreventsCheckInAndExternalRefundInvalidatesUsedTicket() {
+        var t = Ticket.issue(
+            new TicketTypeId(UUID.randomUUID()),
+            UUID.randomUUID(),
+            new com.biletflow.biletflow.ticketinventory.domain.common.OrderId(UUID.randomUUID()),
+            new AttendeeEmail("a@example.com"),
+            null,
+            null,
+            Instant.now()
+        );
+        t.prepareRefund();
+        fails(t::checkIn);
+        t.restoreAfterFailedRefund();
+        t.checkIn();
+        t.applyConfirmedRefund();
+        check(t.getStatus() == TicketStatus.REFUNDED, "Financial truth invalidates admission");
+        check(!t.applyConfirmedRefund(), "Repeated financial refund does not release inventory twice");
+    }
+
+    @Test
+    void onlyAuditedOperatorEvidenceAllowsRetryOfAnUnknownMutation() {
+        var f = new Fixture();
+        var v = f.paid();
+        var w = f.work(v);
+        f.checkout.refund(v.id(), 7, "Full refund");
+        f.observe(w, "CHARGE");
+        UUID op = w.getOperationId();
+        fails(() ->
+            f.access.resolve(
+                new ResolvePaymentOperationCommand(
+                    w.getId(),
+                    99,
+                    UUID.randomUUID(),
+                    OperationResolution.CONFIRMED_NOT_EXECUTED_RETRY,
+                    "Bank case 1"
+                )
+            )
+        );
+        f.access.resolve(
+            new ResolvePaymentOperationCommand(w.getId(), 99, op, OperationResolution.REFUND_CONFIRMED_REJECTED, "Bank case 1")
+        );
+        f.deliver();
+        check("FAILED".equals(f.checkout.get(v.id(), 1).refundState()) && !f.stock.refundPending, "Confirmed rejection restores admission");
+        UUID oldRefund = w.getPayment().getRefund().orElseThrow().getId().value();
+        f.checkout.refund(v.id(), 7, "Retry after bank rejection");
+        check(
+            !w.getPayment().getRefund().orElseThrow().getId().value().equals(oldRefund),
+            "Definitively failed refund gets a fresh attempt"
+        );
+    }
+
+    @Test
+    void capturedFundsCannotRegressToAnAuthorization() {
+        var f = new Fixture();
+        var v = f.paid();
+        var w = f.work(v);
+        f.observe(w, "AUTH");
+        check(w.isReviewRequired() && f.bank.commands.isEmpty(), "A regressed bank state must not trigger another capture");
+    }
+
+    @Test
+    void anotherApplicationsSharedSandboxPaymentCannotFulfillCheckout() {
+        var f = new Fixture();
+        var v = f.start();
+        var w = f.work(v);
+        f.bank.next = new SettlementEvidence(
+            w.getInvoiceId(),
+            UUID.randomUUID().toString(),
+            w.getAmount(),
+            "KZT",
+            true,
+            SettlementStatus.CAPTURED,
+            UUID.randomUUID().toString()
+        );
+        f.reconciler.reconcile(w.getId());
+        check(
+            w.isReviewRequired() && f.queue.isEmpty() && f.stock.issued.isEmpty(),
+            "Invoice/amount match is insufficient on a shared terminal"
+        );
+    }
+
+    @Test
+    void acknowledgedFullRefundCompletesEvenWhenBankAmountBecomesZero() {
+        var f = new Fixture();
+        var v = f.paid();
+        var w = f.work(v);
+        f.checkout.refund(v.id(), 7, "Full refund");
+        f.observe(w, "CHARGE");
+        check(w.isOperationAcknowledged(), "Successful bank response is retained");
+        f.bank.next = new SettlementEvidence(
+            w.getInvoiceId(),
+            w.getBankTransactionId(),
+            BigDecimal.ZERO,
+            "KZT",
+            true,
+            SettlementStatus.REFUNDED,
+            w.getId().toString()
+        );
+        f.reconciler.reconcile(w.getId());
+        f.deliver();
+        check(
+            "REFUNDED".equals(f.checkout.get(v.id(), 1).refundState()) && f.ledger.refunds.size() == 1,
+            "Mutable refund amount cannot break acknowledged full refund confirmation"
+        );
+    }
+
+    @Test
+    void externalPartialRefundCannotBeBookedAsAFullRefund() {
+        var f = new Fixture();
+        var v = f.paid();
+        var w = f.work(v);
+        f.bank.next = new SettlementEvidence(
+            w.getInvoiceId(),
+            w.getBankTransactionId(),
+            new BigDecimal("500.00"),
+            "KZT",
+            true,
+            SettlementStatus.REFUNDED,
+            w.getId().toString()
+        );
+        f.reconciler.reconcile(w.getId());
+        check(w.isReviewRequired() && f.ledger.refunds.isEmpty(), "Partial or ambiguous bank refund requires evidence of full amount");
+    }
+
+    @Test
+    void sessionRetriesReuseDurableFormWithoutCallingBankTwice() {
+        var fixture = new Fixture();
+        var work = fixture.work(fixture.start());
+        var store = new FormSessions();
+        var form = new PaymentGateway.Session(Map.of(), "sandbox", Map.of("auth", Map.of("expires_in", 3600)));
+        fixture.bank.form = form;
+        var service = new PaymentSessionService(store, fixture.bank, fixture.clock);
+        check(service.open(work) == form, "First form returned");
+        check(service.open(work) == form, "Durable form reused");
+        check(fixture.bank.sessionCalls == 1, "Only one provider session");
+    }
+
+    @Test
+    void failedSessionPublicationReleasesOnlyItsClaim() {
+        var fixture = new Fixture();
+        var work = fixture.work(fixture.start());
+        var store = new FormSessions();
+        store.superseded = true;
+        fixture.bank.form = new PaymentGateway.Session(Map.of(), "sandbox", Map.of());
+        fails(() -> new PaymentSessionService(store, fixture.bank, fixture.clock).open(work));
+        check(store.released.equals(store.claim), "Failure cleans up the matching claim");
+    }
+
+    @Test
+    void expiredSessionIsRejectedBeforeClaimOrNetworkCall() {
+        var fixture = new Fixture();
+        var work = fixture.work(fixture.start());
+        var store = new FormSessions();
+        fixture.clock.now = work.getDeadline();
+        fails(() -> new PaymentSessionService(store, fixture.bank, fixture.clock).open(work));
+        check(store.claim == null && fixture.bank.sessionCalls == 0, "No claim or provider call for expired payment");
+    }
+
+    static final class FormSessions implements PaymentSessionStore {
+
+        UUID claim, released;
+        PaymentGateway.Session cached;
+        boolean superseded;
+
+        public PaymentGateway.Session claim(UUID paymentId, UUID claim, Instant now) {
+            this.claim = claim;
+            return cached;
+        }
+
+        public void complete(UUID paymentId, UUID claim, PaymentGateway.Session session, Instant deadline, Instant now) {
+            if (superseded) throw new IllegalStateException("Claim superseded");
+            cached = session;
+        }
+
+        public void release(UUID paymentId, UUID claim) {
+            released = claim;
+        }
+    }
+
+    static final class MutableClock extends Clock {
+
+        Instant now = Instant.parse("2026-10-18T12:00:00Z");
+
+        void advance(long seconds) {
+            now = now.plusSeconds(seconds);
+        }
+
+        public java.time.ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        public Instant instant() {
+            return now;
+        }
+    }
+
+    static final class LocalTransactions implements Transactions {
+
+        public <T> T required(java.util.function.Supplier<T> work) {
+            return work.get();
+        }
+    }
+
+    static final class Secrets implements CallbackSecrets {
+
+        public String generate() {
+            return UUID.randomUUID().toString();
+        }
+
+        public boolean matches(String expected, String supplied) {
+            return expected.equals(supplied);
+        }
+    }
+
+    static final class Audit implements FinancialAudit {
+
+        Audit(Clock c) {}
+
+        public void record(String c, UUID id, Long actor, String action) {}
+
+        public void recordDetails(String c, UUID id, Long actor, String action, String details) {}
+    }
+
+    static final class Locks implements TransactionLocks {
+
+        Locks() {}
+
+        public void lock(String key) {}
+    }
+
+    static final class Bank implements PaymentGateway {
+
+        SettlementEvidence next;
+        Session form;
+        int sessionCalls;
+        boolean throwAfterMutation;
+        boolean unavailable;
+        List<String> commands = new ArrayList<>();
+
+        public boolean acceptsInvoiceId(String id) {
+            return id != null && id.matches("[0-9]{6,15}");
+        }
+
+        public void validateAmount(BigDecimal amount) {
+            if (amount == null || amount.compareTo(BigDecimal.TEN) < 0 || amount.scale() > 2) throw new IllegalArgumentException(
+                "Unsupported amount"
+            );
+        }
+
+        public Session session(PaymentWork w) {
+            sessionCalls++;
+            if (form == null) throw new IllegalStateException("No provider form");
+            return form;
+        }
+
+        public SettlementEvidence inspect(String invoice) {
+            if (unavailable) throw new IllegalStateException("offline");
+            return next;
+        }
+
+        public void mutate(String t, PaymentOperation op, String id) {
+            commands.add(
+                switch (op) {
+                    case CAPTURE -> "charge";
+                    case VOID -> "cancel";
+                    case REFUND -> "refund";
+                }
+            );
+            if (throwAfterMutation) throw new IllegalStateException("response lost");
+        }
+    }
+
+    static final class Works implements PaymentWorkRepository {
+
+        Map<UUID, PaymentWork> rows = new HashMap<>();
+        int sequence = 100000;
+
+        public String nextInvoice() {
+            return Integer.toString(sequence++);
+        }
+
+        public Optional<PaymentWork> find(UUID id) {
+            return Optional.ofNullable(rows.get(id));
+        }
+
+        public Optional<PaymentWork> findOrder(UUID id) {
+            return rows
+                .values()
+                .stream()
+                .filter(w -> id.equals(w.getOrderId()))
+                .findFirst();
+        }
+
+        public Optional<PaymentWork> findInvoice(String id) {
+            return rows
+                .values()
+                .stream()
+                .filter(w -> id.equals(w.getInvoiceId()))
+                .findFirst();
+        }
+
+        public void insert(PaymentWork w) {
+            rows.put(w.getId(), w);
+        }
+
+        public void save(PaymentWork w) {
+            rows.put(w.getId(), w);
+        }
+
+        public List<UUID> requiringReview() {
+            return List.of();
+        }
+
+        public List<UUID> due(Instant now) {
+            return new ArrayList<>(rows.keySet());
+        }
+
+        public boolean lease(UUID id, Instant now, Instant until) {
+            return true;
+        }
+
+        public void schedule(UUID id, Instant when) {}
+
+        public void wake(UUID id, Instant when) {}
+    }
+
+    static final class Activations implements ActivationRepository {
+
+        Map<UUID, Activation> rows = new HashMap<>();
+
+        public Optional<Activation> find(UUID id) {
+            return Optional.ofNullable(rows.get(id));
+        }
+
+        public void save(Activation a) {
+            rows.put(a.aggregate().getEventId(), a);
+        }
+    }
+
+    static final class Ledger implements PaymentLedger {
+
+        Set<UUID> charges = new HashSet<>(),
+            refunds = new HashSet<>();
+
+        public void charge(PaymentWork w) {
+            charges.add(w.getId());
+        }
+
+        public void refund(PaymentWork w, UUID r) {
+            refunds.add(w.getId());
+        }
+
+        public Map<String, BigDecimal> summary(long o) {
+            return Map.of();
+        }
+    }
+
+    static final class Events implements EventManagementOhs {
+
+        boolean open = true;
+
+        public EventTicketingConfigurationView getTicketingConfiguration(UUID id) {
+            throw new UnsupportedOperationException();
+        }
+
+        public TicketEventDetailsView ticketDetails(UUID id, UUID seatId) {
+            throw new UnsupportedOperationException();
+        }
+
+        public EventSeatMapView getSeatMap(UUID id) {
+            throw new UnsupportedOperationException();
+        }
+
+        public boolean canManageTicketing(UUID e, Long u) {
+            return u == 7;
+        }
+
+        public boolean canCheckIn(UUID e, Long u) {
+            return false;
+        }
+
+        public SalesScope salesScope(UUID e, Instant now) {
+            return new SalesScope(e, 7, open, !open, now.plusSeconds(86400));
+        }
+    }
+
+    static final class Sessions implements CheckoutSessionRepository {
+
+        Map<UUID, CheckoutSession> rows = new HashMap<>();
+
+        public CheckoutSession save(CheckoutSession c) {
+            rows.put(c.getId().value(), c);
+            return c;
+        }
+
+        public Optional<CheckoutSession> findById(CheckoutSessionId id) {
+            return Optional.ofNullable(rows.get(id.value()));
+        }
+
+        public List<CheckoutSession> findAllByEventId(UUID id) {
+            return rows
+                .values()
+                .stream()
+                .filter(c -> c.getEventId().equals(id))
+                .toList();
+        }
+
+        public List<CheckoutSession> findAllByOwnerUserId(Long id) {
+            return rows
+                .values()
+                .stream()
+                .filter(c -> c.getOwnerId() == id)
+                .toList();
+        }
+    }
+
+    static final class Orders implements OrderRepository {
+
+        Map<UUID, Order> rows = new HashMap<>();
+
+        public Order save(Order o) {
+            rows.put(o.getId(), o);
+            return o;
+        }
+
+        public Optional<Order> findById(OrderId id) {
+            return Optional.ofNullable(rows.get(id.value()));
+        }
+
+        public List<Order> findAllByEventId(UUID id) {
+            return rows
+                .values()
+                .stream()
+                .filter(o -> o.getEventId().equals(id))
+                .toList();
+        }
+
+        public List<Order> findAllByOwnerUserId(Long id) {
+            return rows
+                .values()
+                .stream()
+                .filter(o -> o.getOwnerId() == id)
+                .toList();
+        }
+    }
+
+    static final class Processes implements CheckoutProcessRepository {
+
+        Map<UUID, CheckoutProcess> rows = new HashMap<>();
+
+        public Optional<CheckoutProcess> find(UUID id) {
+            return Optional.ofNullable(rows.get(id));
+        }
+
+        public void save(CheckoutProcess p) {
+            rows.put(p.id(), p);
+        }
+
+        public List<UUID> active() {
+            return new ArrayList<>(rows.keySet());
+        }
+    }
+
+    static final class Stock implements CheckoutInventoryOhs {
+
+        final Clock clock;
+        Money price = Money.kzt(1000);
+        boolean failIssuance, refundPending;
+        int refundCompletions;
+        Set<UUID> released = new HashSet<>();
+        Map<UUID, List<IssuedTicket>> issued = new HashMap<>();
+
+        Stock(Clock c) {
+            clock = c;
+        }
+
+        public Reservation reserve(UUID event, UUID checkout, List<Selection> selections) {
+            List<Line> lines = new ArrayList<>();
+            for (var s : selections)
+                for (int i = 0; i < s.attendeeEmails().size(); i++) lines.add(
+                    new Line(s.ticketTypeId(), s.seats().isEmpty() ? null : s.seats().get(i), price, s.attendeeEmails().get(i))
+                );
+            return new Reservation(lines, List.of(new Hold(UUID.randomUUID(), false)), clock.instant().plusSeconds(600), false);
+        }
+
+        public void release(UUID e, UUID id, List<Hold> h) {
+            released.add(id);
+        }
+
+        public List<IssuedTicket> issue(UUID e, UUID id, long owner, List<Line> l, List<Hold> h) {
+            if (failIssuance) throw new IllegalStateException("temporary storage error");
+            return issued.computeIfAbsent(id, x ->
+                List.of(new IssuedTicket(UUID.randomUUID(), UUID.randomUUID(), "VALID", l.get(0).ticketTypeId(), null, l.get(0).email()))
+            );
+        }
+
+        public List<IssuedTicket> tickets(UUID id) {
+            return issued.getOrDefault(id, List.of());
+        }
+
+        public void prepareRefund(UUID e, UUID id) {
+            refundPending = true;
+        }
+
+        public void completeRefund(UUID e, UUID id) {
+            refundPending = false;
+            refundCompletions++;
+        }
+
+        public void failRefund(UUID e, UUID id) {
+            refundPending = false;
+        }
+
+        public void cancelFreeOrder(UUID e, UUID id) {}
+    }
+
+    static final class Fixture {
+
+        UUID event = UUID.randomUUID(),
+            type = UUID.randomUUID();
+        MutableClock clock = new MutableClock();
+        Works works = new Works();
+        Activations activations = new Activations();
+        Events events = new Events();
+        Locks locks = new Locks();
+        Audit audit = new Audit(clock);
+        Ledger ledger = new Ledger();
+        Bank bank = new Bank();
+        List<IntegrationEvent> queue = new ArrayList<>();
+        PaymentTerms terms = new PaymentTerms(new BigDecimal("1000"), new BigDecimal("0.03"));
+        Secrets secrets = new Secrets();
+        Sessions sessions = new Sessions();
+        Orders orders = new Orders();
+        Processes processes = new Processes();
+        Stock stock = new Stock(clock);
+        PaymentService service = new PaymentService(works, activations, events, locks, audit, clock, terms, bank, secrets);
+        PaymentTransitions transitions = new PaymentTransitions(works, activations, ledger, queue::add, audit, locks, events, clock);
+        PaymentAccessService access = new PaymentAccessService(works, bank, secrets, transitions, audit, clock);
+        PaymentReconciler reconciler = new PaymentReconciler(works, bank, transitions, locks, clock, new LocalTransactions());
+        CheckoutService checkout = new CheckoutService(
+            sessions,
+            orders,
+            processes,
+            stock,
+            service,
+            events,
+            locks,
+            audit,
+            Object::toString,
+            clock
+        );
+
+        Fixture() {
+            activations.save(
+                new ActivationRepository.Activation(
+                    new EventPaidSalesActivation(
+                        event,
+                        7L,
+                        clock.instant(),
+                        EventPaidSalesActivationStatus.ACTIVE,
+                        new ActivationFeePaymentId(UUID.randomUUID()),
+                        null,
+                        null
+                    ),
+                    UUID.randomUUID(),
+                    true,
+                    "test"
+                )
+            );
+        }
+
+        CreateCheckoutCommand request() {
+            return new CreateCheckoutCommand(event, List.of(new CheckoutInventoryOhs.Selection(type, List.of(), List.of("a@example.com"))));
+        }
+
+        CheckoutView start() {
+            return checkout.create(UUID.randomUUID(), 1, request());
+        }
+
+        CheckoutView paid() {
+            var v = start();
+            observe(work(v), "CHARGE");
+            deliver();
+            return checkout.get(v.id(), 1);
+        }
+
+        PaymentWork work(CheckoutView v) {
+            return works.find(v.paymentId()).orElseThrow();
+        }
+
+        void observe(PaymentWork w, String status) {
+            String ref = w.isTicket() ? w.getPayment().getProviderReference() : w.getActivationPayment().getProviderReference();
+            if (ref == null) ref = "00000000-0000-0000-0000-000000000001";
+            bank.next = new SettlementEvidence(w.getInvoiceId(), ref, w.getAmount(), "KZT", true, normalize(status), w.getId().toString());
+            reconciler.reconcile(w.getId());
+        }
+
+        SettlementStatus normalize(String status) {
+            return switch (status) {
+                case "AUTH" -> SettlementStatus.AUTHORIZED;
+                case "CHARGE" -> SettlementStatus.CAPTURED;
+                case "REFUND" -> SettlementStatus.REFUNDED;
+                case "CANCEL" -> SettlementStatus.VOIDED;
+                case "FAILED" -> SettlementStatus.DECLINED;
+                default -> SettlementStatus.UNKNOWN;
+            };
+        }
+
+        void deliver() {
+            while (!queue.isEmpty()) checkout.onOutcome(PaymentOutcome.from(queue.remove(0)));
+        }
+    }
+}
+
+# ./src/test/java/com/biletflow/biletflow/ticketinventory/application/ticket/CancelledEventAdmissionTest.java
+package com.biletflow.biletflow.ticketinventory.application.ticket;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+import com.biletflow.biletflow.common.application.TransactionLocks;
+import com.biletflow.biletflow.common.security.CurrentActor;
+import com.biletflow.biletflow.ticketinventory.application.eventmanagement.port.*;
+import com.biletflow.biletflow.ticketinventory.application.ticket.command.*;
+import com.biletflow.biletflow.ticketinventory.application.ticket.port.VerifiedUserEmailPort;
+import com.biletflow.biletflow.ticketinventory.domain.common.OrderId;
+import com.biletflow.biletflow.ticketinventory.domain.eventinventory.EventInventoryRepository;
+import com.biletflow.biletflow.ticketinventory.domain.ticket.*;
+import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeId;
+import java.time.Instant;
+import java.util.*;
+import org.junit.jupiter.api.Test;
+
+class CancelledEventAdmissionTest {
+
+    @Test
+    void internalCheckInOhsCannotBypassCancellationAndValidationReportsNoAdmission() {
+        var events = mock(EventManagementPort.class);
+        var repository = mock(TicketRepository.class);
+        var locks = mock(TransactionLocks.class);
+        var service = new TicketService(
+            repository,
+            mock(EventInventoryRepository.class),
+            mock(VerifiedUserEmailPort.class),
+            mock(CurrentActor.class),
+            events,
+            locks
+        );
+        UUID event = UUID.randomUUID();
+        Instant now = Instant.now();
+        var ticket = Ticket.issue(
+            TicketTypeId.generate(),
+            event,
+            new OrderId(UUID.randomUUID()),
+            new AttendeeEmail("attendee@example.com"),
+            null,
+            null,
+            now
+        );
+        when(events.ticketDetails(event, null)).thenReturn(
+            new TicketEventDetails("Cancelled event", now, now.plusSeconds(3600), "Venue", "Address", "General admission", true)
+        );
+        when(repository.findByTicketCode(ticket.getTicketCode())).thenReturn(Optional.of(ticket));
+        assertFalse(service.validate(ticket.getTicketCode().value(), event).validForEntry());
+        assertThrows(IllegalStateException.class, () -> service.checkIn(new CheckInTicketCommand(ticket.getTicketCode().value(), event)));
+        assertThrows(IllegalStateException.class, () ->
+            service.reverseCheckIn(new ReverseCheckInCommand(ticket.getTicketCode().value(), event))
+        );
+        verify(repository, never()).findByTicketCodeForUpdate(any());
+        var ordered = inOrder(locks, events);
+        ordered.verify(locks).lock("event-lifecycle:" + event);
+        ordered.verify(events).ticketDetails(event, null);
+    }
+}
+
+# ./src/test/java/com/biletflow/biletflow/ticketinventory/ohs/CancellationAudienceTest.java
+package com.biletflow.biletflow.ticketinventory.ohs;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+import com.biletflow.biletflow.ticketinventory.domain.common.OrderId;
+import com.biletflow.biletflow.ticketinventory.domain.ticket.*;
+import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeId;
+import java.time.Instant;
+import java.util.*;
+import org.junit.jupiter.api.Test;
+
+class CancellationAudienceTest {
+
+    @Test
+    void includesUnclaimedAndCheckedInTicketsButExcludesCancelledAndRefundedTickets() {
+        UUID event = UUID.randomUUID();
+        var repository = mock(TicketRepository.class);
+        var tickets = Arrays.stream(TicketStatus.values())
+            .map(status ->
+                new Ticket(
+                    TicketId.generate(),
+                    TicketTypeId.generate(),
+                    event,
+                    new OrderId(UUID.randomUUID()),
+                    new AttendeeEmail(status.name().toLowerCase(Locale.ROOT) + "@example.com"),
+                    null,
+                    null,
+                    TicketCode.generate(),
+                    status,
+                    Instant.now()
+                )
+            )
+            .toList();
+        when(repository.findAllByEventId(event)).thenReturn(tickets);
+        assertEquals(
+            Set.of("valid@example.com", "checked_in@example.com", "refund_pending@example.com"),
+            new HashSet<>(new DefaultEventCancellationRecipientsOhs(repository).attendeeEmails(event))
+        );
+    }
+}
+

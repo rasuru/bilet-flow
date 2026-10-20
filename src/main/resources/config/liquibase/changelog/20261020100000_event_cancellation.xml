@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="20261020100000-1" author="biletflow">
+        <createTable tableName="event_management_cancellation_notice">
+            <column name="id" type="uuid"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="event_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="recipient" type="varchar(254)"><constraints nullable="false"/></column>
+            <column name="title" type="varchar(255)"><constraints nullable="false"/></column>
+            <column name="starts_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="ends_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="cancelled_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="next_attempt_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="attempts" type="int" defaultValueNumeric="0"><constraints nullable="false"/></column>
+            <column name="claim_token" type="uuid"/>
+            <column name="lease_until" type="timestamp with time zone"/>
+            <column name="sent_at" type="timestamp with time zone"/>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+        <addUniqueConstraint tableName="event_management_cancellation_notice" columnNames="event_id,recipient" constraintName="uk_event_cancellation_recipient"/>
+        <createIndex tableName="event_management_cancellation_notice" indexName="idx_event_cancellation_due">
+            <column name="sent_at"/><column name="next_attempt_at"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>
+

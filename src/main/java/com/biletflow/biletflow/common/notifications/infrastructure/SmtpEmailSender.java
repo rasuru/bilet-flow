@@ -32,7 +32,7 @@ public class SmtpEmailSender implements EmailSender {
             message.setTo(new InternetAddress(email.recipient(), true));
             message.setSubject(email.subject().replaceAll("[\r\n]+", " "));
             message.setText(email.text(), false);
-            message.addAttachment(email.filename(), new ByteArrayResource(email.attachment()), "application/pdf");
+            message.addAttachment(email.filename(), new ByteArrayResource(email.attachment()), email.attachmentContentType());
             mime.setHeader("Message-ID", "<" + email.id() + "@biletflow.invalid>");
             mail.send(mime);
         } catch (MessagingException failure) {
