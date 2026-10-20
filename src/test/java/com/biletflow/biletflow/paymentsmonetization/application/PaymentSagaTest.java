@@ -7,16 +7,19 @@ import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.eventmanagement.ohs.dto.*;
 import com.biletflow.biletflow.ordercheckout.application.*;
 import com.biletflow.biletflow.ordercheckout.application.command.CreateCheckoutCommand;
+import com.biletflow.biletflow.ordercheckout.application.refund.*;
 import com.biletflow.biletflow.ordercheckout.application.view.CheckoutView;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.*;
 import com.biletflow.biletflow.ordercheckout.domain.order.*;
 import com.biletflow.biletflow.paymentsmonetization.application.command.ActivatePaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.application.command.ResolvePaymentOperationCommand;
+import com.biletflow.biletflow.paymentsmonetization.config.HalykProperties;
 import com.biletflow.biletflow.paymentsmonetization.domain.activation.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.activationfeepayment.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.*;
+import com.biletflow.biletflow.paymentsmonetization.infrastructure.halyk.HalykGateway;
 import com.biletflow.biletflow.paymentsmonetization.ohs.*;
 import com.biletflow.biletflow.ticketinventory.domain.ticket.AttendeeEmail;
 import com.biletflow.biletflow.ticketinventory.domain.ticket.Ticket;
@@ -27,6 +30,7 @@ import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 
 /** Isolated application tests: real services/domain, fake bank and repositories. Database guarantees have separate ITs. */
 public class PaymentSagaTest {
@@ -114,12 +118,84 @@ public class PaymentSagaTest {
     }
 
     @Test
+    void lostHalykRefundResponseAutomaticallyCompletesFromVerifiedTotalsAndQueuesOneReceipt() {
+        var f = new Fixture();
+        var checkout = f.paid();
+        var work = f.work(checkout);
+        f.checkout.refund(checkout.id(), 7, "Full refund");
+        var config = new HalykProperties("test", "test-secret", "test-terminal", "http://localhost", "http://localhost/return");
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var json = JsonMapper.builder().build();
+        var gateway = new HalykGateway(
+            config,
+            json,
+            request -> {
+                if (request.uri().getPath().equals("/oauth2/token")) return "{\"access_token\":\"test-token\"}";
+                if (request.uri().getPath().contains("/operation/")) {
+                    check(request.uri().getPath().endsWith("/refund"), "Only the requested refund can be sent");
+                    calls.incrementAndGet();
+                    throw new PaymentProviderUnavailableException(
+                        PaymentProviderUnavailableException.Kind.TIMEOUT,
+                        null,
+                        PaymentProviderUnavailableException.Phase.MUTATION
+                    );
+                }
+                boolean refunded = calls.get() > 0;
+                return json.writeValueAsString(
+                    Map.of(
+                        "resultCode",
+                        "100",
+                        "transaction",
+                        Map.of(
+                            "invoiceID",
+                            work.getInvoiceId(),
+                            "id",
+                            work.getBankTransactionId(),
+                            "currency",
+                            "KZT",
+                            "terminalID",
+                            config.getTerminalId(),
+                            "statusName",
+                            refunded ? "REFUND" : "CHARGE",
+                            "amount",
+                            refunded ? BigDecimal.ZERO : work.getAmount(),
+                            "orgAmount",
+                            work.getAmount(),
+                            "payoutAmount",
+                            refunded ? work.getAmount() : BigDecimal.ZERO,
+                            "data",
+                            json.writeValueAsString(Map.of("biletflowPaymentId", work.getId().toString()))
+                        )
+                    )
+                );
+            },
+            f.clock
+        );
+        var reconciler = new PaymentReconciler(f.works, gateway, f.transitions, f.locks, f.clock, new LocalTransactions());
+        reconciler.reconcile(work.getId());
+        check(!work.isOperationAcknowledged() && f.stock.refundPending, "Lost response cannot acknowledge or restore admission");
+        reconciler.reconcile(work.getId());
+        f.deliver();
+        reconciler.reconcile(work.getId());
+        f.deliver();
+        check(calls.get() == 1, "Reconciliation must never post the refund again");
+        check("REFUNDED".equals(f.checkout.get(checkout.id(), 1).refundState()), "Verified bank totals complete the order refund");
+        check(
+            work.getOperationState() == PaymentOperationState.CONFIRMED && !work.isReviewRequired(),
+            "No operator resolution is required"
+        );
+        check(f.ledger.refunds.size() == 1 && f.stock.refundCompletions == 1, "Ledger and admission effects happen once");
+        check(f.notices.rows.size() == 1, "One durable purchaser receipt is queued");
+    }
+
+    @Test
     void unknownRefundIsReconciledWithoutReposting() {
         var f = new Fixture();
         var v = f.paid();
         var w = f.work(v);
         f.checkout.refund(v.id(), 7, "Customer requested full refund");
         check(f.stock.refundPending, "Admission blocked before bank call");
+        check(f.notices.rows.isEmpty(), "Requesting a refund cannot send a completion receipt");
         f.bank.throwAfterMutation = true;
         f.observe(w, "CHARGE");
         f.observe(w, "CHARGE");
@@ -127,6 +203,7 @@ public class PaymentSagaTest {
         check("PENDING".equals(f.checkout.get(v.id(), 1).refundState()), "Timeout is not refund failure");
         f.observe(w, "REFUND");
         check(w.isReviewRequired(), "An ambiguous response cannot prove the full refund amount");
+        check(f.notices.rows.isEmpty(), "An ambiguous refund cannot send a completion receipt");
         f.access.resolve(
             new ResolvePaymentOperationCommand(
                 w.getId(),
@@ -142,6 +219,10 @@ public class PaymentSagaTest {
         f.observe(w, "REFUND");
         f.deliver();
         check(f.stock.refundCompletions == 1, "Repeated refund is idempotent");
+        check(f.notices.rows.size() == 1, "Repeated refund produces one durable receipt");
+        var receipt = f.notices.rows.values().iterator().next();
+        check(receipt.purchaserId() == 1 && receipt.orderId().equals(v.id()), "Receipt belongs to purchaser, not ticket claimant");
+        check(receipt.amountKzt().compareTo(v.amountKzt()) == 0, "Receipt uses the immutable full purchase amount");
     }
 
     @Test
@@ -173,6 +254,7 @@ public class PaymentSagaTest {
         f.observe(w, "REFUND");
         f.deliver();
         check("REFUNDED".equals(f.checkout.get(v.id(), 1).refundState()), "Expired checkout records refund");
+        check(f.notices.rows.size() == 1, "Unfulfilled late payment also gets its refund receipt");
     }
 
     @Test
@@ -374,6 +456,7 @@ public class PaymentSagaTest {
         );
         f.deliver();
         check("FAILED".equals(f.checkout.get(v.id(), 1).refundState()) && !f.stock.refundPending, "Confirmed rejection restores admission");
+        check(f.notices.rows.isEmpty(), "A rejected refund cannot produce a confirmation");
         UUID oldRefund = w.getPayment().getRefund().orElseThrow().getId().value();
         f.checkout.refund(v.id(), 7, "Retry after bank rejection");
         check(
@@ -701,7 +784,15 @@ public class PaymentSagaTest {
         }
 
         public TicketEventDetailsView ticketDetails(UUID id, UUID seatId) {
-            throw new UnsupportedOperationException();
+            return new TicketEventDetailsView(
+                "Test event",
+                Instant.EPOCH,
+                Instant.EPOCH.plusSeconds(3600),
+                "Venue",
+                "Address",
+                "General admission",
+                !open
+            );
         }
 
         public EventSeatMapView getSeatMap(UUID id) {
@@ -851,6 +942,27 @@ public class PaymentSagaTest {
         public void cancelFreeOrder(UUID e, UUID id) {}
     }
 
+    static final class Notices implements RefundNoticeStore {
+
+        final Map<UUID, RefundNotice> rows = new HashMap<>();
+
+        public void enqueue(RefundNotice n) {
+            rows.putIfAbsent(n.id(), n);
+        }
+
+        public Optional<Claim> claim(Instant now) {
+            return Optional.empty();
+        }
+
+        public void complete(Claim claim, Instant now) {
+            throw new UnsupportedOperationException();
+        }
+
+        public void retry(Claim claim, Instant now) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
     static final class Fixture {
 
         UUID event = UUID.randomUUID(),
@@ -870,9 +982,10 @@ public class PaymentSagaTest {
         Orders orders = new Orders();
         Processes processes = new Processes();
         Stock stock = new Stock(clock);
+        Notices notices = new Notices();
         PaymentService service = new PaymentService(works, activations, events, locks, audit, clock, terms, bank, secrets);
         PaymentTransitions transitions = new PaymentTransitions(works, activations, ledger, queue::add, audit, locks, events, clock);
-        PaymentAccessService access = new PaymentAccessService(works, bank, secrets, transitions, audit, clock);
+        PaymentAccessService access = new PaymentAccessService(works, bank, secrets, transitions, audit, clock, locks);
         PaymentReconciler reconciler = new PaymentReconciler(works, bank, transitions, locks, clock, new LocalTransactions());
         CheckoutService checkout = new CheckoutService(
             sessions,
@@ -884,7 +997,8 @@ public class PaymentSagaTest {
             locks,
             audit,
             Object::toString,
-            clock
+            clock,
+            notices
         );
 
         Fixture() {

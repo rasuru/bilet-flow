@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="20261020120000-1" author="biletflow">
+        <createTable tableName="order_checkout_refund_notice">
+            <column name="id" type="uuid"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="order_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="event_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="purchaser_id" type="bigint"><constraints nullable="false"/></column>
+            <column name="title" type="varchar(255)"><constraints nullable="false"/></column>
+            <column name="amount_kzt" type="decimal(21,2)"><constraints nullable="false"/></column>
+            <column name="confirmed_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="next_attempt_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="attempts" type="int" defaultValueNumeric="0"><constraints nullable="false"/></column>
+            <column name="claim_token" type="uuid"/>
+            <column name="lease_until" type="timestamp with time zone"/>
+            <column name="sent_at" type="timestamp with time zone"/>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+        <createIndex tableName="order_checkout_refund_notice" indexName="idx_checkout_refund_notice_due">
+            <column name="sent_at"/><column name="next_attempt_at"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>
+

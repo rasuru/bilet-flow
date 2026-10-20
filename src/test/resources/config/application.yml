@@ -93,3 +93,8 @@ management:
   health:
     mail:
       enabled: false
+
+# Persistence and saga tests drive reconciliation explicitly; no background bank calls or lease races.
+biletflow:
+  payments:
+    poll-enabled: false
