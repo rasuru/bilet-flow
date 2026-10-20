@@ -84,6 +84,21 @@ public class TicketOrderPayment {
         this.paidAt = now;
     }
 
+    /** A bank-confirmed late capture overrides an earlier failed attempt; callers must verify all payment identifiers. */
+    public void reconcileCharge(String reference, Instant now) {
+        Objects.requireNonNull(reference);
+        Objects.requireNonNull(now);
+        if (hasBeenCharged()) {
+            if (!reference.equals(providerReference)) throw new InvalidPaymentStateException("Conflicting provider transaction");
+            return;
+        }
+        status = TicketOrderPaymentStatus.SUCCEEDED;
+        providerReference = reference;
+        paidAt = now;
+        failedAt = null;
+        failureReason = null;
+    }
+
     public void fail(String reason, Instant now) {
         Objects.requireNonNull(now, "now cannot be null");
         ensurePending();

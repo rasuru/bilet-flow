@@ -92,6 +92,17 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
         return event.getStatus() == SocialEventStatus.PUBLISHED && event.canCheckIn(userId);
     }
 
+    @Override
+    public SalesScope salesScope(UUID eventId, java.time.Instant now) {
+        SocialEvent event = requireEvent(eventId);
+        boolean cancelled = event.getStatus() == SocialEventStatus.CANCELLED;
+        boolean open =
+            event.getStatus() == SocialEventStatus.PUBLISHED &&
+            event.getRegistrationWindow().isOpenAt(now) &&
+            !event.getDateRange().hasStarted(now);
+        return new SalesScope(eventId, event.getOrganizerId(), open, cancelled, event.getDateRange().startAt());
+    }
+
     private SocialEvent requireEvent(UUID eventId) {
         Objects.requireNonNull(eventId, "eventId cannot be null");
 

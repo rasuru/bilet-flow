@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.rowset.SqlRowSet;
+import org.springframework.test.context.jdbc.Sql;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -25,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
  * - Pull Request: https://github.com/jhipster/generator-jhipster/pull/22946
  */
 @IntegrationTest
+@Sql("/config/sql/timezone-fixture.sql")
 class HibernateTimeZoneIT {
 
     @Autowired

@@ -66,7 +66,11 @@ public class JpaTicketRepository implements TicketRepository {
     @Override
     public Optional<Ticket> findByTicketCodeForUpdate(TicketCode ticketCode) {
         Objects.requireNonNull(ticketCode, "TicketCode cannot be null");
-        return jpaRepository.findByTicketCodeForUpdate(ticketCode.value()).map(mapper::toDomain);
+        return jpaRepository.findByTicketCodeForUpdate(ticketCode.value()).map(entity -> {
+            // An order-wide read may already have loaded a stale managed instance before this lock was acquired.
+            entityManager.refresh(entity, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+            return mapper.toDomain(entity);
+        });
     }
 
     @Override

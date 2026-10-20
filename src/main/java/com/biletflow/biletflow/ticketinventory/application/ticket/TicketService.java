@@ -42,7 +42,7 @@ public class TicketService {
     public void cancel(CancelTicketCommand command) {
         Objects.requireNonNull(command, "command cannot be null");
 
-        Ticket ticket = requireTicket(command.ticketId());
+        Ticket ticket = requireTicketForUpdate(command.ticketId());
 
         boolean changed = ticket.cancel();
         if (!changed) {
@@ -65,7 +65,7 @@ public class TicketService {
     public void refund(RefundTicketCommand command) {
         Objects.requireNonNull(command, "command cannot be null");
 
-        Ticket ticket = requireTicket(command.ticketId());
+        Ticket ticket = requireTicketForUpdate(command.ticketId());
 
         boolean changed = ticket.markRefunded();
         if (!changed) {
@@ -115,7 +115,7 @@ public class TicketService {
         Objects.requireNonNull(command, "command cannot be null");
 
         Long userId = currentActor.requireUserId();
-        Ticket ticket = requireTicket(command.ticketId());
+        Ticket ticket = requireTicketForUpdate(command.ticketId());
 
         String verifiedEmail = verifiedUserEmailPort
             .findVerifiedEmail(userId)
@@ -167,6 +167,11 @@ public class TicketService {
             ticket.getStatus(),
             ticket.getStatus() == TicketStatus.VALID
         );
+    }
+
+    private Ticket requireTicketForUpdate(UUID ticketId) {
+        Ticket ticket = requireTicket(ticketId);
+        return requireTicketByCodeForUpdate(ticket.getTicketCode().value());
     }
 
     private Ticket requireTicket(UUID ticketId) {

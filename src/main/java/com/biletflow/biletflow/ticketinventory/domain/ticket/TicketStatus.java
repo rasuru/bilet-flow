@@ -5,4 +5,5 @@ public enum TicketStatus {
     CHECKED_IN,
     CANCELLED,
     REFUNDED,
+    REFUND_PENDING,
 }

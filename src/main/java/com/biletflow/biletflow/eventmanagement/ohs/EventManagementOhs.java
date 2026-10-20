@@ -23,4 +23,8 @@ public interface EventManagementOhs {
     public boolean canManageTicketing(UUID eventId, Long userId);
 
     boolean canCheckIn(UUID eventId, Long userId);
+
+    record SalesScope(UUID eventId, long organizerId, boolean registrationOpen, boolean cancelled, java.time.Instant eventStartsAt) {}
+
+    SalesScope salesScope(UUID eventId, java.time.Instant now);
 }

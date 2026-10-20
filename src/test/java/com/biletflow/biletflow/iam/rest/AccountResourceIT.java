@@ -12,6 +12,7 @@ import com.biletflow.biletflow.iam.application.dto.PasswordChangeDTO;
 import com.biletflow.biletflow.iam.domain.User;
 import com.biletflow.biletflow.iam.persistence.AuthorityRepository;
 import com.biletflow.biletflow.iam.persistence.UserRepository;
+import com.biletflow.biletflow.iam.rest.dto.PasswordResetInitRequest;
 import com.biletflow.biletflow.iam.rest.vm.KeyAndPasswordVM;
 import com.biletflow.biletflow.iam.rest.vm.ManagedUserVM;
 import com.biletflow.biletflow.iam.security.AuthoritiesConstants;
@@ -671,7 +672,11 @@ class AccountResourceIT {
         userRepository.saveAndFlush(user);
 
         restAccountMockMvc
-            .perform(post("/api/account/reset-password/init").content("password-reset@example.com"))
+            .perform(
+                post("/api/account/reset-password/init")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(om.writeValueAsBytes(new PasswordResetInitRequest("password-reset@example.com")))
+            )
             .andExpect(status().isOk());
 
         userService.deleteUser("password-reset");
@@ -689,7 +694,11 @@ class AccountResourceIT {
         userRepository.saveAndFlush(user);
 
         restAccountMockMvc
-            .perform(post("/api/account/reset-password/init").content("password-reset-upper-case@EXAMPLE.COM"))
+            .perform(
+                post("/api/account/reset-password/init")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(om.writeValueAsBytes(new PasswordResetInitRequest("password-reset-upper-case@EXAMPLE.COM")))
+            )
             .andExpect(status().isOk());
 
         userService.deleteUser("password-reset-upper-case");
@@ -698,19 +707,33 @@ class AccountResourceIT {
     @Test
     void testRequestPasswordResetWrongEmail() throws Exception {
         restAccountMockMvc
-            .perform(post("/api/account/reset-password/init").content("password-reset-wrong-email@example.com"))
+            .perform(
+                post("/api/account/reset-password/init")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(om.writeValueAsBytes(new PasswordResetInitRequest("password-reset-wrong-email@example.com")))
+            )
             .andExpect(status().isOk());
     }
 
     @Test
     void testRequestPasswordResetInvalidEmail() throws Exception {
-        restAccountMockMvc.perform(post("/api/account/reset-password/init").content("invalid-email")).andExpect(status().isBadRequest());
+        restAccountMockMvc
+            .perform(
+                post("/api/account/reset-password/init")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(om.writeValueAsBytes(new PasswordResetInitRequest("invalid-email")))
+            )
+            .andExpect(status().isBadRequest());
     }
 
     @Test
     void testRequestPasswordResetTooLongEmail() throws Exception {
         restAccountMockMvc
-            .perform(post("/api/account/reset-password/init").content("a".repeat(250) + "@x.co"))
+            .perform(
+                post("/api/account/reset-password/init")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(om.writeValueAsBytes(new PasswordResetInitRequest("a".repeat(250) + "@x.co")))
+            )
             .andExpect(status().isBadRequest());
     }
 
