@@ -11,7 +11,9 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,11 +34,15 @@ public class HalykGateway implements PaymentGateway {
     private final HalykHttp http;
     private final HalykProperties config;
     private final ObjectMapper json;
+    private final Clock clock;
+    private String merchantToken;
+    private Instant merchantTokenExpiresAt = Instant.MIN;
 
-    public HalykGateway(HalykProperties config, ObjectMapper json, HalykHttp http) {
+    public HalykGateway(HalykProperties config, ObjectMapper json, HalykHttp http, Clock clock) {
         this.config = Objects.requireNonNull(config, "config cannot be null");
         this.json = Objects.requireNonNull(json, "json cannot be null");
         this.http = Objects.requireNonNull(http, "http cannot be null");
+        this.clock = Objects.requireNonNull(clock);
     }
 
     @Override
@@ -108,7 +114,9 @@ public class HalykGateway implements PaymentGateway {
             t.path("currency").asString(""),
             config.getTerminalId().equals(t.path("terminalID").asString("")),
             normalize(t.path("statusName").asString("")),
-            correlation.path("biletflowPaymentId").asString("")
+            correlation.path("biletflowPaymentId").asString(""),
+            t.path("orgAmount").decimalValue(null),
+            t.path("payoutAmount").decimalValue(null)
         );
     }
 
@@ -126,7 +134,8 @@ public class HalykGateway implements PaymentGateway {
             HttpRequest.newBuilder(URI.create(API + "/operation/" + transactionId + "/" + operationCode + suffix))
                 .header("Authorization", "Bearer " + accessToken())
                 .POST(HttpRequest.BodyPublishers.noBody())
-                .timeout(Duration.ofSeconds(10))
+                // A mutation can take longer than a lookup; a lost response still reconciles from provider facts.
+                .timeout(Duration.ofSeconds(30))
                 .build()
         );
         // A 200 response is acknowledgement only. Completion always comes from inspect().
@@ -144,8 +153,22 @@ public class HalykGateway implements PaymentGateway {
         };
     }
 
-    private String accessToken() {
-        return String.valueOf(token(Map.of()).get("access_token"));
+    private synchronized String accessToken() {
+        Instant now = clock.instant();
+        if (merchantToken != null && now.isBefore(merchantTokenExpiresAt)) return merchantToken;
+        var auth = token(Map.of());
+        String access = (String) auth.get("access_token");
+        Object lifetime = auth.get("expires_in");
+        // An unknown lifetime is never cached. Refresh known tokens before they actually expire.
+        long seconds = lifetime instanceof Number number ? Math.max(0, Math.min(86400, number.longValue()) - 30) : 0;
+        merchantToken = access;
+        merchantTokenExpiresAt = now.plusSeconds(seconds);
+        return access;
+    }
+
+    private synchronized void invalidateMerchantToken() {
+        merchantToken = null;
+        merchantTokenExpiresAt = Instant.MIN;
     }
 
     private Map<String, Object> token(Map<String, String> extra) {
@@ -189,7 +212,12 @@ public class HalykGateway implements PaymentGateway {
     }
 
     private String send(HttpRequest request) {
-        return http.send(request);
+        try {
+            return http.send(request);
+        } catch (PaymentProviderUnavailableException failure) {
+            if (failure.isHttpStatus(401)) invalidateMerchantToken();
+            throw failure;
+        }
     }
 
     private static String encode(String value) {

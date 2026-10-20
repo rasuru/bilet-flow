@@ -16,7 +16,8 @@
 # Optional: BASE_URL, OUTPUT_DIR, TIMEOUT_SECONDS=480, PAYMENT_PORT=9090.
 # Each run creates a new purchase. The script tests retries within that purchase.
 # CANCEL_EVENT=1 additionally cancels the fixture event and checks admission/email.
-# Otherwise leaves the ticket valid; never requests a refund.
+# REFUND_ORDER=1 requests a full paid refund and checks invalidation and its receipt.
+# Otherwise leaves the ticket valid unless CANCEL_EVENT=1.
 set -euo pipefail
 umask 077
 
@@ -29,10 +30,12 @@ BASE_URL="${BASE_URL%/}"
 : "${ATTENDEE_EMAIL:?Set ATTENDEE_EMAIL to the buyer account verified email}"
 ACTIVATE="${ACTIVATE:-0}"
 CANCEL_EVENT="${CANCEL_EVENT:-0}"
+REFUND_ORDER="${REFUND_ORDER:-0}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-480}"
 PAYMENT_PORT="${PAYMENT_PORT:-9090}"
 [[ "$ACTIVATE" = 0 || "$ACTIVATE" = 1 ]] || fail 'ACTIVATE must be 0 or 1'
 [[ "$CANCEL_EVENT" = 0 || "$CANCEL_EVENT" = 1 ]] || fail 'CANCEL_EVENT must be 0 or 1'
+[[ "$REFUND_ORDER" = 0 || "$REFUND_ORDER" = 1 ]] || fail 'REFUND_ORDER must be 0 or 1'
 [[ "$TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || fail 'TIMEOUT_SECONDS must be positive'
 [[ "$PAYMENT_PORT" =~ ^[0-9]+$ ]] || fail 'PAYMENT_PORT must be numeric'
 python3 - "$EVENT_ID" "$TICKET_TYPE_ID" "$PAYMENT_PORT" <<'PY'
@@ -43,7 +46,7 @@ PY
 if [[ -z "${BUYER_JWT:-}" ]]; then
   read -r -s -p 'Buyer JWT: ' BUYER_JWT; printf '\n'
 fi
-if [[ ( "$ACTIVATE" = 1 || "$CANCEL_EVENT" = 1 ) && -z "${ORGANIZER_JWT:-}" ]]; then
+if [[ ( "$ACTIVATE" = 1 || "$CANCEL_EVENT" = 1 || "$REFUND_ORDER" = 1 ) && -z "${ORGANIZER_JWT:-}" ]]; then
   read -r -s -p 'Organizer JWT: ' ORGANIZER_JWT; printf '\n'
 fi
 [[ -n "$BUYER_JWT" ]] || fail 'Buyer JWT is empty'
@@ -62,7 +65,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-./purchase-e2e-$CHECKOUT_ID}"
 mkdir -p "$OUTPUT_DIR"
 # Keep bearer credentials out of curl's command-line arguments and output files.
 printf 'Authorization: Bearer %s\n' "$BUYER_JWT" > "$WORK/buyer.headers"
-if [[ "$ACTIVATE" = 1 || "$CANCEL_EVENT" = 1 ]]; then
+if [[ "$ACTIVATE" = 1 || "$CANCEL_EVENT" = 1 || "$REFUND_ORDER" = 1 ]]; then
   printf 'Authorization: Bearer %s\n' "$ORGANIZER_JWT" > "$WORK/organizer.headers"
 fi
 unset BUYER_JWT ORGANIZER_JWT
@@ -177,6 +180,9 @@ api buyer POST /api/checkouts "$WORK/replay.json" 200 "$WORK/request.json" "$CHE
 [[ "$(jq -c '[.id,.paymentId,.amountKzt]' "$WORK/checkout.json")" = "$(jq -c '[.id,.paymentId,.amountKzt]' "$WORK/replay.json")" ]] || fail 'Checkout retry changed purchase identity/price'
 printf 'PASS: checkout retry reused the same purchase and price\n'
 
+if [[ "$REFUND_ORDER" = 1 ]]; then
+  jq -e '.amountKzt >= 10' "$WORK/checkout.json" >/dev/null || fail 'REFUND_ORDER requires a paid ticket of at least 10 KZT'
+fi
 if [[ "$(jq -r '.status' "$WORK/checkout.json")" = AWAITING_PAYMENT ]]; then
   payment_id="$(jq -er '.paymentId' "$WORK/checkout.json")"
   payment_page buyer "$payment_id" checkout
@@ -243,7 +249,79 @@ if [[ "$CANCEL_EVENT" = 1 ]]; then
     sleep 2
   done
   printf 'PASS: attendee cancellation email arrived in Mailpit\n'
-else
-  printf 'This script does not assert SMTP delivery or admission scanning. Set CANCEL_EVENT=1 to check cancellation and its email.\n'
+elif [[ "$REFUND_ORDER" = 0 ]]; then
+  printf 'This script does not assert SMTP delivery or admission scanning. Use CANCEL_EVENT=1 or REFUND_ORDER=1 for their email checks.\n'
+fi
+
+if [[ "$REFUND_ORDER" = 1 ]]; then
+  printf '\nTesting the paid refund…\n'
+  printf '%s\n' '{"reason":"E2E full refund"}' > "$WORK/refund-request.json"
+  api buyer POST "/api/checkouts/$CHECKOUT_ID/refund" "$WORK/unauthorized-refund.json" 403 "$WORK/refund-request.json"
+  api organizer POST "/api/checkouts/$CHECKOUT_ID/refund" "$WORK/refund.json" 200 "$WORK/refund-request.json"
+  refund_id="$(jq -er '.refundId' "$WORK/refund.json")"
+  api organizer POST "/api/checkouts/$CHECKOUT_ID/refund" "$WORK/refund-replay.json" 200 "$WORK/refund-request.json"
+  [[ "$(jq -er '.refundId' "$WORK/refund-replay.json")" = "$refund_id" ]] || fail 'Retry changed refund identity'
+  api buyer GET "/api/tickets/$ticket_id/qr" "$WORK/pending-refund-qr.json" 409
+  ticket_code="$(jq -er '.tickets[0].code' "$WORK/checkout.json")"
+  admission_status=409
+  [[ "$CANCEL_EVENT" = 0 ]] || admission_status=403
+  api organizer POST "/api/events/$EVENT_ID/check-in/tickets/$ticket_code" "$WORK/pending-refund-admission.json" "$admission_status"
+  printf 'Waiting for confirmed refund (up to %ss); payment %s, refund %s…\n' "$TIMEOUT_SECONDS" "$payment_id" "$refund_id"
+  deadline=$((SECONDS + TIMEOUT_SECONDS))
+  next_progress=$SECONDS
+  while :; do
+    api buyer GET "/api/checkouts/$CHECKOUT_ID" "$WORK/refunded-checkout.json" 200
+    refund_state="$(jq -r '.refundState' "$WORK/refunded-checkout.json")"
+    [[ "$refund_state" != REFUNDED ]] || break
+    [[ "$refund_state" = PENDING ]] || fail "Refund ended with state $refund_state"
+    if [[ "$SECONDS" -ge "$next_progress" || "$SECONDS" -ge "$deadline" ]]; then
+      api buyer GET "/api/payments/$payment_id" "$WORK/refund-payment-status.json" 200
+      jq '{id,orderId,status,refundId,refundStatus,reviewRequired,bankOperation,bankOperationId,bankOperationState,sandbox}' \
+        "$WORK/refund-payment-status.json" > "$OUTPUT_DIR/refund-payment-status.json"
+      jq -r '"Payment: \(.status); refund: \(.refundStatus); operation: \(.bankOperationState); review required: \(.reviewRequired)"' \
+        "$OUTPUT_DIR/refund-payment-status.json"
+      next_progress=$((SECONDS + 30))
+    fi
+    [[ "$SECONDS" -lt "$deadline" ]] || fail "Refund remains unresolved. State saved to $OUTPUT_DIR/refund-payment-status.json; inspect payment $payment_id before retrying"
+    sleep 3
+  done
+  jq -e --arg refund "$refund_id" '.status == "CANCELLED" and .refundState == "REFUNDED" and .refundId == $refund and (.tickets | length) == 1 and .tickets[0].status == "REFUNDED"'     "$WORK/refunded-checkout.json" >/dev/null || fail 'Refund did not invalidate the ticket'
+  api buyer GET "/api/payments/$payment_id" "$WORK/refunded-payment.json" 200
+  jq -e --arg refund "$refund_id" '.status == "REFUNDED" and .refundId == $refund and .sandbox == true'     "$WORK/refunded-payment.json" >/dev/null || fail 'Payment does not confirm the sandbox refund'
+  api buyer GET "/api/tickets/$ticket_id/qr" "$WORK/refunded-qr.json" 409
+  api buyer GET "/api/tickets/$ticket_id/pdf" "$OUTPUT_DIR/ticket-$ticket_id-refunded.pdf" 200
+  api organizer POST "/api/events/$EVENT_ID/check-in/tickets/$ticket_code" "$WORK/refunded-admission.json" "$admission_status"
+  api organizer POST "/api/checkouts/$CHECKOUT_ID/refund" "$WORK/completed-refund-replay.json" 200 "$WORK/refund-request.json"
+  [[ "$(jq -er '.refundId' "$WORK/completed-refund-replay.json")" = "$refund_id" ]] || fail 'Completed refund retry changed identity'
+  cp "$WORK/refunded-checkout.json" "$OUTPUT_DIR/refunded-checkout.json"
+  printf 'PASS: refund is confirmed, repeat requests reuse its identity, and the ticket is invalidated\n'
+  printf 'Waiting for the purchaser refund receipt in Mailpit…\n'
+  mail_base="${MAILPIT_URL:-http://localhost:8025}"
+  deadline=$((SECONDS + 60))
+  while :; do
+    mail_status="$(curl --silent --show-error --connect-timeout 5 --max-time 10 --get       --data-urlencode "query=to:$ATTENDEE_EMAIL subject:\"BiletFlow refund confirmed (sandbox)\""       --output "$WORK/refund-email.txt" --write-out '%{http_code}' "${mail_base%/}/view/latest.txt")" || fail 'Cannot reach Mailpit'
+    if [[ "$mail_status" = 200 ]]; then
+      if python3 - "$WORK/refund-email.txt" "$CHECKOUT_ID" "$refund_id" "$WORK/refunded-checkout.json" <<'CHECK_RECEIPT'
+from pathlib import Path
+from decimal import Decimal
+import json, sys
+text=Path(sys.argv[1]).read_text()
+assert sys.argv[2] in text and sys.argv[3] in text, 'Receipt must match this order and refund'
+assert 'No real money' in text, 'Receipt must identify the sandbox'
+checkout=json.loads(Path(sys.argv[4]).read_text())
+amount=Decimal(str(checkout['amountKzt'])).quantize(Decimal('0.01'))
+assert f'Amount: {amount} KZT' in text, 'Receipt must match the full purchase amount'
+CHECK_RECEIPT
+      then
+        cp "$WORK/refund-email.txt" "$OUTPUT_DIR/refund-email.txt"
+        break
+      fi
+    else
+      [[ "$mail_status" = 404 ]] || fail "Mailpit returned HTTP $mail_status"
+    fi
+    [[ "$SECONDS" -lt "$deadline" ]] || fail 'Refund receipt did not arrive within 60s; inspect refund queue and SMTP logs'
+    sleep 2
+  done
+  printf 'PASS: purchaser receipt arrived in Mailpit with matching order and refund references\n'
 fi
 

@@ -27,12 +27,14 @@ public class SmtpEmailSender implements EmailSender {
     public void send(Email email) {
         try {
             var mime = mail.createMimeMessage();
-            var message = new MimeMessageHelper(mime, true, StandardCharsets.UTF_8.name());
+            var message = new MimeMessageHelper(mime, email.attachment() != null, StandardCharsets.UTF_8.name());
             message.setFrom(properties.getMail().getFrom());
             message.setTo(new InternetAddress(email.recipient(), true));
             message.setSubject(email.subject().replaceAll("[\r\n]+", " "));
             message.setText(email.text(), false);
-            message.addAttachment(email.filename(), new ByteArrayResource(email.attachment()), email.attachmentContentType());
+            if (email.attachment() != null) {
+                message.addAttachment(email.filename(), new ByteArrayResource(email.attachment()), email.attachmentContentType());
+            }
             mime.setHeader("Message-ID", "<" + email.id() + "@biletflow.invalid>");
             mail.send(mime);
         } catch (MessagingException failure) {

@@ -7,6 +7,7 @@
 # Options: BASE_URL, MAILPIT_URL, PRICE_KZT (0 or >=10, max 2 decimals),
 # MAIL_TIMEOUT_SECONDS=60, E2E_SCRIPT, OUTPUT_DIR, PAYMENT_PORT, TIMEOUT_SECONDS.
 # CANCEL_EVENT=1 runs cancellation checks after purchase (also works with PRICE_KZT=0).
+# REFUND_ORDER=1 runs the paid refund and receipt checks after purchase.
 # Each run creates two accounts and an UNLISTED published event. Fixtures remain
 # for inspection; no SQL, admin seed account, inbox deletion, or auth bypass.
 set -euo pipefail
@@ -22,6 +23,15 @@ MAILPIT_URL="${MAILPIT_URL:-http://localhost:8025}"
 MAILPIT_URL="${MAILPIT_URL%/}"
 PRICE_KZT="${PRICE_KZT:-1000}"
 MAIL_TIMEOUT_SECONDS="${MAIL_TIMEOUT_SECONDS:-60}"
+REFUND_ORDER="${REFUND_ORDER:-0}"
+[[ "$REFUND_ORDER" = 0 || "$REFUND_ORDER" = 1 ]] || fail 'REFUND_ORDER must be 0 or 1'
+if [[ "$REFUND_ORDER" = 1 ]]; then
+  python3 - "$PRICE_KZT" <<'CHECK_REFUND_PRICE'
+from decimal import Decimal
+import sys
+if Decimal(sys.argv[1]) < 10: raise SystemExit('REFUND_ORDER requires PRICE_KZT >= 10')
+CHECK_REFUND_PRICE
+fi
 [[ "$MAIL_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || fail 'MAIL_TIMEOUT_SECONDS must be positive'
 python3 - "$PRICE_KZT" <<'PY'
 from decimal import Decimal
@@ -152,7 +162,7 @@ print(0 if Decimal(sys.argv[1]) == 0 else 1)
 PY
 )"
 OUTPUT_DIR="${OUTPUT_DIR:-./purchase-e2e-$RUN_ID}"
-export BASE_URL ORGANIZER_JWT BUYER_JWT EVENT_ID TICKET_TYPE_ID ATTENDEE_EMAIL ACTIVATE OUTPUT_DIR
+export BASE_URL ORGANIZER_JWT BUYER_JWT EVENT_ID TICKET_TYPE_ID ATTENDEE_EMAIL ACTIVATE OUTPUT_DIR REFUND_ORDER
 printf '\nStarting purchase checks. Paid mode needs two Halyk sandbox payments: activation fee, then ticket.\n'
 bash "$E2E_SCRIPT"
 printf '\nFixture event: %s\nBuyer email: %s\n' "$EVENT_ID" "$ATTENDEE_EMAIL"

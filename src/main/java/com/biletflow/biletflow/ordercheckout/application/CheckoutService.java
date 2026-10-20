@@ -6,6 +6,8 @@ import com.biletflow.biletflow.common.application.FinancialAudit;
 import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.ordercheckout.application.command.CreateCheckoutCommand;
+import com.biletflow.biletflow.ordercheckout.application.refund.RefundNotice;
+import com.biletflow.biletflow.ordercheckout.application.refund.RefundNoticeStore;
 import com.biletflow.biletflow.ordercheckout.application.view.CheckoutView;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.*;
 import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
@@ -33,6 +35,7 @@ public class CheckoutService {
     private final FinancialAudit audit;
     private final CheckoutFingerprint fingerprints;
     private final Clock clock;
+    private final RefundNoticeStore refundNotices;
 
     public CheckoutService(
         CheckoutSessionRepository checkouts,
@@ -44,7 +47,8 @@ public class CheckoutService {
         TransactionLocks locks,
         FinancialAudit audit,
         CheckoutFingerprint fingerprints,
-        Clock clock
+        Clock clock,
+        RefundNoticeStore refundNotices
     ) {
         this.checkouts = Objects.requireNonNull(checkouts, "checkouts cannot be null");
         this.orders = Objects.requireNonNull(orders, "orders cannot be null");
@@ -56,6 +60,7 @@ public class CheckoutService {
         this.audit = Objects.requireNonNull(audit, "audit cannot be null");
         this.fingerprints = Objects.requireNonNull(fingerprints, "fingerprints cannot be null");
         this.clock = Objects.requireNonNull(clock, "clock cannot be null");
+        this.refundNotices = Objects.requireNonNull(refundNotices);
     }
 
     @Transactional
@@ -264,6 +269,17 @@ public class CheckoutService {
                     checkouts.save(c);
                 }
                 processes.save(p.refund(CheckoutRefundStatus.REFUNDED, outcome.refundId()));
+                refundNotices.enqueue(
+                    new RefundNotice(
+                        Objects.requireNonNull(outcome.refundId(), "Confirmed refund requires its reference"),
+                        p.id(),
+                        p.eventId(),
+                        p.ownerId(),
+                        events.ticketDetails(p.eventId(), null).title(),
+                        c.getFinalPrice().amount(),
+                        clock.instant()
+                    )
+                );
                 audit.record("ordercheckout", p.id(), null, "ORDER_REFUND_COMPLETED");
             }
             case "REFUND_FAILED" -> {

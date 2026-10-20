@@ -200,6 +200,15 @@ public class PaymentWork {
         return PaymentStatus.valueOf(isTicket() ? payment.getStatus().name() : activationPayment.getStatus().name());
     }
 
+    public boolean hasDispatchedRefund() {
+        if (operation != PaymentOperation.REFUND || operationId == null || operationAt == null || !isMutationUncertain()) return false;
+        if (!isTicket()) return getStatus() == PaymentStatus.REFUND_REQUESTED;
+        return payment
+            .getRefund()
+            .map(refund -> refund.getStatus() == RefundStatus.REQUESTED && refund.getId().value().equals(operationId))
+            .orElse(false);
+    }
+
     public boolean isMutationUncertain() {
         return operationState == PaymentOperationState.SENT || operationState == PaymentOperationState.UNKNOWN;
     }
@@ -230,7 +239,20 @@ public class PaymentWork {
     }
 
     public long pollDelaySeconds(Instant now) {
-        return reviewRequired ? 300 : now.isAfter(deadline.plusSeconds(86400)) ? 3600 : 15;
+        if (reviewRequired) return 300;
+        if (isMutationUncertain()) {
+            return operationAt != null && now.isAfter(operationAt.plusSeconds(300)) ? 30 : 2;
+        }
+        boolean refundPending = isTicket()
+            ? payment
+                  .getRefund()
+                  .map(refund -> refund.getStatus() == RefundStatus.REQUESTED)
+                  .orElse(false)
+            : getStatus() == PaymentStatus.REFUND_REQUESTED;
+        if (refundPending || (getStatus() == PaymentStatus.PENDING && !abandoned && now.isBefore(deadline))) return 2;
+        if (now.isAfter(deadline.plusSeconds(86400))) return 3600;
+        if (getStatus() != PaymentStatus.PENDING || now.isAfter(deadline.plusSeconds(3600))) return 300;
+        return 30;
     }
 
     public void resetOperation() {

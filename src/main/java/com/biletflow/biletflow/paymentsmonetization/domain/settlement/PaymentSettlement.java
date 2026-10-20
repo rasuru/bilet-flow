@@ -166,6 +166,16 @@ public final class PaymentSettlement {
             return null;
         }
         w.recordVerifiedTransaction(o.transactionId());
+        if (o.contradictsFullRefundOf(w.getAmount())) {
+            review(w, "BANK_REFUND_AMOUNT_CONFLICT");
+            return null;
+        }
+        boolean verifiedFullRefund = o.provesFullRefundOf(w.getAmount()) && w.hasDispatchedRefund();
+        if (verifiedFullRefund) {
+            // Complete only after identity and money checks above; never dispatch another mutation to recover.
+            if (w.isReviewRequired()) w.clearReview();
+            effects.audit.add("FULL_REFUND_VERIFIED_FROM_PROVIDER_TOTALS");
+        }
         if (w.isReviewRequired()) {
             return null;
         }
@@ -211,9 +221,11 @@ public final class PaymentSettlement {
             }
             case REFUNDED -> {
                 if (
-                    w.getStatus() != PaymentStatus.REFUNDED && (w.getOperation() != PaymentOperation.REFUND || !w.isOperationAcknowledged())
+                    w.getStatus() != PaymentStatus.REFUNDED &&
+                    !verifiedFullRefund &&
+                    (w.getOperation() != PaymentOperation.REFUND || !w.isOperationAcknowledged())
                 ) {
-                    // REFUND may include an external partial refund. Only our acknowledged full-refund request proves its scope.
+                    // Status alone cannot prove scope. Accept an acknowledged full request or verified full provider totals.
                     review(w, "BANK_REFUND_REQUIRES_FULL_AMOUNT_CONFIRMATION");
                     return null;
                 }

@@ -37,8 +37,8 @@ public class PaymentReconciler {
         this.tx = Objects.requireNonNull(tx, "tx cannot be null");
     }
 
-    public void poll() {
-        for (UUID id : works.due(clock.instant())) reconcile(id);
+    private static String diagnostic(Exception failure) {
+        return failure instanceof PaymentProviderUnavailableException provider ? provider.diagnostic() : failure.getClass().getSimpleName();
     }
 
     public void reconcile(UUID id) {
@@ -51,20 +51,28 @@ public class PaymentReconciler {
                 // Domain dispatch intent has committed. An ambiguous send is never automatically repeated.
                 try {
                     bank.mutate(command.transactionId(), command.operation(), command.operationId().toString());
-                    tx.run(() -> {
-                        locks.lock("payment:" + id);
-                        var latest = works.find(id).orElseThrow();
-                        latest.acknowledge(command.operationId(), command.operation());
-                        works.save(latest);
-                    });
                 } catch (Exception unknown) {
-                    LOG.warn("Bank mutation outcome requires reconciliation for payment {}", id);
+                    LOG.warn(
+                        "Bank mutation outcome requires reconciliation for payment {} (operation={}, failure={})",
+                        id,
+                        command.operation(),
+                        diagnostic(unknown)
+                    );
+                    return;
                 }
+                tx.run(() -> {
+                    locks.lock("payment:" + id);
+                    var latest = works.find(id).orElseThrow();
+                    latest.acknowledge(command.operationId(), command.operation());
+                    works.save(latest);
+                });
             }
         } catch (Exception failure) {
-            LOG.warn("Payment {} reconciliation deferred ({})", id, failure.getClass().getSimpleName());
+            LOG.warn("Payment {} reconciliation deferred ({})", id, diagnostic(failure));
         } finally {
             tx.run(() -> {
+                // Serialize rescheduling with commands/callbacks so a new wake-up cannot be overwritten.
+                locks.lock("payment:" + id);
                 var work = works.find(id).orElseThrow();
                 works.schedule(id, clock.instant().plusSeconds(work.pollDelaySeconds(clock.instant())));
             });

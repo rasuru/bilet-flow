@@ -3,6 +3,7 @@ package com.biletflow.biletflow.paymentsmonetization.application;
 import com.biletflow.biletflow.common.application.AuthorizationException;
 import com.biletflow.biletflow.common.application.CallbackSecrets;
 import com.biletflow.biletflow.common.application.FinancialAudit;
+import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.paymentsmonetization.application.command.ResolvePaymentOperationCommand;
 import java.time.Clock;
 import java.util.Objects;
@@ -20,6 +21,7 @@ public class PaymentAccessService {
     private final PaymentTransitions transitions;
     private final FinancialAudit audit;
     private final Clock clock;
+    private final TransactionLocks locks;
 
     public PaymentAccessService(
         PaymentWorkRepository works,
@@ -27,7 +29,8 @@ public class PaymentAccessService {
         CallbackSecrets secrets,
         PaymentTransitions transitions,
         FinancialAudit audit,
-        Clock clock
+        Clock clock,
+        TransactionLocks locks
     ) {
         this.works = Objects.requireNonNull(works, "works cannot be null");
         this.secrets = Objects.requireNonNull(secrets, "secrets cannot be null");
@@ -35,6 +38,7 @@ public class PaymentAccessService {
         this.transitions = Objects.requireNonNull(transitions, "transitions cannot be null");
         this.audit = Objects.requireNonNull(audit, "audit cannot be null");
         this.clock = Objects.requireNonNull(clock, "clock cannot be null");
+        this.locks = Objects.requireNonNull(locks);
     }
 
     public void callback(String invoice, String secret) {
@@ -42,6 +46,7 @@ public class PaymentAccessService {
         var work = works.findInvoice(invoice).orElseThrow(PaymentAccessService::denied);
         if (!secrets.matches(work.getCallbackSecret(), secret)) throw denied();
         // Authentication grants permission to request reconciliation, never to change financial state.
+        locks.lock("payment:" + work.getId());
         works.wake(work.getId(), clock.instant());
     }
 

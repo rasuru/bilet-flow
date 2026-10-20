@@ -108,4 +108,116 @@ class PaymentSettlementTest {
         assertThrows(UnsupportedOperationException.class, () -> effects.getOutcomes().clear());
         assertThrows(UnsupportedOperationException.class, () -> effects.getAudit().clear());
     }
+
+    private SettlementEvidence refundEvidence(PaymentWork work, BigDecimal original, BigDecimal refunded, boolean merchant) {
+        return new SettlementEvidence(
+            work.getInvoiceId(),
+            "verified",
+            BigDecimal.ZERO,
+            "KZT",
+            merchant,
+            SettlementStatus.REFUNDED,
+            work.getId().toString(),
+            original,
+            refunded
+        );
+    }
+
+    private PaymentWork dispatchedRefund() {
+        var work = work();
+        work.getPayment().reconcileCharge("verified", now);
+        work.recordVerifiedTransaction("verified");
+        work.requestTicketRefund("Full refund", now);
+        work.recordDispatch(PaymentOperation.REFUND, now);
+        return work;
+    }
+
+    @Test
+    void laterVerifiedFullRefundClearsScopeReviewWithoutRequiringHttpAcknowledgement() {
+        var work = dispatchedRefund();
+        PaymentSettlement.settle(work, refundEvidence(work, null, null, true), context(), now);
+        assertTrue(work.isReviewRequired());
+        var effects = PaymentSettlement.settle(
+            work,
+            refundEvidence(work, work.getAmount(), work.getAmount(), true),
+            context(),
+            now.plusSeconds(1)
+        );
+        assertEquals(PaymentStatus.REFUNDED, work.getStatus());
+        assertEquals(PaymentOperationState.CONFIRMED, work.getOperationState());
+        assertFalse(work.isReviewRequired());
+        assertFalse(work.isOperationAcknowledged());
+        assertNull(effects.getDispatch());
+        assertEquals(1, effects.getOutcomes().size());
+        var replay = PaymentSettlement.settle(
+            work,
+            refundEvidence(work, work.getAmount(), work.getAmount(), true),
+            context(),
+            now.plusSeconds(2)
+        );
+        assertTrue(replay.getOutcomes().isEmpty());
+        assertNull(replay.getRefundId());
+    }
+
+    @Test
+    void partialRefundOverridesAnAcknowledgedFullRequestAndDoesNotBookFullRevenueReversal() {
+        var work = dispatchedRefund();
+        work.acknowledge(work.getOperationId(), PaymentOperation.REFUND);
+        var effects = PaymentSettlement.settle(work, refundEvidence(work, work.getAmount(), BigDecimal.TEN, true), context(), now);
+        assertTrue(work.isReviewRequired());
+        assertEquals(RefundStatus.REQUESTED, work.getPayment().getRefund().orElseThrow().getStatus());
+        assertTrue(effects.getOutcomes().isEmpty());
+        assertNull(effects.getRefundId());
+        assertNull(effects.getDispatch());
+    }
+
+    @Test
+    void fullRefundTotalsCannotBypassMerchantOrOriginalAmountChecks() {
+        for (boolean correctMerchant : new boolean[] { false, true }) {
+            var work = dispatchedRefund();
+            work.requireReview();
+            var original = correctMerchant ? work.getAmount().add(BigDecimal.ONE) : work.getAmount();
+            var effects = PaymentSettlement.settle(work, refundEvidence(work, original, work.getAmount(), correctMerchant), context(), now);
+            assertTrue(work.isReviewRequired());
+            assertEquals(RefundStatus.REQUESTED, work.getPayment().getRefund().orElseThrow().getStatus());
+            assertTrue(effects.getOutcomes().isEmpty());
+        }
+    }
+
+    @Test
+    void fullTotalsForAnUnrequestedExternalRefundStillRequireReview() {
+        var work = work();
+        work.getPayment().reconcileCharge("verified", now);
+        work.recordVerifiedTransaction("verified");
+        var effects = PaymentSettlement.settle(work, refundEvidence(work, work.getAmount(), work.getAmount(), true), context(), now);
+        assertTrue(work.isReviewRequired());
+        assertTrue(work.getPayment().getRefund().isEmpty());
+        assertTrue(effects.getOutcomes().isEmpty());
+        assertNull(effects.getDispatch());
+    }
+
+    @Test
+    void interactivePaymentsAndRefundsStayFastWhileHistoricalReconciliationBacksOff() {
+        var work = work();
+        assertEquals(2, work.pollDelaySeconds(now));
+        work.getPayment().reconcileCharge("verified", now);
+        assertEquals(300, work.pollDelaySeconds(now));
+        assertEquals(3600, work.pollDelaySeconds(now.plusSeconds(90000)));
+        work.requestTicketRefund("Full refund", now);
+        assertEquals(2, work.pollDelaySeconds(now.plusSeconds(1000)));
+        work.recordDispatch(PaymentOperation.REFUND, now);
+        assertEquals(2, work.pollDelaySeconds(now.plusSeconds(10)));
+        assertEquals(30, work.pollDelaySeconds(now.plusSeconds(301)));
+        work.requireReview();
+        assertEquals(300, work.pollDelaySeconds(now.plusSeconds(301)));
+    }
+
+    @Test
+    void abandonedOrExpiredUnpaidCheckoutsRemainMonitoredWithoutBusyPolling() {
+        var work = work();
+        work.abandon();
+        assertEquals(30, work.pollDelaySeconds(now));
+        assertEquals(300, work.pollDelaySeconds(now.plusSeconds(4000)));
+        assertEquals(3600, work.pollDelaySeconds(now.plusSeconds(90000)));
+    }
 }

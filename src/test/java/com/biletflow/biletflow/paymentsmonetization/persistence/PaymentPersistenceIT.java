@@ -131,6 +131,40 @@ class PaymentPersistenceIT {
     }
 
     @Test
+    void activeCheckoutAndNewRefundTakePriorityOverOlderCompletedPayments() {
+        tx().executeWithoutResult(status -> {
+            var pending = work();
+            var completed = work();
+            var refund = work();
+            var leased = work();
+            works.insert(pending);
+            works.insert(completed);
+            works.insert(refund);
+            works.insert(leased);
+            var now = Instant.now();
+            completed.getPayment().succeed("old-payment", now);
+            works.save(completed);
+            refund.getPayment().succeed("refund-payment", now);
+            refund.requestTicketRefund("Full refund", now);
+            works.save(refund);
+            works.schedule(completed.getId(), now.minusSeconds(100));
+            works.schedule(pending.getId(), now.minusSeconds(1));
+            works.schedule(refund.getId(), now.minusSeconds(2));
+            works.schedule(leased.getId(), now.minusSeconds(3));
+            assertTrue(works.lease(leased.getId(), now, now.plusSeconds(90)));
+            var due = works.due(now);
+            assertTrue(due.indexOf(refund.getId()) >= 0);
+            assertTrue(due.indexOf(pending.getId()) >= 0);
+            assertTrue(due.indexOf(completed.getId()) > due.indexOf(pending.getId()));
+            assertTrue(due.indexOf(completed.getId()) > due.indexOf(refund.getId()));
+            assertFalse(due.contains(leased.getId()));
+            works.schedule(pending.getId(), now.plusSeconds(30));
+            assertFalse(works.lease(pending.getId(), now, now.plusSeconds(90)), "A stale candidate cannot bypass its new poll time");
+            status.setRollbackOnly();
+        });
+    }
+
+    @Test
     void onlyOneWorkerAcquiresAReconciliationLease() throws Exception {
         var w = work();
         tx().executeWithoutResult(s -> works.insert(w));

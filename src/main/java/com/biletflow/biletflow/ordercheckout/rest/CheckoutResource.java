@@ -132,7 +132,7 @@ public class CheckoutResource {
     @PostMapping("/{id}/refund")
     @Operation(
         summary = "Request a full organizer refund",
-        description = "Only unused tickets are eligible. Free orders are cancelled locally. Admission is blocked while a paid refund is pending; poll checkout status for completion."
+        description = "Only unused tickets are eligible. Free orders are cancelled locally. Admission is blocked while a paid refund is pending. HTTP 200 acknowledges the request; poll refundState for REFUNDED or FAILED. A confirmed refund cancels the order and invalidates its tickets. A sandbox receipt is emailed asynchronously to the purchaser's verified email. Repeated pending or completed requests return the same refund."
     )
     @ApiResponse(
         responseCode = "200",
