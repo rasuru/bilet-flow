@@ -4,6 +4,7 @@ import com.biletflow.biletflow.common.application.AuthorizationException;
 import com.biletflow.biletflow.common.application.EntityNotFoundException;
 import com.biletflow.biletflow.common.security.UnauthenticatedActorException;
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentProviderUnavailableException;
+import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.PaymentsDomainException;
 import jakarta.validation.ConstraintViolationException;
 import java.net.URI;
 import org.springframework.core.Ordered;
@@ -45,8 +46,8 @@ public class PaymentExceptionAdvice {
         return problem(HttpStatus.BAD_REQUEST, "Invalid request", messageFor(exception));
     }
 
-    @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<ProblemDetail> handleConflict(IllegalStateException exception) {
+    @ExceptionHandler({ IllegalStateException.class, PaymentsDomainException.class })
+    public ResponseEntity<ProblemDetail> handleConflict(RuntimeException exception) {
         return problem(HttpStatus.CONFLICT, "Operation rejected", exception.getMessage());
     }
 

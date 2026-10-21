@@ -84,6 +84,7 @@ public class PaymentTransitions {
     }
 
     private void persist(PaymentWork work, ActivationRepository.Activation activation, PaymentSettlement.Effects effects) {
+        if (work.isTicket()) locks.lock("organizer-funds:" + work.getOrganizerId());
         if (effects.isCharge()) ledger.charge(work);
         if (effects.getRefundId() != null) ledger.refund(work, effects.getRefundId());
         for (var outcome : effects.getOutcomes())

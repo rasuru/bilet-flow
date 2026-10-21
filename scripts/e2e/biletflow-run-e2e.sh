@@ -8,6 +8,7 @@
 # MAIL_TIMEOUT_SECONDS=60, E2E_SCRIPT, OUTPUT_DIR, PAYMENT_PORT, TIMEOUT_SECONDS.
 # CANCEL_EVENT=1 runs cancellation checks after purchase (also works with PRICE_KZT=0).
 # REFUND_ORDER=1 runs the paid refund and receipt checks after purchase.
+# PAYOUT=1 runs organizer payout simulation and receipt checks before an optional refund.
 # Each run creates two accounts and an UNLISTED published event. Fixtures remain
 # for inspection; no SQL, admin seed account, inbox deletion, or auth bypass.
 set -euo pipefail
@@ -24,6 +25,8 @@ MAILPIT_URL="${MAILPIT_URL%/}"
 PRICE_KZT="${PRICE_KZT:-1000}"
 MAIL_TIMEOUT_SECONDS="${MAIL_TIMEOUT_SECONDS:-60}"
 REFUND_ORDER="${REFUND_ORDER:-0}"
+PAYOUT="${PAYOUT:-0}"
+[[ "$PAYOUT" = 0 || "$PAYOUT" = 1 ]] || fail 'PAYOUT must be 0 or 1'
 [[ "$REFUND_ORDER" = 0 || "$REFUND_ORDER" = 1 ]] || fail 'REFUND_ORDER must be 0 or 1'
 if [[ "$REFUND_ORDER" = 1 ]]; then
   python3 - "$PRICE_KZT" <<'CHECK_REFUND_PRICE'
@@ -33,13 +36,14 @@ if Decimal(sys.argv[1]) < 10: raise SystemExit('REFUND_ORDER requires PRICE_KZT 
 CHECK_REFUND_PRICE
 fi
 [[ "$MAIL_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || fail 'MAIL_TIMEOUT_SECONDS must be positive'
-python3 - "$PRICE_KZT" <<'PY'
+python3 - "$PRICE_KZT" "$PAYOUT" <<'PY'
 from decimal import Decimal
 import re, sys
 s=sys.argv[1]
 if not re.fullmatch(r'\d+(?:\.\d{1,2})?',s): raise SystemExit('PRICE_KZT must be a nonnegative amount with at most 2 decimals')
 p=Decimal(s)
 if p != 0 and p < 10: raise SystemExit('Paid checkout must be at least 10 KZT')
+if p == 0 and sys.argv[2] == '1': raise SystemExit('PAYOUT requires a paid ticket')
 PY
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -155,14 +159,14 @@ TICKET_TYPE_ID="$(jq -er '.id' "$WORK/ticket-response.json")"
 request organizer POST "/api/events/$EVENT_ID/publish" "$WORK/publish-response.json" 204
 printf 'PASS: published event %s with ticket type %s (%s KZT)\n' "$EVENT_ID" "$TICKET_TYPE_ID" "$PRICE_KZT"
 
-ACTIVATE="$(python3 - "$PRICE_KZT" <<'PY'
+ACTIVATE="$(python3 - "$PRICE_KZT" "$PAYOUT" <<'PY'
 from decimal import Decimal
 import sys
 print(0 if Decimal(sys.argv[1]) == 0 else 1)
 PY
 )"
 OUTPUT_DIR="${OUTPUT_DIR:-./purchase-e2e-$RUN_ID}"
-export BASE_URL ORGANIZER_JWT BUYER_JWT EVENT_ID TICKET_TYPE_ID ATTENDEE_EMAIL ACTIVATE OUTPUT_DIR REFUND_ORDER
+export BASE_URL ORGANIZER_JWT BUYER_JWT EVENT_ID TICKET_TYPE_ID ATTENDEE_EMAIL ACTIVATE OUTPUT_DIR REFUND_ORDER PAYOUT
 printf '\nStarting purchase checks. Paid mode needs two Halyk sandbox payments: activation fee, then ticket.\n'
 bash "$E2E_SCRIPT"
 printf '\nFixture event: %s\nBuyer email: %s\n' "$EVENT_ID" "$ATTENDEE_EMAIL"

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="20261020190000-1" author="biletflow">
+        <createTable tableName="pm_payout">
+            <column name="id" type="uuid"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="organizer_id" type="bigint"><constraints nullable="false"/></column>
+            <column name="amount_kzt" type="decimal(19,2)"><constraints nullable="false"/></column>
+            <column name="requested_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="status" type="varchar(20)"><constraints nullable="false"/></column>
+            <column name="provider_reference" type="varchar(100)"/>
+            <column name="failure_reason" type="varchar(200)"/>
+            <column name="completed_at" type="timestamp with time zone"/>
+            <column name="notice_next_attempt_at" type="timestamp with time zone"/>
+            <column name="notice_attempts" type="int" defaultValueNumeric="0"><constraints nullable="false"/></column>
+            <column name="notice_token" type="uuid"/>
+            <column name="notice_lease_until" type="timestamp with time zone"/>
+            <column name="notice_sent_at" type="timestamp with time zone"/>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+        <createIndex tableName="pm_payout" indexName="idx_pm_payout_organizer"><column name="organizer_id"/><column name="requested_at"/></createIndex>
+        <createIndex tableName="pm_payout" indexName="idx_pm_payout_pending"><column name="status"/><column name="requested_at"/></createIndex>
+        <createIndex tableName="pm_payout" indexName="idx_pm_payout_notice"><column name="notice_sent_at"/><column name="notice_next_attempt_at"/></createIndex>
+    </changeSet>
+</databaseChangeLog>
+

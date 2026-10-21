@@ -227,3 +227,30 @@ Completed payments normally move to five-minute checks and hourly checks after a
 The adapter caches only server-side merchant tokens, refreshes them 30 seconds before their reported expiry, and invalidates them after HTTP 401. Hosted form tokens remain separately scoped to each payment. Tokens without an expiry are not cached. Authentication failure does not automatically repeat a bank mutation.
 
 Configure `biletflow.payments.poll-delay-ms` (default `1000`), `biletflow.payments.poll-workers` (default `4`), and `biletflow.payments.poll-enabled` (default `true`). Automated persistence tests disable scheduling and drive reconciliation directly. Halyk processing and network latency still determine when confirmed funds become visible; a browser success page never activates paid sales or issues tickets on its own. On localhost, provider callbacks generally cannot reach the backend, making the polling fallback the expected confirmation path.
+
+
+## Simulated organizer payouts
+
+Organizer payouts are internal simulations, independent of Halyk payment/refund processing. No bank payout endpoint is called and no bank account details are collected. Every payout and balance response contains `simulated: true`; completion references start with `SIM-`. The existing revenue endpoint remains an accounting summary, not the amount available to withdraw.
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/api/payments/payouts/balance` | Current organizer's available, withheld, pending, paid-out and deficit amounts in KZT |
+| POST | `/api/payments/payouts` | Reserve a positive amount using `{requestId, amountKzt, acceptSimulation: true}` |
+| GET | `/api/payments/payouts?offset=0&limit=50` | Current organizer's history, newest first; maximum limit 100 |
+| GET | `/api/payments/payouts/{id}` | Read a payout owned by the authenticated organizer |
+
+The client generates a UUID `requestId`, which is also the payout ID. Repeating the same ID and amount returns the original request in any state. Reusing the ID for a different amount returns 409; another organizer cannot read or reuse it. Failed payouts require a new ID for a new attempt. Submission returns 200 for either a new request or its replay; `REQUESTED` means reserved, not completed.
+
+`OrganizerBalance` reconstructs payable funds from the immutable payment ledger and persisted payout records: confirmed ticket charges minus estimated processing fees, full confirmed refunds, requested payouts, and completed payouts. Historical ledger entries count immediately without a balance backfill. Activation fees do not fund organizer payouts. Failed payouts stop reserving funds. Processing fees remain deducted after a full refund, consistent with the existing ledger.
+
+Any ticket payment requiring review, unknown bank operation, or unresolved refund blocks new payouts for that organizer. The balance shows the otherwise available funds as `withheldKzt` and sets `reconciliationPending: true`. New requests return 409 until reconciliation resolves the hold. Before completing a requested simulation, processing rechecks the financial state; a new hold or deficit fails that payout and releases its reservation. Payouts otherwise become eligible immediately after verified ticket settlement; this academic simulation does not implement event-end settlement delays, real KYC, or banking rules.
+
+Payout requests, processing, ledger entries, and refund requests serialize through the same organizer-funds transaction lock. The request ID also has its own transaction lock. Requests cannot overspend the same balance concurrently, and repeated processing cannot complete a payout twice. If a refund completes after a payout, the customer refund remains allowed; the resulting organizer deficit reduces future available earnings. Audit records and the payout status commit atomically.
+
+Payout completion or failure also queues its email notice atomically in `pm_payout`. A separate worker resolves the organizer's current verified email through IAM OHS and sends outside the financial transaction. Missing verified email or SMTP failure retries after 30 seconds with exponential backoff capped at one hour. Claims have 120-second leases and tokens to reject stale acknowledgements. Delivery is at least once; the payout ID supplies a stable Message-ID. Email failure cannot reverse a payout or reserve funds again.
+
+Payout processing defaults to every second (`biletflow.payments.payout-delay-ms`), controlled by `biletflow.payments.payout-enabled`. Internal simulations normally complete successfully; `biletflow.payments.payout-simulate-failure=true` produces failed outcomes for development checks. This setting is server-controlled and is not a request parameter. Email scheduling defaults to five seconds, controlled by `biletflow.payments.payout-mail-enabled` and `biletflow.payments.payout-mail-delay-ms`. Both schedulers are disabled in automated persistence tests.
+
+`PAYOUT=1 bash scripts/e2e/biletflow-run-e2e.sh` creates fresh fixtures, buys a ticket through Halyk sandbox, requests the organizer's available simulated payout, checks replay/conflict/privacy behavior, verifies the balance and history, and checks its receipt in Mailpit. Combine `PAYOUT=1 REFUND_ORDER=1` to also verify that a subsequent full refund invalidates the ticket and creates an organizer deficit that blocks another payout. These options require a paid ticket and the development Mailpit service.
+

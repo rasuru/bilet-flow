@@ -3,167 +3,54 @@ package com.biletflow.biletflow.paymentsmonetization.domain.revenue;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.biletflow.biletflow.common.domain.Money;
-import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.InsufficientBalanceException;
-import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.InvalidPayoutStateException;
+import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.*;
+import java.math.BigDecimal;
+import java.util.Currency;
 import org.junit.jupiter.api.Test;
 
 class OrganizerBalanceTest {
 
-    private static final Long ORGANIZER_ID = 7L;
-
-    @Test
-    void aNewBalanceIsEmpty() {
-        OrganizerBalance balance = OrganizerBalance.open(ORGANIZER_ID, Money.KZT);
-
-        assertEquals(ORGANIZER_ID, balance.getOrganizerId());
-        assertTrue(balance.getAvailable().isZero());
-        assertTrue(balance.getPendingPayout().isZero());
-        assertTrue(balance.getPaidOut().isZero());
-        assertFalse(balance.hasDebt());
+    private OrganizerBalance balance(String net, long pending, long paid, boolean blocked) {
+        return OrganizerBalance.fromRevenue(7, new BigDecimal(net), Money.kzt(pending), Money.kzt(paid), blocked);
     }
 
     @Test
-    void creditIncreasesAvailable() {
-        OrganizerBalance balance = OrganizerBalance.open(ORGANIZER_ID, Money.KZT);
-
-        balance.credit(Money.kzt(10000));
-        balance.credit(Money.kzt(5000));
-
-        assertEquals(Money.kzt(15000), balance.getAvailable());
+    void onlyRevenueNotAlreadyReservedOrPaidCanBeRequested() {
+        var balance = balance("970", 200, 500, false);
+        assertEquals(Money.kzt(270), balance.getAvailable());
+        assertDoesNotThrow(() -> balance.requirePayoutAmount(Money.kzt(270)));
+        assertThrows(InsufficientBalanceException.class, () -> balance.requirePayoutAmount(Money.kzt(271)));
     }
 
     @Test
-    void debitDecreasesAvailable() {
-        OrganizerBalance balance = balanceWith(Money.kzt(10000));
-
-        balance.debit(Money.kzt(4000));
-
-        assertEquals(Money.kzt(6000), balance.getAvailable());
-        assertFalse(balance.hasDebt());
-    }
-
-    @Test
-    void zeroAmountsAreRejected() {
-        OrganizerBalance balance = balanceWith(Money.kzt(10000));
-
-        assertThrows(InvalidPayoutStateException.class, () -> balance.credit(Money.zeroKzt()));
-        assertThrows(InvalidPayoutStateException.class, () -> balance.debit(Money.zeroKzt()));
-        assertThrows(InvalidPayoutStateException.class, () -> balance.reserveForPayout(Money.zeroKzt()));
-    }
-
-    @Test
-    void reservingForPayoutMovesMoneyToPending() {
-        OrganizerBalance balance = balanceWith(Money.kzt(10000));
-
-        balance.reserveForPayout(Money.kzt(8000));
-
-        assertEquals(Money.kzt(2000), balance.getAvailable());
-        assertEquals(Money.kzt(8000), balance.getPendingPayout());
-    }
-
-    @Test
-    void aPayoutCannotExceedTheAvailableBalance() {
-        OrganizerBalance balance = balanceWith(Money.kzt(10000));
-
-        assertThrows(InsufficientBalanceException.class, () -> balance.reserveForPayout(Money.kzt(10001)));
-        assertEquals(Money.kzt(10000), balance.getAvailable());
-        assertTrue(balance.getPendingPayout().isZero());
-    }
-
-    @Test
-    void settlingAPayoutMovesPendingToPaidOut() {
-        OrganizerBalance balance = balanceWith(Money.kzt(10000));
-        balance.reserveForPayout(Money.kzt(8000));
-
-        balance.settlePayout(Money.kzt(8000));
-
-        assertTrue(balance.getPendingPayout().isZero());
-        assertEquals(Money.kzt(8000), balance.getPaidOut());
-        assertEquals(Money.kzt(2000), balance.getAvailable());
-    }
-
-    @Test
-    void aFailedPayoutReturnsMoneyToAvailable() {
-        OrganizerBalance balance = balanceWith(Money.kzt(10000));
-        balance.reserveForPayout(Money.kzt(8000));
-
-        balance.releasePayout(Money.kzt(8000));
-
-        assertTrue(balance.getPendingPayout().isZero());
-        assertEquals(Money.kzt(10000), balance.getAvailable());
-        assertTrue(balance.getPaidOut().isZero());
-    }
-
-    @Test
-    void settlingOrReleasingMoreThanPendingIsRejected() {
-        OrganizerBalance balance = balanceWith(Money.kzt(10000));
-        balance.reserveForPayout(Money.kzt(3000));
-
-        assertThrows(InvalidPayoutStateException.class, () -> balance.settlePayout(Money.kzt(3001)));
-        assertThrows(InvalidPayoutStateException.class, () -> balance.releasePayout(Money.kzt(3001)));
-    }
-
-    @Test
-    void aRefundAfterPayoutCreatesADebt() {
-        OrganizerBalance balance = balanceWith(Money.kzt(10000));
-        balance.reserveForPayout(Money.kzt(10000));
-        balance.settlePayout(Money.kzt(10000));
-
-        balance.debit(Money.kzt(4000));
-
-        assertTrue(balance.getAvailable().isZero());
-        assertEquals(Money.kzt(4000), balance.getDebt());
-        assertTrue(balance.hasDebt());
-    }
-
-    @Test
-    void noPayoutIsPossibleWhileADebtExists() {
-        OrganizerBalance balance = balanceWithDebt(Money.kzt(4000));
-
-        assertThrows(InsufficientBalanceException.class, () -> balance.reserveForPayout(Money.kzt(1)));
-    }
-
-    @Test
-    void aSmallCreditOnlyReducesTheDebt() {
-        OrganizerBalance balance = balanceWithDebt(Money.kzt(4000));
-
-        balance.credit(Money.kzt(3000));
-
+    void aRefundAfterPayoutCreatesADeficitRatherThanNegativeMoney() {
+        var balance = balance("-30", 0, 970, false);
+        assertEquals(Money.zeroKzt(), balance.getAvailable());
         assertEquals(Money.kzt(1000), balance.getDebt());
-        assertTrue(balance.getAvailable().isZero());
+        assertTrue(balance.hasDebt());
+        assertThrows(InsufficientBalanceException.class, () -> balance.requirePayoutAmount(Money.kzt(1)));
     }
 
     @Test
-    void aLargeCreditPaysTheDebtFirstThenIncreasesAvailable() {
-        OrganizerBalance balance = balanceWithDebt(Money.kzt(4000));
-
-        balance.credit(Money.kzt(10000));
-
-        assertFalse(balance.hasDebt());
-        assertEquals(Money.kzt(6000), balance.getAvailable());
+    void laterRevenueCoversTheDeficitBeforeAnotherPayoutIsAllowed() {
+        assertEquals(Money.kzt(470), balance("500", 0, 970, false).getDebt());
+        var recovered = balance("1200", 0, 970, false);
+        assertFalse(recovered.hasDebt());
+        assertEquals(Money.kzt(230), recovered.getAvailable());
+        assertDoesNotThrow(() -> recovered.requirePayoutAmount(Money.kzt(230)));
     }
 
     @Test
-    void aReleasedPayoutPaysADebtCreatedInTheMeantime() {
-        OrganizerBalance balance = balanceWith(Money.kzt(10000));
-        balance.reserveForPayout(Money.kzt(10000));
-        balance.debit(Money.kzt(3000));
-
-        balance.releasePayout(Money.kzt(10000));
-
+    void unresolvedFinancialStateBlocksEvenASufficientBalance() {
+        var balance = balance("970", 0, 0, true);
+        assertThrows(InvalidPayoutStateException.class, () -> balance.requirePayoutAmount(Money.kzt(1)));
         assertFalse(balance.hasDebt());
-        assertEquals(Money.kzt(7000), balance.getAvailable());
     }
 
-    private static OrganizerBalance balanceWith(Money available) {
-        OrganizerBalance balance = OrganizerBalance.open(ORGANIZER_ID, Money.KZT);
-        balance.credit(available);
-        return balance;
-    }
-
-    private static OrganizerBalance balanceWithDebt(Money debt) {
-        OrganizerBalance balance = OrganizerBalance.open(ORGANIZER_ID, Money.KZT);
-        balance.debit(debt);
-        return balance;
+    @Test
+    void zeroAmountsAndForeignCurrenciesCannotBePaidOut() {
+        var balance = balance("970", 0, 0, false);
+        assertThrows(InvalidPayoutStateException.class, () -> balance.requirePayoutAmount(Money.zeroKzt()));
+        assertThrows(IllegalArgumentException.class, () -> balance.requirePayoutAmount(Money.of(1, Currency.getInstance("USD"))));
     }
 }

@@ -17,6 +17,8 @@
 # Each run creates a new purchase. The script tests retries within that purchase.
 # CANCEL_EVENT=1 additionally cancels the fixture event and checks admission/email.
 # REFUND_ORDER=1 requests a full paid refund and checks invalidation and its receipt.
+# PAYOUT=1 requests the organizer's available simulated balance and checks its receipt.
+# Combine PAYOUT=1 REFUND_ORDER=1 to verify refund-after-payout deficit handling.
 # Otherwise leaves the ticket valid unless CANCEL_EVENT=1.
 set -euo pipefail
 umask 077
@@ -31,11 +33,13 @@ BASE_URL="${BASE_URL%/}"
 ACTIVATE="${ACTIVATE:-0}"
 CANCEL_EVENT="${CANCEL_EVENT:-0}"
 REFUND_ORDER="${REFUND_ORDER:-0}"
+PAYOUT="${PAYOUT:-0}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-480}"
 PAYMENT_PORT="${PAYMENT_PORT:-9090}"
 [[ "$ACTIVATE" = 0 || "$ACTIVATE" = 1 ]] || fail 'ACTIVATE must be 0 or 1'
 [[ "$CANCEL_EVENT" = 0 || "$CANCEL_EVENT" = 1 ]] || fail 'CANCEL_EVENT must be 0 or 1'
 [[ "$REFUND_ORDER" = 0 || "$REFUND_ORDER" = 1 ]] || fail 'REFUND_ORDER must be 0 or 1'
+[[ "$PAYOUT" = 0 || "$PAYOUT" = 1 ]] || fail 'PAYOUT must be 0 or 1'
 [[ "$TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || fail 'TIMEOUT_SECONDS must be positive'
 [[ "$PAYMENT_PORT" =~ ^[0-9]+$ ]] || fail 'PAYMENT_PORT must be numeric'
 python3 - "$EVENT_ID" "$TICKET_TYPE_ID" "$PAYMENT_PORT" <<'PY'
@@ -46,7 +50,7 @@ PY
 if [[ -z "${BUYER_JWT:-}" ]]; then
   read -r -s -p 'Buyer JWT: ' BUYER_JWT; printf '\n'
 fi
-if [[ ( "$ACTIVATE" = 1 || "$CANCEL_EVENT" = 1 || "$REFUND_ORDER" = 1 ) && -z "${ORGANIZER_JWT:-}" ]]; then
+if [[ ( "$ACTIVATE" = 1 || "$CANCEL_EVENT" = 1 || "$REFUND_ORDER" = 1 || "$PAYOUT" = 1 ) && -z "${ORGANIZER_JWT:-}" ]]; then
   read -r -s -p 'Organizer JWT: ' ORGANIZER_JWT; printf '\n'
 fi
 [[ -n "$BUYER_JWT" ]] || fail 'Buyer JWT is empty'
@@ -65,7 +69,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-./purchase-e2e-$CHECKOUT_ID}"
 mkdir -p "$OUTPUT_DIR"
 # Keep bearer credentials out of curl's command-line arguments and output files.
 printf 'Authorization: Bearer %s\n' "$BUYER_JWT" > "$WORK/buyer.headers"
-if [[ "$ACTIVATE" = 1 || "$CANCEL_EVENT" = 1 || "$REFUND_ORDER" = 1 ]]; then
+if [[ "$ACTIVATE" = 1 || "$CANCEL_EVENT" = 1 || "$REFUND_ORDER" = 1 || "$PAYOUT" = 1 ]]; then
   printf 'Authorization: Bearer %s\n' "$ORGANIZER_JWT" > "$WORK/organizer.headers"
 fi
 unset BUYER_JWT ORGANIZER_JWT
@@ -180,6 +184,9 @@ api buyer POST /api/checkouts "$WORK/replay.json" 200 "$WORK/request.json" "$CHE
 [[ "$(jq -c '[.id,.paymentId,.amountKzt]' "$WORK/checkout.json")" = "$(jq -c '[.id,.paymentId,.amountKzt]' "$WORK/replay.json")" ]] || fail 'Checkout retry changed purchase identity/price'
 printf 'PASS: checkout retry reused the same purchase and price\n'
 
+if [[ "$PAYOUT" = 1 ]]; then
+  jq -e '.amountKzt > 0' "$WORK/checkout.json" >/dev/null || fail 'PAYOUT requires a paid ticket'
+fi
 if [[ "$REFUND_ORDER" = 1 ]]; then
   jq -e '.amountKzt >= 10' "$WORK/checkout.json" >/dev/null || fail 'REFUND_ORDER requires a paid ticket of at least 10 KZT'
 fi
@@ -218,6 +225,69 @@ cp "$WORK/checkout.json" "$OUTPUT_DIR/checkout.json"
 printf 'PASS: verified-email claim is repeatable; ticket PDF and QR downloaded\n'
 printf '\nPurchase passed. Ticket: %s\nFiles: %s\n' "$ticket_id" "$OUTPUT_DIR"
 printf 'Automatic email delivery is asynchronous; inspect the attendee inbox (Mailpit in dev).\n'
+if [[ "$PAYOUT" = 1 ]]; then
+  printf '\nTesting the internal organizer payout simulation (no bank transfer)…\n'
+  api organizer GET /api/payments/payouts/balance "$OUTPUT_DIR/payout-balance-before.json" 200
+  jq -e '.simulated == true and .reconciliationPending == false and .availableKzt > 0' "$OUTPUT_DIR/payout-balance-before.json" >/dev/null || fail 'Organizer has no available payout funds'
+  payout_id="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+  jq --arg id "$payout_id" '{requestId:$id,amountKzt:.availableKzt,acceptSimulation:true}' "$OUTPUT_DIR/payout-balance-before.json" > "$WORK/payout-request.json"
+  jq '.acceptSimulation=false' "$WORK/payout-request.json" > "$WORK/payout-no-consent.json"
+  api organizer POST /api/payments/payouts "$WORK/payout-no-consent-response.json" 400 "$WORK/payout-no-consent.json"
+  api organizer POST /api/payments/payouts "$OUTPUT_DIR/payout.json" 200 "$WORK/payout-request.json"
+  api organizer POST /api/payments/payouts "$WORK/payout-replay.json" 200 "$WORK/payout-request.json"
+  [[ "$(jq -er '.id' "$WORK/payout-replay.json")" = "$payout_id" ]] || fail 'Payout retry changed identity'
+  api buyer GET "/api/payments/payouts/$payout_id" "$WORK/private-payout.json" 403
+  jq '.amountKzt += 0.01' "$WORK/payout-request.json" > "$WORK/payout-conflict.json"
+  api organizer POST /api/payments/payouts "$WORK/payout-conflict-response.json" 409 "$WORK/payout-conflict.json"
+  deadline=$((SECONDS + 60))
+  while :; do
+    api organizer GET "/api/payments/payouts/$payout_id" "$OUTPUT_DIR/payout.json" 200
+    payout_state="$(jq -er '.status' "$OUTPUT_DIR/payout.json")"
+    [[ "$payout_state" != COMPLETED ]] || break
+    [[ "$payout_state" = REQUESTED ]] || fail "Simulated payout ended with $payout_state; see $OUTPUT_DIR/payout.json"
+    [[ "$SECONDS" -lt "$deadline" ]] || fail 'Simulated payout did not complete within 60s; inspect payout scheduling'
+    sleep 1
+  done
+  jq -e --arg id "$payout_id" '.id == $id and .simulated == true and .currency == "KZT" and .providerReference == ("SIM-"+$id)' "$OUTPUT_DIR/payout.json" >/dev/null || fail 'Payout lacks explicit simulation identity'
+  api organizer POST /api/payments/payouts "$WORK/completed-payout-replay.json" 200 "$WORK/payout-request.json"
+  jq -e '.status == "COMPLETED"' "$WORK/completed-payout-replay.json" >/dev/null || fail 'Completed payout retry changed status'
+  api organizer GET /api/payments/payouts/balance "$OUTPUT_DIR/payout-balance-after.json" 200
+  python3 - "$OUTPUT_DIR/payout-balance-before.json" "$OUTPUT_DIR/payout-balance-after.json" "$WORK/payout-request.json" <<'CHECK_PAYOUT_BALANCE'
+from decimal import Decimal
+from pathlib import Path
+import json, sys
+before,after,request=[json.loads(Path(p).read_text(),parse_float=Decimal) for p in sys.argv[1:]]
+assert after['availableKzt'] == 0 and after['pendingPayoutKzt'] == before['pendingPayoutKzt']
+assert after['paidOutKzt'] - before['paidOutKzt'] == request['amountKzt']
+CHECK_PAYOUT_BALANCE
+  api organizer GET '/api/payments/payouts?offset=0&limit=100' "$OUTPUT_DIR/payout-history.json" 200
+  jq -e --arg id "$payout_id" '[.[] | select(.id == $id)] | length == 1' "$OUTPUT_DIR/payout-history.json" >/dev/null || fail 'History must contain exactly one payout'
+  api organizer GET /api/account "$WORK/organizer-account.json" 200
+  organizer_email="$(jq -er '.email' "$WORK/organizer-account.json")"
+  printf 'Waiting for the organizer payout receipt in Mailpit…\n'
+  mail_base="${MAILPIT_URL:-http://localhost:8025}"
+  deadline=$((SECONDS + 60))
+  while :; do
+    mail_status="$(curl --silent --show-error --connect-timeout 5 --max-time 10 --get \
+      --data-urlencode "query=to:$organizer_email subject:\"BiletFlow payout completed (simulation)\"" \
+      --output "$WORK/payout-email.txt" --write-out '%{http_code}' "${mail_base%/}/view/latest.txt")" || fail 'Cannot reach Mailpit'
+    if [[ "$mail_status" = 200 ]]; then
+      if python3 - "$WORK/payout-email.txt" "$payout_id" <<'CHECK_PAYOUT_RECEIPT'
+from pathlib import Path
+import sys
+text=Path(sys.argv[1]).read_text()
+assert sys.argv[2] in text and 'No real money moved' in text and 'not a Halyk bank transfer' in text
+CHECK_PAYOUT_RECEIPT
+      then cp "$WORK/payout-email.txt" "$OUTPUT_DIR/payout-email.txt"; break; fi
+    else
+      [[ "$mail_status" = 404 ]] || fail "Mailpit returned HTTP $mail_status"
+    fi
+    [[ "$SECONDS" -lt "$deadline" ]] || fail 'Payout receipt did not arrive within 60s'
+    sleep 2
+  done
+  printf 'PASS: simulated payout completed once, is private, adjusted available funds, and delivered its receipt\n'
+fi
+
 if [[ "$CANCEL_EVENT" = 1 ]]; then
   printf '\nTesting event cancellation…\n'
   api organizer POST "/api/events/$EVENT_ID/cancel" "$WORK/cancel.json" 204
@@ -323,5 +393,14 @@ CHECK_RECEIPT
     sleep 2
   done
   printf 'PASS: purchaser receipt arrived in Mailpit with matching order and refund references\n'
+fi
+
+if [[ "$PAYOUT" = 1 && "$REFUND_ORDER" = 1 ]]; then
+  api organizer GET /api/payments/payouts/balance "$OUTPUT_DIR/payout-balance-after-refund.json" 200
+  jq -e '.availableKzt == 0 and .deficitKzt > 0' "$OUTPUT_DIR/payout-balance-after-refund.json" >/dev/null || fail 'Refund after payout must create a deficit'
+  new_payout_id="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+  jq -n --arg id "$new_payout_id" '{requestId:$id,amountKzt:0.01,acceptSimulation:true}' > "$WORK/payout-deficit-request.json"
+  api organizer POST /api/payments/payouts "$WORK/payout-deficit-response.json" 409 "$WORK/payout-deficit-request.json"
+  printf 'PASS: refund after payout created a deficit and prevents further payouts\n'
 fi
 

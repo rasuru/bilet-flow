@@ -98,3 +98,5 @@ management:
 biletflow:
   payments:
     poll-enabled: false
+    payout-enabled: false
+    payout-mail-enabled: false
