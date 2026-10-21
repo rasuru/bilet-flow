@@ -39,6 +39,8 @@ public class JpaPaymentLedger implements PaymentLedger {
     }
 
     private void post(PaymentWork work, LedgerEntryKind kind, BigDecimal fee) {
+        if (!work.isTicket()) return;
+        locks.lock("organizer-funds:" + work.getOrganizerId());
         locks.lock("ledger:" + work.getId());
         String key = work.getId() + ":" + kind.name().toLowerCase(Locale.ROOT);
         if (entities.find(LedgerEntryJpaEntity.class, key) != null) return;

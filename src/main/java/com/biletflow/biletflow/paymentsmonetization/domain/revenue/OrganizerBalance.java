@@ -3,133 +3,53 @@ package com.biletflow.biletflow.paymentsmonetization.domain.revenue;
 import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.InsufficientBalanceException;
 import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.InvalidPayoutStateException;
-import java.util.Currency;
+import java.math.BigDecimal;
 import java.util.Objects;
 
-/**
- * Aggregate root for one organizer's payable revenue.
- *
- * <p>Successful ticket payments credit the balance, completed refunds debit it,
- * and payouts move money from available, through pending, to paid out. Owns the
- * invariant that a payout can never exceed the available balance.
- *
- * <p>Money cannot be negative, so a refund larger than the available balance
- * (for example, after a payout) is recorded as a deficit. Later credits pay the
- * deficit off before increasing the available balance, and no payout is possible
- * while a deficit exists because available stays at zero.
- */
-public class OrganizerBalance {
+/** Payable-funds snapshot rebuilt from the ledger and durable payout reservations. Owns payout eligibility rules. */
+public final class OrganizerBalance {
 
-    private final Long organizerId;
-    private Money available;
-    private Money pendingPayout;
-    private Money paidOut;
-    private Money debt;
+    private final long organizerId;
+    private final Money available;
+    private final Money pendingPayout;
+    private final Money paidOut;
+    private final Money debt;
+    private final boolean payoutsBlocked;
 
-    public OrganizerBalance(Long organizerId, Money available, Money pendingPayout, Money paidOut, Money debt) {
-        this.organizerId = Objects.requireNonNull(organizerId, "organizerId cannot be null");
-        this.available = Objects.requireNonNull(available, "available cannot be null");
-        this.pendingPayout = Objects.requireNonNull(pendingPayout, "pendingPayout cannot be null");
-        this.paidOut = Objects.requireNonNull(paidOut, "paidOut cannot be null");
-        this.debt = Objects.requireNonNull(debt, "deficit cannot be null");
+    private OrganizerBalance(long organizerId, BigDecimal netRevenue, Money pending, Money paid, boolean blocked) {
+        if (organizerId <= 0) throw new IllegalArgumentException("Invalid organizer");
+        Objects.requireNonNull(netRevenue, "netRevenue cannot be null");
+        requireKzt(pending);
+        requireKzt(paid);
+        BigDecimal remaining = netRevenue.subtract(pending.amount()).subtract(paid.amount());
+        this.organizerId = organizerId;
+        this.available = Money.kzt(remaining.max(BigDecimal.ZERO));
+        this.pendingPayout = pending;
+        this.paidOut = paid;
+        this.debt = Money.kzt(remaining.negate().max(BigDecimal.ZERO));
+        this.payoutsBlocked = blocked;
     }
 
-    public static OrganizerBalance open(Long organizerId, Currency currency) {
-        Objects.requireNonNull(currency, "currency cannot be null");
-        Money zero = Money.zero(currency);
-        return new OrganizerBalance(organizerId, zero, zero, zero, zero);
+    public static OrganizerBalance fromRevenue(long organizerId, BigDecimal netRevenue, Money pending, Money paid, boolean blocked) {
+        return new OrganizerBalance(organizerId, netRevenue, pending, paid, blocked);
     }
 
-    /**
-     * A ticket payment for one of this organizer's events succeeded.
-     */
-    public void credit(Money amount) {
-        requirePositive(amount);
-
-        if (debt.isZero()) {
-            available = available.add(amount);
-        } else if (amount.isGreaterThan(debt)) {
-            available = available.add(amount.subtract(debt));
-            debt = zero();
-        } else {
-            debt = debt.subtract(amount);
-        }
+    /** The application's persisted REQUESTED payout reserves the validated amount. */
+    public void requirePayoutAmount(Money amount) {
+        requireKzt(amount);
+        if (amount.isZero()) throw new InvalidPayoutStateException("Payout amount must be greater than zero");
+        if (payoutsBlocked) throw new InvalidPayoutStateException(
+            "Payouts are blocked while a ticket payment or refund requires reconciliation"
+        );
+        if (amount.isGreaterThan(available)) throw new InsufficientBalanceException("Payout exceeds the available organizer balance");
     }
 
-    /**
-     * A refund of a ticket payment completed.
-     */
-    public void debit(Money amount) {
-        requirePositive(amount);
-
-        if (amount.isGreaterThan(available)) {
-            debt = debt.add(amount.subtract(available));
-            available = zero();
-        } else {
-            available = available.subtract(amount);
-        }
-    }
-
-    /**
-     * Moves money from available to pending when a payout is requested.
-     */
-    public void reserveForPayout(Money amount) {
-        requirePositive(amount);
-
-        if (amount.isGreaterThan(available)) {
-            throw new InsufficientBalanceException(
-                "Payout of " + amount + " exceeds available balance " + available + " for organizer " + organizerId
-            );
-        }
-
-        available = available.subtract(amount);
-        pendingPayout = pendingPayout.add(amount);
-    }
-
-    /**
-     * The payout completed: pending money is now paid out.
-     */
-    public void settlePayout(Money amount) {
-        requireWithinPending(amount);
-        pendingPayout = pendingPayout.subtract(amount);
-        paidOut = paidOut.add(amount);
-    }
-
-    /**
-     * The payout failed: pending money returns to the balance. Goes through
-     * credit so any deficit created in the meantime is paid off first.
-     */
-    public void releasePayout(Money amount) {
-        requireWithinPending(amount);
-        pendingPayout = pendingPayout.subtract(amount);
-        credit(amount);
-    }
-
-    public boolean hasDebt() {
-        return !debt.isZero();
-    }
-
-    private Money zero() {
-        return Money.zero(available.currency());
-    }
-
-    private void requirePositive(Money amount) {
+    private static void requireKzt(Money amount) {
         Objects.requireNonNull(amount, "amount cannot be null");
-        if (amount.isZero()) {
-            throw new InvalidPayoutStateException("Amount must be greater than zero");
-        }
+        if (!Money.KZT.equals(amount.currency())) throw new IllegalArgumentException("Payout balances use KZT");
     }
 
-    private void requireWithinPending(Money amount) {
-        requirePositive(amount);
-        if (amount.isGreaterThan(pendingPayout)) {
-            throw new InvalidPayoutStateException(
-                "Amount " + amount + " exceeds pending payout " + pendingPayout + " for organizer " + organizerId
-            );
-        }
-    }
-
-    public Long getOrganizerId() {
+    public long getOrganizerId() {
         return organizerId;
     }
 
@@ -147,5 +67,13 @@ public class OrganizerBalance {
 
     public Money getDebt() {
         return debt;
+    }
+
+    public boolean hasDebt() {
+        return !debt.isZero();
+    }
+
+    public boolean isPayoutsBlocked() {
+        return payoutsBlocked;
     }
 }

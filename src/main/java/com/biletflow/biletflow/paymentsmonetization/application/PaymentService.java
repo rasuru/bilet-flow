@@ -163,6 +163,7 @@ public class PaymentService implements PaymentsOhs {
     public UUID refund(UUID id, String reason) {
         locks.lock("payment:" + id);
         var w = require(id);
+        locks.lock("organizer-funds:" + w.getOrganizerId());
         UUID refund = w.requestTicketRefund(reason, clock.instant());
         works.save(w);
         works.wake(id, clock.instant());

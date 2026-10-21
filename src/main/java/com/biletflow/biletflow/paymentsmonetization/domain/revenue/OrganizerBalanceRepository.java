@@ -1,9 +1,6 @@
 package com.biletflow.biletflow.paymentsmonetization.domain.revenue;
 
-import java.util.Optional;
-
+/** Reads payable funds from authoritative revenue and payout records; no mutable balance copy is stored. */
 public interface OrganizerBalanceRepository {
-    OrganizerBalance save(OrganizerBalance balance);
-
-    Optional<OrganizerBalance> findByOrganizerId(Long organizerId);
+    OrganizerBalance get(long organizerId);
 }
