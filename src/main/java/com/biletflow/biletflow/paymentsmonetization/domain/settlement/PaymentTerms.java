@@ -21,6 +21,10 @@ public record PaymentTerms(BigDecimal activationFee, BigDecimal processingFeeRat
         ) throw new IllegalArgumentException("Invalid payment terms");
     }
 
+    public PaymentTerms withActivationFee(BigDecimal fee) {
+        return new PaymentTerms(fee, processingFeeRate);
+    }
+
     public void requireTicketRequest(long payer, BigDecimal amount, Instant deadline, Instant now) {
         if (payer <= 0 || amount == null || amount.signum() <= 0 || amount.scale() > 2) throw new IllegalArgumentException(
             "Invalid ticket payment request"

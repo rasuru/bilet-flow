@@ -15,6 +15,8 @@ import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWor
 import com.biletflow.biletflow.paymentsmonetization.ohs.*;
 import com.biletflow.biletflow.paymentsmonetization.ohs.dto.PaymentView;
 import com.biletflow.biletflow.paymentsmonetization.ohs.dto.StartPaymentCommand;
+import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.ActivationNotAllowedException;
+import com.biletflow.biletflow.ticketinventory.ohs.PaidSalesInventoryOhs;
 import java.time.Clock;
 import java.util.*;
 import org.springframework.stereotype.Service;
@@ -33,6 +35,8 @@ public class PaymentService implements PaymentsOhs {
     private final PaymentTerms terms;
     private final PaymentGateway bank;
     private final CallbackSecrets secrets;
+    private final PaidSalesInventoryOhs inventory;
+    private final PaymentSettingsRepository settings;
 
     public PaymentService(
         PaymentWorkRepository works,
@@ -43,7 +47,9 @@ public class PaymentService implements PaymentsOhs {
         Clock clock,
         PaymentTerms terms,
         PaymentGateway bank,
-        CallbackSecrets secrets
+        CallbackSecrets secrets,
+        PaidSalesInventoryOhs inventory,
+        PaymentSettingsRepository settings
     ) {
         this.works = Objects.requireNonNull(works, "works cannot be null");
         this.activations = Objects.requireNonNull(activations, "activations cannot be null");
@@ -54,6 +60,8 @@ public class PaymentService implements PaymentsOhs {
         this.terms = Objects.requireNonNull(terms, "terms cannot be null");
         this.bank = Objects.requireNonNull(bank, "bank cannot be null");
         this.secrets = Objects.requireNonNull(secrets, "secrets cannot be null");
+        this.inventory = Objects.requireNonNull(inventory, "inventory cannot be null");
+        this.settings = Objects.requireNonNull(settings, "settings cannot be null");
     }
 
     @Override
@@ -107,14 +115,22 @@ public class PaymentService implements PaymentsOhs {
             if (previous.aggregate().permitsPaidSales()) return previous.paymentId();
             locks.lock("payment:" + previous.paymentId());
             var previousWork = require(previous.paymentId());
+            if (previousWork.getActivationPayment() != null) previous
+                .aggregate()
+                .requireNewFeeAttemptAllowed(previousWork.getActivationPayment());
             if (previousWork.reusableActivation(clock.instant())) return previous.paymentId();
             // Keep the old invoice monitored. If it settles late it is automatically refunded.
             previousWork.replaceActivationAttempt();
             works.save(previousWork);
             works.wake(previousWork.getId(), clock.instant());
         }
-        bank.validateAmount(terms.activationFee());
-        PaymentWork w = terms.activation(eventId, organizer, clock.instant(), works.nextInvoice(), secrets.generate());
+        // Checked only when a new fee would be charged; an existing activation or reusable attempt is returned as before.
+        if (!inventory.hasPaidTicketType(eventId)) throw new ActivationNotAllowedException(
+            "Add a paid ticket type before activating paid sales"
+        );
+        var currentTerms = activationTerms();
+        bank.validateAmount(currentTerms.activationFee());
+        PaymentWork w = currentTerms.activation(eventId, organizer, clock.instant(), works.nextInvoice(), secrets.generate());
         works.insert(w);
         activations.save(
             new ActivationRepository.Activation(
@@ -177,6 +193,13 @@ public class PaymentService implements PaymentsOhs {
 
     public PaymentWork require(UUID id) {
         return works.find(id).orElseThrow(() -> new EntityNotFoundException("Payment not found"));
+    }
+
+    public PaymentTerms activationTerms() {
+        return settings
+            .activationFee()
+            .map(s -> terms.withActivationFee(s.amountKzt()))
+            .orElse(terms);
     }
 
     private PaymentView view(PaymentWork w) {

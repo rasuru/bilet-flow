@@ -100,3 +100,4 @@ biletflow:
     poll-enabled: false
     payout-enabled: false
     payout-mail-enabled: false
+    notice-mail-enabled: false

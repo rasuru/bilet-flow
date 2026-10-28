@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="20261028120000-1" author="biletflow">
+        <createTable tableName="pm_payment_notice">
+            <column name="id" type="uuid"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="kind" type="varchar(40)"><constraints nullable="false"/></column>
+            <column name="recipient_id" type="bigint"><constraints nullable="false"/></column>
+            <column name="event_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="payment_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="amount_kzt" type="decimal(19,2)"><constraints nullable="false"/></column>
+            <column name="created_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="next_attempt_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="attempts" type="int" defaultValueNumeric="0"><constraints nullable="false"/></column>
+            <column name="token" type="uuid"/>
+            <column name="lease_until" type="timestamp with time zone"/>
+            <column name="sent_at" type="timestamp with time zone"/>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+        <createIndex tableName="pm_payment_notice" indexName="idx_pm_payment_notice_pending"><column name="sent_at"/><column name="next_attempt_at"/></createIndex>
+    </changeSet>
+    <changeSet id="20261028120000-2" author="biletflow">
+        <createTable tableName="pm_setting">
+            <column name="setting_key" type="varchar(100)"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="amount_kzt" type="decimal(19,2)"><constraints nullable="false"/></column>
+            <column name="updated_by" type="bigint"><constraints nullable="false"/></column>
+            <column name="updated_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+    </changeSet>
+    <changeSet id="20261028120000-3" author="biletflow">
+        <createIndex tableName="pm_payment_work" indexName="idx_pm_payment_work_admin"><column name="status"/><column name="deadline"/></createIndex>
+        <createIndex tableName="pm_event_activation" indexName="idx_pm_event_activation_admin"><column name="status"/><column name="created_at"/></createIndex>
+    </changeSet>
+</databaseChangeLog>
