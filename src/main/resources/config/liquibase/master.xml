@@ -30,5 +30,6 @@
     <!-- jhipster-needle-liquibase-add-incremental-changelog - JHipster will add incremental liquibase changelogs here -->
     <include file="config/liquibase/changelog/20261020120000_refund_notices.xml" relativeToChangelogFile="false"/>
     <include file="config/liquibase/changelog/20261020190000_organizer_payouts.xml" relativeToChangelogFile="false"/>
+    <include file="config/liquibase/changelog/20261028120000_payment_notices_and_settings.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>
 

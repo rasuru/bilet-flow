@@ -99,6 +99,8 @@ curl -sS -X POST "$API/api/checkouts/$CHECKOUT_KEY/refund" \
 
 The refund policy allows organizers to refund only unused tickets. It does not grant automatic attendee refunds or partial refunds. A refund initiated outside this application is detected and sent for operator review: Halyk status `REFUND` alone does not prove whether a full or partial refund occurred. After independently confirming the full amount with the bank, the audited operator resolution below invalidates admission, including an already-used ticket if necessary to reflect the financial truth.
 
+Before step 1, organizers can check `GET /api/payments/events/$EVENT_ID/activation/checklist`. It shows whether the event can still sell, whether it has a paid ticket type, the simulated verification, the accepted terms and the paid fee, together with the fee a new request would be charged. An activation request for an event without a paid (non-zero, not closed) ticket type is rejected with 409 before any fee payment is created.
+
 5. Check organizer accounting:
 
 ```bash
@@ -178,7 +180,7 @@ Provider reference documentation:
 
 ## Current scope
 
-Purchase and refund states are available through authenticated status endpoints. Ticket delivery is asynchronous. Confirmed ticket-order refunds also enqueue a durable purchaser receipt as described below. Payment-failure and activation-fee outcome emails are not implemented. Promotions integration, real organizer payouts, and identity or payout-account verification are not implemented by the sandbox payment workflow.
+Purchase and refund states are available through authenticated status endpoints. Ticket delivery is asynchronous. Confirmed ticket-order refunds also enqueue a durable purchaser receipt as described below, and declined payments send the emails described in [Payment-failure emails](#payment-failure-emails). Promotions integration, real organizer payouts, and identity or payout-account verification are not implemented by the sandbox payment workflow; verification remains an explicitly simulated checklist item.
 
 ## Refund confirmations
 
@@ -254,3 +256,28 @@ Payout processing defaults to every second (`biletflow.payments.payout-delay-ms`
 
 `PAYOUT=1 bash scripts/e2e/biletflow-run-e2e.sh` creates fresh fixtures, buys a ticket through Halyk sandbox, requests the organizer's available simulated payout, checks replay/conflict/privacy behavior, verifies the balance and history, and checks its receipt in Mailpit. Combine `PAYOUT=1 REFUND_ORDER=1` to also verify that a subsequent full refund invalidates the ticket and creates an organizer deficit that blocks another payout. These options require a paid ticket and the development Mailpit service.
 
+## Paid-sales administration
+
+Administrators (`ROLE_ADMIN`) use `/api/payments/admin`. Changes record the administrator and reason in `common_financial_audit`.
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/payments?status=&purpose=&eventId=&payerId=&offset=0&limit=50` | Search ticket and activation-fee payments; `status=FAILED` lists payment failures |
+| GET | `/activations?status=&offset=0&limit=50` | Inspect activation records, newest first |
+| POST | `/events/{eventId}/paid-sales/suspend` | Suspend paid sales with `{reason}` |
+| GET / PUT | `/settings/activation-fee` | Read or change the fee for new activation requests with `{amountKzt}` |
+
+Suspension rejects new paid checkouts immediately. Payments already started still settle, issued tickets stay valid and the activation fee is kept. An organizer cannot lift a suspension by requesting activation again.
+
+A fee change applies to activation requests made afterwards. Unpaid attempts already issued keep their amount, and paid fees are unaffected. Until an administrator sets a fee, `biletflow.payments.activation-fee-kzt` applies. The value is stored in `pm_setting`.
+
+## Payment-failure emails
+
+When the bank declines or cancels a payment, the transition that records the failure also queues an email in `pm_payment_notice`, so the email is never lost and never sent for a failure that rolled back. Notice IDs derived from the payment and notice kind prevent a repeated bank status from queuing a second email.
+
+| Notice | Recipient | Sent when |
+| --- | --- | --- |
+| `TICKET_PAYMENT_FAILED` | Purchaser | A ticket payment the purchaser had not abandoned is declined or cancelled |
+| `ACTIVATION_FEE_FAILED` | Organizer | The current activation-fee attempt is declined or cancelled |
+
+Delivery follows the payout notice design: the worker resolves the recipient's verified email through IAM OHS, sends outside the financial transaction with a 120-second lease, and retries from 30 seconds, doubling up to one hour. Delivery is at least once; the notice ID is the stable Message-ID. An email failure never changes a payment. Scheduling defaults to every five seconds and is controlled by `biletflow.payments.notice-mail-enabled` and `biletflow.payments.notice-mail-delay-ms`.
