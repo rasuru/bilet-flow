@@ -3,6 +3,7 @@ package com.biletflow.biletflow.paymentsmonetization.application;
 import com.biletflow.biletflow.common.application.*;
 import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.common.events.*;
+import com.biletflow.biletflow.common.security.CurrentActor;
 import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.eventmanagement.ohs.dto.*;
 import com.biletflow.biletflow.ordercheckout.application.*;
@@ -463,7 +464,7 @@ public class PaymentSagaTest {
         f.observe(f.works.find(fee).orElseThrow(), "CHARGE");
         check(f.start() != null, "Paid checkout works before suspension");
 
-        var suspended = f.administration.suspend(new SuspendPaidSalesCommand(f.event, 99, "Fraud investigation"));
+        var suspended = f.administration.suspend(new SuspendPaidSalesCommand(f.event, "Fraud investigation"));
         check("SUSPENDED".equals(suspended.status()), "Administrator suspends paid sales");
         check(f.audit.actions.contains("PAID_SALES_SUSPENDED"), "Suspension is audited");
         fails(f::start);
@@ -474,6 +475,19 @@ public class PaymentSagaTest {
             check(expected.getMessage().contains("suspended"), "The organizer is told that paid sales are suspended");
         }
         check(f.activations.find(f.event).orElseThrow().paymentId().equals(fee), "Re-requesting activation cannot replace the suspension");
+    }
+
+    @Test
+    void onlyAdministratorsCanSuspendPaidSales() {
+        var f = new Fixture();
+        f.admin.administrator = false;
+        try {
+            f.administration.suspend(new SuspendPaidSalesCommand(f.event, "Not an admin"));
+            check(false, "A non-administrator must be rejected");
+        } catch (AuthorizationException expected) {
+            check(f.activations.find(f.event).orElseThrow().aggregate().permitsPaidSales(), "Paid sales stay active");
+            check(!f.audit.actions.contains("PAID_SALES_SUSPENDED"), "Nothing is audited");
+        }
     }
 
     @Test
@@ -857,6 +871,19 @@ public class PaymentSagaTest {
         }
     }
 
+    static final class Actor implements CurrentActor {
+
+        boolean administrator = true;
+
+        public Optional<Long> userId() {
+            return Optional.of(99L);
+        }
+
+        public boolean isAdministrator() {
+            return administrator;
+        }
+    }
+
     static final class PaidTypes implements PaidSalesInventoryOhs {
 
         boolean paid = true;
@@ -1126,7 +1153,7 @@ public class PaymentSagaTest {
             bank,
             secrets,
             paidTypes,
-            settings
+            new ActivationTermsProvider(terms, settings)
         );
         PaymentTransitions transitions = new PaymentTransitions(
             works,
@@ -1139,7 +1166,8 @@ public class PaymentSagaTest {
             clock,
             paymentNotices
         );
-        PaidSalesAdministrationService administration = new PaidSalesAdministrationService(activations, locks, audit, clock);
+        Actor admin = new Actor();
+        PaidSalesAdministrationService administration = new PaidSalesAdministrationService(activations, locks, audit, admin, clock);
         PaymentAccessService access = new PaymentAccessService(works, bank, secrets, transitions, audit, clock, locks);
         PaymentReconciler reconciler = new PaymentReconciler(works, bank, transitions, locks, clock, new LocalTransactions());
         CheckoutService checkout = new CheckoutService(

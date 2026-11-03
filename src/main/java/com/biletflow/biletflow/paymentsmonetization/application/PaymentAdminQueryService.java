@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.paymentsmonetization.application;
 
+import com.biletflow.biletflow.common.security.CurrentActor;
 import com.biletflow.biletflow.paymentsmonetization.application.view.ActivationRecordView;
 import com.biletflow.biletflow.paymentsmonetization.application.view.AdminPaymentView;
 import com.biletflow.biletflow.paymentsmonetization.domain.activation.EventPaidSalesActivationStatus;
@@ -9,20 +10,23 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Platform-administrator search over payments and activation records. Endpoint security restricts it to administrators. */
+/** Platform-administrator search over payments and activation records. Only administrators may use it. */
 @Service
 @Transactional(readOnly = true)
 public class PaymentAdminQueryService {
 
     private final PaymentAdminQueries queries;
     private final PaymentWorkRepository works;
+    private final CurrentActor actor;
 
-    public PaymentAdminQueryService(PaymentAdminQueries queries, PaymentWorkRepository works) {
+    public PaymentAdminQueryService(PaymentAdminQueries queries, PaymentWorkRepository works, CurrentActor actor) {
         this.queries = Objects.requireNonNull(queries, "queries cannot be null");
         this.works = Objects.requireNonNull(works, "works cannot be null");
+        this.actor = Objects.requireNonNull(actor, "actor cannot be null");
     }
 
     public List<AdminPaymentView> payments(PaymentAdminQueries.PaymentFilter filter, int offset, int limit) {
+        actor.requireAdministrator();
         requirePage(offset, limit);
         return queries
             .findPaymentIds(Objects.requireNonNull(filter, "filter cannot be null"), offset, limit)
@@ -34,6 +38,7 @@ public class PaymentAdminQueryService {
     }
 
     public List<ActivationRecordView> activations(EventPaidSalesActivationStatus status, int offset, int limit) {
+        actor.requireAdministrator();
         requirePage(offset, limit);
         return queries.findActivations(status, offset, limit).stream().map(ActivationRecordView::from).toList();
     }

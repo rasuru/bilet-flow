@@ -8,6 +8,7 @@ import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.paymentsmonetization.application.command.ActivatePaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.domain.activation.EventPaidSalesActivation;
+import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.ActivationNotAllowedException;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentOperation;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentOperationState;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentTerms;
@@ -15,7 +16,6 @@ import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWor
 import com.biletflow.biletflow.paymentsmonetization.ohs.*;
 import com.biletflow.biletflow.paymentsmonetization.ohs.dto.PaymentView;
 import com.biletflow.biletflow.paymentsmonetization.ohs.dto.StartPaymentCommand;
-import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.ActivationNotAllowedException;
 import com.biletflow.biletflow.ticketinventory.ohs.PaidSalesInventoryOhs;
 import java.time.Clock;
 import java.util.*;
@@ -36,7 +36,7 @@ public class PaymentService implements PaymentsOhs {
     private final PaymentGateway bank;
     private final CallbackSecrets secrets;
     private final PaidSalesInventoryOhs inventory;
-    private final PaymentSettingsRepository settings;
+    private final ActivationTermsProvider activationTerms;
 
     public PaymentService(
         PaymentWorkRepository works,
@@ -49,7 +49,7 @@ public class PaymentService implements PaymentsOhs {
         PaymentGateway bank,
         CallbackSecrets secrets,
         PaidSalesInventoryOhs inventory,
-        PaymentSettingsRepository settings
+        ActivationTermsProvider activationTerms
     ) {
         this.works = Objects.requireNonNull(works, "works cannot be null");
         this.activations = Objects.requireNonNull(activations, "activations cannot be null");
@@ -61,7 +61,7 @@ public class PaymentService implements PaymentsOhs {
         this.bank = Objects.requireNonNull(bank, "bank cannot be null");
         this.secrets = Objects.requireNonNull(secrets, "secrets cannot be null");
         this.inventory = Objects.requireNonNull(inventory, "inventory cannot be null");
-        this.settings = Objects.requireNonNull(settings, "settings cannot be null");
+        this.activationTerms = Objects.requireNonNull(activationTerms, "activationTerms cannot be null");
     }
 
     @Override
@@ -80,6 +80,7 @@ public class PaymentService implements PaymentsOhs {
             return view(w);
         }
         var scope = events.salesScope(c.eventId(), clock.instant());
+        locks.lock("activation:" + c.eventId());
         var activation = activations.find(c.eventId()).orElseThrow(() -> new IllegalStateException("Paid sales are not activated"));
         terms.requirePaidSales(scope.registrationOpen(), activation.aggregate().permitsPaidSales());
         PaymentWork w = terms.ticket(
@@ -128,7 +129,7 @@ public class PaymentService implements PaymentsOhs {
         if (!inventory.hasPaidTicketType(eventId)) throw new ActivationNotAllowedException(
             "Add a paid ticket type before activating paid sales"
         );
-        var currentTerms = activationTerms();
+        var currentTerms = activationTerms.current();
         bank.validateAmount(currentTerms.activationFee());
         PaymentWork w = currentTerms.activation(eventId, organizer, clock.instant(), works.nextInvoice(), secrets.generate());
         works.insert(w);
@@ -193,13 +194,6 @@ public class PaymentService implements PaymentsOhs {
 
     public PaymentWork require(UUID id) {
         return works.find(id).orElseThrow(() -> new EntityNotFoundException("Payment not found"));
-    }
-
-    public PaymentTerms activationTerms() {
-        return settings
-            .activationFee()
-            .map(s -> terms.withActivationFee(s.amountKzt()))
-            .orElse(terms);
     }
 
     private PaymentView view(PaymentWork w) {

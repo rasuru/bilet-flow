@@ -11,4 +11,9 @@ public class SpringSecurityCurrentActor implements CurrentActor {
     public Optional<Long> userId() {
         return SecurityUtils.getCurrentUserId();
     }
+
+    @Override
+    public boolean isAdministrator() {
+        return SecurityUtils.hasCurrentUserThisAuthority(AuthoritiesConstants.ADMIN);
+    }
 }

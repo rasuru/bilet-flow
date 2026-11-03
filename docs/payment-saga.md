@@ -258,7 +258,7 @@ Payout processing defaults to every second (`biletflow.payments.payout-delay-ms`
 
 ## Paid-sales administration
 
-Administrators (`ROLE_ADMIN`) use `/api/payments/admin`. Changes record the administrator and reason in `common_financial_audit`.
+Administrators (`ROLE_ADMIN`) use `/api/payments/admin`. The application services check the role themselves as well as the endpoints. Changes record the administrator and reason in `common_financial_audit`.
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
@@ -267,7 +267,7 @@ Administrators (`ROLE_ADMIN`) use `/api/payments/admin`. Changes record the admi
 | POST | `/events/{eventId}/paid-sales/suspend` | Suspend paid sales with `{reason}` |
 | GET / PUT | `/settings/activation-fee` | Read or change the fee for new activation requests with `{amountKzt}` |
 
-Suspension rejects new paid checkouts immediately. Payments already started still settle, issued tickets stay valid and the activation fee is kept. An organizer cannot lift a suspension by requesting activation again.
+Suspension rejects new paid checkouts immediately; checkout and suspension take the same `activation:{eventId}` lock, so a checkout either finishes before the suspension or sees it. Payments already started still settle, issued tickets stay valid and the activation fee is kept. An organizer cannot lift a suspension by requesting activation again.
 
 A fee change applies to activation requests made afterwards. Unpaid attempts already issued keep their amount, and paid fees are unaffected. Until an administrator sets a fee, `biletflow.payments.activation-fee-kzt` applies. The value is stored in `pm_setting`.
 

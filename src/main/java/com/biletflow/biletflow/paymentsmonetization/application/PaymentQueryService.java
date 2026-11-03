@@ -22,6 +22,7 @@ public class PaymentQueryService {
     private final PaymentService payments;
     private final EventManagementOhs events;
     private final PaidSalesInventoryOhs inventory;
+    private final ActivationTermsProvider activationTerms;
     private final Clock clock;
 
     public PaymentQueryService(
@@ -30,6 +31,7 @@ public class PaymentQueryService {
         PaymentService payments,
         EventManagementOhs events,
         PaidSalesInventoryOhs inventory,
+        ActivationTermsProvider activationTerms,
         Clock clock
     ) {
         this.activations = Objects.requireNonNull(activations);
@@ -37,6 +39,7 @@ public class PaymentQueryService {
         this.payments = Objects.requireNonNull(payments);
         this.events = Objects.requireNonNull(events);
         this.inventory = Objects.requireNonNull(inventory);
+        this.activationTerms = Objects.requireNonNull(activationTerms);
         this.clock = Objects.requireNonNull(clock);
     }
 
@@ -100,7 +103,7 @@ public class PaymentQueryService {
             items,
             eventEligible && paidTicketType && !feePaid,
             status == EventPaidSalesActivationStatus.ACTIVE,
-            payments.activationTerms().activationFee(),
+            activationTerms.current().activationFee(),
             true
         );
     }

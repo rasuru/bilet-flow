@@ -1,6 +1,5 @@
 package com.biletflow.biletflow.paymentsmonetization.rest;
 
-import com.biletflow.biletflow.common.security.CurrentActor;
 import com.biletflow.biletflow.paymentsmonetization.application.PaidSalesAdministrationService;
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentAdminQueries;
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentAdminQueryService;
@@ -62,18 +61,15 @@ public class PaymentAdministrationResource {
     private final PaymentAdminQueryService queries;
     private final PaidSalesAdministrationService paidSales;
     private final PaymentSettingsService settings;
-    private final CurrentActor actor;
 
     public PaymentAdministrationResource(
         PaymentAdminQueryService queries,
         PaidSalesAdministrationService paidSales,
-        PaymentSettingsService settings,
-        CurrentActor actor
+        PaymentSettingsService settings
     ) {
         this.queries = Objects.requireNonNull(queries);
         this.paidSales = Objects.requireNonNull(paidSales);
         this.settings = Objects.requireNonNull(settings);
-        this.actor = Objects.requireNonNull(actor);
     }
 
     @GetMapping("/payments")
@@ -131,7 +127,7 @@ public class PaymentAdministrationResource {
         content = @Content(schema = @Schema(implementation = ActivationRecordView.class))
     )
     public ResponseEntity<ActivationRecordView> suspend(@PathVariable UUID eventId, @Valid @RequestBody SuspendRequest request) {
-        return response(paidSales.suspend(new SuspendPaidSalesCommand(eventId, actor.requireUserId(), request.reason())));
+        return response(paidSales.suspend(new SuspendPaidSalesCommand(eventId, request.reason())));
     }
 
     @GetMapping("/settings/activation-fee")
@@ -160,7 +156,7 @@ public class PaymentAdministrationResource {
         content = @Content(schema = @Schema(implementation = ActivationFeeView.class))
     )
     public ResponseEntity<ActivationFeeView> changeActivationFee(@Valid @RequestBody ActivationFeeRequest request) {
-        return response(settings.changeActivationFee(request.amountKzt(), actor.requireUserId()));
+        return response(settings.changeActivationFee(request.amountKzt()));
     }
 
     private <T> ResponseEntity<T> response(T body) {
