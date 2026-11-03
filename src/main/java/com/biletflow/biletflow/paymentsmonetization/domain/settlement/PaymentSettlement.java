@@ -1,6 +1,7 @@
 package com.biletflow.biletflow.paymentsmonetization.domain.settlement;
 
 import com.biletflow.biletflow.paymentsmonetization.domain.activation.EventPaidSalesActivation;
+import com.biletflow.biletflow.paymentsmonetization.domain.notice.PaymentNoticeKind;
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.*;
 import java.time.Instant;
 import java.util.*;
@@ -60,6 +61,12 @@ public final class PaymentSettlement {
 
         public List<String> getAudit() {
             return List.copyOf(audit);
+        }
+
+        private final List<PaymentNoticeKind> notices = new ArrayList<>();
+
+        public List<PaymentNoticeKind> getNotices() {
+            return List.copyOf(notices);
         }
     }
 
@@ -267,6 +274,10 @@ public final class PaymentSettlement {
                     else w.getActivationPayment().fail("BANK_DECLINED_OR_VOIDED", now);
                     if (w.isTicket()) publish(w, "FAILED", null);
                     effects.audit.add("PAYMENT_FAILED_OR_VOIDED");
+                    if (w.isTicket() && !w.isAbandoned()) effects.notices.add(PaymentNoticeKind.TICKET_PAYMENT_FAILED);
+                    if (!w.isTicket() && !w.isAbandoned() && w.getId().equals(context.activationPaymentId())) effects.notices.add(
+                        PaymentNoticeKind.ACTIVATION_FEE_FAILED
+                    );
                 }
                 w.confirmOperation();
             }

@@ -25,6 +25,7 @@ public class PaymentTransitions {
     private final TransactionLocks locks;
     private final EventManagementOhs events;
     private final Clock clock;
+    private final PaymentNoticeStore notices;
 
     public PaymentTransitions(
         PaymentWorkRepository works,
@@ -34,7 +35,8 @@ public class PaymentTransitions {
         FinancialAudit audit,
         TransactionLocks locks,
         EventManagementOhs events,
-        Clock clock
+        Clock clock,
+        PaymentNoticeStore notices
     ) {
         this.works = Objects.requireNonNull(works, "works cannot be null");
         this.activations = Objects.requireNonNull(activations, "activations cannot be null");
@@ -44,6 +46,7 @@ public class PaymentTransitions {
         this.locks = Objects.requireNonNull(locks, "locks cannot be null");
         this.events = Objects.requireNonNull(events, "events cannot be null");
         this.clock = Objects.requireNonNull(clock, "clock cannot be null");
+        this.notices = Objects.requireNonNull(notices, "notices cannot be null");
     }
 
     private PaymentWork locked(UUID id) {
@@ -92,5 +95,17 @@ public class PaymentTransitions {
         if (effects.isActivationChanged()) activations.save(activation);
         works.save(work);
         for (var action : effects.getAudit()) audit.record("payments", work.getId(), null, action);
+        for (var kind : effects.getNotices())
+            notices.enqueue(
+                new PaymentNoticeStore.PaymentNotice(
+                    PaymentNoticeStore.PaymentNotice.idFor(work.getId(), kind),
+                    kind,
+                    work.isTicket() ? work.getPayerId() : work.getOrganizerId(),
+                    work.getEventId(),
+                    work.getId(),
+                    work.getAmount(),
+                    clock.instant()
+                )
+            );
     }
 }

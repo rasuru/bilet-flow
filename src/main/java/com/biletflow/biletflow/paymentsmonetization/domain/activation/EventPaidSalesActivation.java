@@ -102,6 +102,14 @@ public class EventPaidSalesActivation {
         this.suspensionReason = null;
     }
 
+    public void requireNewFeeAttemptAllowed(ActivationFeePayment currentFee) {
+        Objects.requireNonNull(currentFee, "currentFee cannot be null");
+
+        if (status == EventPaidSalesActivationStatus.SUSPENDED && currentFee.getId().equals(feePaymentId) && currentFee.hasSucceeded()) {
+            throw new ActivationNotAllowedException("Paid sales for event " + eventId + " are suspended by an administrator");
+        }
+    }
+
     public boolean permitsPaidSales() {
         return status == EventPaidSalesActivationStatus.ACTIVE;
     }

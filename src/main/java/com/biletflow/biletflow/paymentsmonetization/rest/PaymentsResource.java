@@ -125,8 +125,7 @@ public class PaymentsResource {
     @PostMapping("/events/{eventId}/activation")
     @Operation(
         summary = "Request paid sales activation",
-        description = "Organizer-only. Terms and simulated verification must be accepted. The returned activation fee payment must settle before paid sales become active."
-    )
+        description = "Organizer-only. Terms and simulated verification must be accepted, and the event needs a paid ticket type (409 otherwise). An administrator suspension cannot be lifted by requesting activation again (409). The returned activation fee payment must settle before paid sales become active.")
     @ApiResponse(
         responseCode = "200",
         description = "Current or new activation fee payment",
@@ -156,6 +155,20 @@ public class PaymentsResource {
     )
     public ResponseEntity<ActivationView> activation(@PathVariable UUID eventId) {
         return response(queries.activation(eventId, actor.requireUserId()));
+    }
+
+    @GetMapping("/events/{eventId}/activation/checklist")
+    @Operation(
+        summary = "Get the paid sales activation checklist",
+        description = "SRS 4.5. Available to the event's organizers before and after requesting activation. Verification is simulated in the sandbox and marked as such."
+    )
+    @ApiResponse(
+        responseCode = "200",
+        description = "Checklist and the fee a new request would be charged",
+        content = @Content(schema = @Schema(implementation = ActivationChecklistView.class))
+    )
+    public ResponseEntity<ActivationChecklistView> checklist(@PathVariable UUID eventId) {
+        return response(queries.checklist(eventId, actor.requireUserId()));
     }
 
     @GetMapping("/revenue/mine")

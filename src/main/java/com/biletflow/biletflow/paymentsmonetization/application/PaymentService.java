@@ -8,6 +8,7 @@ import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.paymentsmonetization.application.command.ActivatePaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.domain.activation.EventPaidSalesActivation;
+import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.ActivationNotAllowedException;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentOperation;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentOperationState;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentTerms;
@@ -15,6 +16,7 @@ import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWor
 import com.biletflow.biletflow.paymentsmonetization.ohs.*;
 import com.biletflow.biletflow.paymentsmonetization.ohs.dto.PaymentView;
 import com.biletflow.biletflow.paymentsmonetization.ohs.dto.StartPaymentCommand;
+import com.biletflow.biletflow.ticketinventory.ohs.PaidSalesInventoryOhs;
 import java.time.Clock;
 import java.util.*;
 import org.springframework.stereotype.Service;
@@ -33,6 +35,8 @@ public class PaymentService implements PaymentsOhs {
     private final PaymentTerms terms;
     private final PaymentGateway bank;
     private final CallbackSecrets secrets;
+    private final PaidSalesInventoryOhs inventory;
+    private final ActivationTermsProvider activationTerms;
 
     public PaymentService(
         PaymentWorkRepository works,
@@ -43,7 +47,9 @@ public class PaymentService implements PaymentsOhs {
         Clock clock,
         PaymentTerms terms,
         PaymentGateway bank,
-        CallbackSecrets secrets
+        CallbackSecrets secrets,
+        PaidSalesInventoryOhs inventory,
+        ActivationTermsProvider activationTerms
     ) {
         this.works = Objects.requireNonNull(works, "works cannot be null");
         this.activations = Objects.requireNonNull(activations, "activations cannot be null");
@@ -54,6 +60,8 @@ public class PaymentService implements PaymentsOhs {
         this.terms = Objects.requireNonNull(terms, "terms cannot be null");
         this.bank = Objects.requireNonNull(bank, "bank cannot be null");
         this.secrets = Objects.requireNonNull(secrets, "secrets cannot be null");
+        this.inventory = Objects.requireNonNull(inventory, "inventory cannot be null");
+        this.activationTerms = Objects.requireNonNull(activationTerms, "activationTerms cannot be null");
     }
 
     @Override
@@ -72,6 +80,7 @@ public class PaymentService implements PaymentsOhs {
             return view(w);
         }
         var scope = events.salesScope(c.eventId(), clock.instant());
+        locks.lock("activation:" + c.eventId());
         var activation = activations.find(c.eventId()).orElseThrow(() -> new IllegalStateException("Paid sales are not activated"));
         terms.requirePaidSales(scope.registrationOpen(), activation.aggregate().permitsPaidSales());
         PaymentWork w = terms.ticket(
@@ -107,14 +116,22 @@ public class PaymentService implements PaymentsOhs {
             if (previous.aggregate().permitsPaidSales()) return previous.paymentId();
             locks.lock("payment:" + previous.paymentId());
             var previousWork = require(previous.paymentId());
+            if (previousWork.getActivationPayment() != null) previous
+                .aggregate()
+                .requireNewFeeAttemptAllowed(previousWork.getActivationPayment());
             if (previousWork.reusableActivation(clock.instant())) return previous.paymentId();
             // Keep the old invoice monitored. If it settles late it is automatically refunded.
             previousWork.replaceActivationAttempt();
             works.save(previousWork);
             works.wake(previousWork.getId(), clock.instant());
         }
-        bank.validateAmount(terms.activationFee());
-        PaymentWork w = terms.activation(eventId, organizer, clock.instant(), works.nextInvoice(), secrets.generate());
+        // Checked only when a new fee would be charged; an existing activation or reusable attempt is returned as before.
+        if (!inventory.hasPaidTicketType(eventId)) throw new ActivationNotAllowedException(
+            "Add a paid ticket type before activating paid sales"
+        );
+        var currentTerms = activationTerms.current();
+        bank.validateAmount(currentTerms.activationFee());
+        PaymentWork w = currentTerms.activation(eventId, organizer, clock.instant(), works.nextInvoice(), secrets.generate());
         works.insert(w);
         activations.save(
             new ActivationRepository.Activation(

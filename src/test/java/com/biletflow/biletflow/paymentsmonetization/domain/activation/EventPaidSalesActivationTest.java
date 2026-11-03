@@ -150,6 +150,29 @@ class EventPaidSalesActivationTest {
         assertThrows(ActivationNotAllowedException.class, pending::reinstate);
     }
 
+    @Test
+    void anAdministrativeSuspensionCannotBeBypassedWithANewFeeAttempt() {
+        EventPaidSalesActivation activation = pendingActivation();
+        ActivationFeePayment fee = paidFee(activation.getEventId());
+        activation.activate(fee, true);
+        activation.suspend("fraud investigation", NOW.plusSeconds(60));
+
+        assertThrows(ActivationNotAllowedException.class, () -> activation.requireNewFeeAttemptAllowed(fee));
+    }
+
+    @Test
+    void aRefundedFeeAllowsANewFeeAttempt() {
+        EventPaidSalesActivation activation = pendingActivation();
+        ActivationFeePayment fee = paidFee(activation.getEventId());
+        activation.activate(fee, true);
+        activation.suspend("Activation fee refunded", NOW.plusSeconds(60));
+        fee.requestCompensatingRefund();
+        fee.completeCompensatingRefund();
+
+        assertDoesNotThrow(() -> activation.requireNewFeeAttemptAllowed(fee));
+        assertDoesNotThrow(() -> pendingActivation().requireNewFeeAttemptAllowed(paidFee(UUID.randomUUID())));
+    }
+
     private static EventPaidSalesActivation pendingActivation() {
         return EventPaidSalesActivation.request(UUID.randomUUID(), ORGANIZER_ID, NOW);
     }

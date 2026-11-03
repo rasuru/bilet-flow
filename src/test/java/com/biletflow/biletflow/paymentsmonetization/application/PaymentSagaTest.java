@@ -3,6 +3,7 @@ package com.biletflow.biletflow.paymentsmonetization.application;
 import com.biletflow.biletflow.common.application.*;
 import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.common.events.*;
+import com.biletflow.biletflow.common.security.CurrentActor;
 import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.eventmanagement.ohs.dto.*;
 import com.biletflow.biletflow.ordercheckout.application.*;
@@ -13,9 +14,12 @@ import com.biletflow.biletflow.ordercheckout.domain.checkout.*;
 import com.biletflow.biletflow.ordercheckout.domain.order.*;
 import com.biletflow.biletflow.paymentsmonetization.application.command.ActivatePaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.application.command.ResolvePaymentOperationCommand;
+import com.biletflow.biletflow.paymentsmonetization.application.command.SuspendPaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.config.HalykProperties;
 import com.biletflow.biletflow.paymentsmonetization.domain.activation.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.activationfeepayment.*;
+import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.ActivationNotAllowedException;
+import com.biletflow.biletflow.paymentsmonetization.domain.notice.PaymentNoticeKind;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.*;
@@ -26,6 +30,7 @@ import com.biletflow.biletflow.ticketinventory.domain.ticket.Ticket;
 import com.biletflow.biletflow.ticketinventory.domain.ticket.TicketStatus;
 import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeId;
 import com.biletflow.biletflow.ticketinventory.ohs.CheckoutInventoryOhs;
+import com.biletflow.biletflow.ticketinventory.ohs.PaidSalesInventoryOhs;
 import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
@@ -413,6 +418,91 @@ public class PaymentSagaTest {
     }
 
     @Test
+    void activationRequiresAPaidTicketType() {
+        var f = new Fixture();
+        f.activations.rows.clear();
+        f.paidTypes.paid = false;
+        fails(() -> f.service.activate(new ActivatePaidSalesCommand(f.event, 7, true, true)));
+        check(f.works.rows.isEmpty() && f.activations.rows.isEmpty(), "No fee payment is created for an event without paid tickets");
+        f.paidTypes.paid = true;
+        f.service.activate(new ActivatePaidSalesCommand(f.event, 7, true, true));
+        check(f.activations.find(f.event).isPresent(), "A paid ticket type allows the activation request");
+    }
+
+    @Test
+    void declinedTicketPaymentEmailsThePurchaserButAbandonedCheckoutsDoNot() {
+        var f = new Fixture();
+        var declined = f.work(f.start());
+        f.observe(declined, "FAILED");
+        check(f.paymentNotices.kinds().equals(List.of(PaymentNoticeKind.TICKET_PAYMENT_FAILED)), "Declined payment produces a notice");
+        check(f.paymentNotices.rows.values().iterator().next().recipientId() == 1, "Failure notice goes to the purchaser");
+        f.observe(declined, "FAILED");
+        check(f.paymentNotices.rows.size() == 1, "A repeated bank status does not send a second email");
+
+        var g = new Fixture();
+        var abandoned = g.work(g.start());
+        g.service.abandon(abandoned.getId());
+        g.observe(abandoned, "CANCEL");
+        check(g.paymentNotices.rows.isEmpty(), "Voiding an abandoned checkout is not reported as a failure");
+    }
+
+    @Test
+    void declinedActivationFeeEmailsTheOrganizer() {
+        var f = new Fixture();
+        f.activations.rows.clear();
+        UUID id = f.service.activate(new ActivatePaidSalesCommand(f.event, 7, true, true));
+        f.observe(f.works.find(id).orElseThrow(), "FAILED");
+        check(f.paymentNotices.kinds().equals(List.of(PaymentNoticeKind.ACTIVATION_FEE_FAILED)), "Declined fee produces a notice");
+        check(f.paymentNotices.rows.values().iterator().next().recipientId() == 7, "Fee failure notice goes to the organizer");
+    }
+
+    @Test
+    void administratorSuspensionBlocksNewPaidCheckouts() {
+        var f = new Fixture();
+        f.activations.rows.clear();
+        UUID fee = f.service.activate(new ActivatePaidSalesCommand(f.event, 7, true, true));
+        f.observe(f.works.find(fee).orElseThrow(), "CHARGE");
+        check(f.start() != null, "Paid checkout works before suspension");
+
+        var suspended = f.administration.suspend(new SuspendPaidSalesCommand(f.event, "Fraud investigation"));
+        check("SUSPENDED".equals(suspended.status()), "Administrator suspends paid sales");
+        check(f.audit.actions.contains("PAID_SALES_SUSPENDED"), "Suspension is audited");
+        fails(f::start);
+        try {
+            f.service.activate(new ActivatePaidSalesCommand(f.event, 7, true, true));
+            check(false, "Re-requesting activation must be rejected");
+        } catch (ActivationNotAllowedException expected) {
+            check(expected.getMessage().contains("suspended"), "The organizer is told that paid sales are suspended");
+        }
+        check(f.activations.find(f.event).orElseThrow().paymentId().equals(fee), "Re-requesting activation cannot replace the suspension");
+    }
+
+    @Test
+    void onlyAdministratorsCanSuspendPaidSales() {
+        var f = new Fixture();
+        f.admin.administrator = false;
+        try {
+            f.administration.suspend(new SuspendPaidSalesCommand(f.event, "Not an admin"));
+            check(false, "A non-administrator must be rejected");
+        } catch (AuthorizationException expected) {
+            check(f.activations.find(f.event).orElseThrow().aggregate().permitsPaidSales(), "Paid sales stay active");
+            check(!f.audit.actions.contains("PAID_SALES_SUSPENDED"), "Nothing is audited");
+        }
+    }
+
+    @Test
+    void administratorFeeChangeAppliesToNewActivationRequests() {
+        var f = new Fixture();
+        f.activations.rows.clear();
+        f.settings.fee = new PaymentSettingsRepository.ActivationFeeSetting(new BigDecimal("2500.00"), 99, f.clock.instant());
+        UUID id = f.service.activate(new ActivatePaidSalesCommand(f.event, 7, true, true));
+        check(
+            f.works.find(id).orElseThrow().getAmount().compareTo(new BigDecimal("2500")) == 0,
+            "New request uses the administrator's fee"
+        );
+    }
+
+    @Test
     void pendingRefundPreventsCheckInAndExternalRefundInvalidatesUsedTicket() {
         var t = Ticket.issue(
             new TicketTypeId(UUID.randomUUID()),
@@ -634,11 +724,17 @@ public class PaymentSagaTest {
 
     static final class Audit implements FinancialAudit {
 
+        final List<String> actions = new ArrayList<>();
+
         Audit(Clock c) {}
 
-        public void record(String c, UUID id, Long actor, String action) {}
+        public void record(String c, UUID id, Long actor, String action) {
+            actions.add(action);
+        }
 
-        public void recordDetails(String c, UUID id, Long actor, String action, String details) {}
+        public void recordDetails(String c, UUID id, Long actor, String action, String details) {
+            actions.add(action);
+        }
     }
 
     static final class Locks implements TransactionLocks {
@@ -772,6 +868,66 @@ public class PaymentSagaTest {
 
         public Map<String, BigDecimal> summary(long o) {
             return Map.of();
+        }
+    }
+
+    static final class Actor implements CurrentActor {
+
+        boolean administrator = true;
+
+        public Optional<Long> userId() {
+            return Optional.of(99L);
+        }
+
+        public boolean isAdministrator() {
+            return administrator;
+        }
+    }
+
+    static final class PaidTypes implements PaidSalesInventoryOhs {
+
+        boolean paid = true;
+
+        public boolean hasPaidTicketType(UUID e) {
+            return paid;
+        }
+    }
+
+    static final class Settings implements PaymentSettingsRepository {
+
+        ActivationFeeSetting fee;
+
+        public Optional<ActivationFeeSetting> activationFee() {
+            return Optional.ofNullable(fee);
+        }
+
+        public void saveActivationFee(ActivationFeeSetting setting) {
+            fee = setting;
+        }
+    }
+
+    static final class PaymentNotices implements PaymentNoticeStore {
+
+        final Map<UUID, PaymentNotice> rows = new LinkedHashMap<>();
+
+        public void enqueue(PaymentNotice n) {
+            rows.putIfAbsent(n.id(), n);
+        }
+
+        List<PaymentNoticeKind> kinds() {
+            return rows.values().stream().map(PaymentNotice::kind).toList();
+        }
+
+        public Optional<Claim> claim(Instant now) {
+            return Optional.empty();
+        }
+
+        public void complete(Claim claim, Instant now) {
+            throw new UnsupportedOperationException();
+        }
+
+        public void retry(Claim claim, Instant now) {
+            throw new UnsupportedOperationException();
         }
     }
 
@@ -983,8 +1139,35 @@ public class PaymentSagaTest {
         Processes processes = new Processes();
         Stock stock = new Stock(clock);
         Notices notices = new Notices();
-        PaymentService service = new PaymentService(works, activations, events, locks, audit, clock, terms, bank, secrets);
-        PaymentTransitions transitions = new PaymentTransitions(works, activations, ledger, queue::add, audit, locks, events, clock);
+        PaidTypes paidTypes = new PaidTypes();
+        Settings settings = new Settings();
+        PaymentNotices paymentNotices = new PaymentNotices();
+        PaymentService service = new PaymentService(
+            works,
+            activations,
+            events,
+            locks,
+            audit,
+            clock,
+            terms,
+            bank,
+            secrets,
+            paidTypes,
+            new ActivationTermsProvider(terms, settings)
+        );
+        PaymentTransitions transitions = new PaymentTransitions(
+            works,
+            activations,
+            ledger,
+            queue::add,
+            audit,
+            locks,
+            events,
+            clock,
+            paymentNotices
+        );
+        Actor admin = new Actor();
+        PaidSalesAdministrationService administration = new PaidSalesAdministrationService(activations, locks, audit, admin, clock);
         PaymentAccessService access = new PaymentAccessService(works, bank, secrets, transitions, audit, clock, locks);
         PaymentReconciler reconciler = new PaymentReconciler(works, bank, transitions, locks, clock, new LocalTransactions());
         CheckoutService checkout = new CheckoutService(
