@@ -6,7 +6,9 @@ import java.util.Optional;
 public interface CurrentActor {
     Optional<Long> userId();
 
-    boolean isAdministrator();
+    default boolean isAdministrator() {
+        return false;
+    }
 
     default Long requireUserId() {
         return userId().orElseThrow(() -> new UnauthenticatedActorException("No authenticated user is available"));
