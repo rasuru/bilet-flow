@@ -12,4 +12,10 @@ public interface PaymentSettingsRepository {
     Optional<ActivationFeeSetting> activationFee();
 
     void saveActivationFee(ActivationFeeSetting setting);
+
+    record ProcessingFeeRateSetting(BigDecimal rate, long updatedBy, Instant updatedAt) {}
+
+    Optional<ProcessingFeeRateSetting> processingFeeRate();
+
+    void saveProcessingFeeRate(ProcessingFeeRateSetting setting);
 }

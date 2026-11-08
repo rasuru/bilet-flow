@@ -3,7 +3,9 @@ package com.biletflow.biletflow.paymentsmonetization.application;
 import com.biletflow.biletflow.common.application.*;
 import com.biletflow.biletflow.paymentsmonetization.application.command.RequestPayoutCommand;
 import com.biletflow.biletflow.paymentsmonetization.application.view.*;
+import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.PayoutAccountRequiredException;
 import com.biletflow.biletflow.paymentsmonetization.domain.payout.*;
+import com.biletflow.biletflow.paymentsmonetization.domain.payoutaccount.PayoutAccountRepository;
 import com.biletflow.biletflow.paymentsmonetization.domain.revenue.OrganizerBalanceRepository;
 import java.time.Clock;
 import java.util.*;
@@ -19,19 +21,22 @@ public class PayoutService {
     private final TransactionLocks locks;
     private final FinancialAudit audit;
     private final Clock clock;
+    private final PayoutAccountRepository accounts;
 
     public PayoutService(
         PayoutRepository payouts,
         OrganizerBalanceRepository balances,
         TransactionLocks locks,
         FinancialAudit audit,
-        Clock clock
+        Clock clock,
+        PayoutAccountRepository accounts
     ) {
         this.payouts = Objects.requireNonNull(payouts);
         this.balances = Objects.requireNonNull(balances);
         this.locks = Objects.requireNonNull(locks);
         this.audit = Objects.requireNonNull(audit);
         this.clock = Objects.requireNonNull(clock);
+        this.accounts = Objects.requireNonNull(accounts);
     }
 
     @Transactional
@@ -46,6 +51,9 @@ public class PayoutService {
             payout.requireSameAmount(command.amount());
             return PayoutView.from(payout);
         }
+        if (accounts.findByOrganizerId(command.organizerId()).isEmpty()) throw new PayoutAccountRequiredException(
+            "Register a payout account before requesting a payout"
+        );
         var balance = balances.get(command.organizerId());
         balance.requirePayoutAmount(command.amount());
         var payout = Payout.request(id, command.organizerId(), command.amount(), clock.instant());

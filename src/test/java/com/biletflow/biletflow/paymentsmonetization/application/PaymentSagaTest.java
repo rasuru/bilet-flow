@@ -13,6 +13,7 @@ import com.biletflow.biletflow.ordercheckout.application.view.CheckoutView;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.*;
 import com.biletflow.biletflow.ordercheckout.domain.order.*;
 import com.biletflow.biletflow.paymentsmonetization.application.command.ActivatePaidSalesCommand;
+import com.biletflow.biletflow.paymentsmonetization.application.command.ReinstatePaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.application.command.ResolvePaymentOperationCommand;
 import com.biletflow.biletflow.paymentsmonetization.application.command.SuspendPaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.config.HalykProperties;
@@ -20,6 +21,7 @@ import com.biletflow.biletflow.paymentsmonetization.domain.activation.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.activationfeepayment.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.ActivationNotAllowedException;
 import com.biletflow.biletflow.paymentsmonetization.domain.notice.PaymentNoticeKind;
+import com.biletflow.biletflow.paymentsmonetization.domain.payoutaccount.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.*;
@@ -427,6 +429,66 @@ public class PaymentSagaTest {
         f.paidTypes.paid = true;
         f.service.activate(new ActivatePaidSalesCommand(f.event, 7, true, true));
         check(f.activations.find(f.event).isPresent(), "A paid ticket type allows the activation request");
+    }
+
+    @Test
+    void activationRequiresARegisteredPayoutAccount() {
+        var f = new Fixture();
+        f.activations.rows.clear();
+        f.payoutAccounts.rows.clear();
+        try {
+            f.service.activate(new ActivatePaidSalesCommand(f.event, 7, true, true));
+            check(false, "Activation without a payout account must be rejected");
+        } catch (ActivationNotAllowedException expected) {
+            check(expected.getMessage().contains("payout account"), "The organizer is told to register a payout account");
+        }
+        check(f.works.rows.isEmpty() && f.activations.rows.isEmpty(), "No fee payment is created without a payout account");
+        f.payoutAccounts.save(PayoutAccount.register(7L, "Organizer Seven", KzIban.parse("KZ86125KZT5004100100"), f.clock.instant()));
+        f.service.activate(new ActivatePaidSalesCommand(f.event, 7, true, true));
+        check(f.activations.find(f.event).isPresent(), "A registered payout account allows the activation request");
+    }
+
+    @Test
+    void administratorCanReinstateSuspendedPaidSalesWithoutANewFee() {
+        var f = new Fixture();
+        f.administration.suspend(new SuspendPaidSalesCommand(f.event, "Fraud investigation"));
+        fails(f::start);
+        UUID feeBefore = f.activations.find(f.event).orElseThrow().paymentId();
+
+        var reinstated = f.administration.reinstate(new ReinstatePaidSalesCommand(f.event, "Investigation cleared"));
+
+        check("ACTIVE".equals(reinstated.status()), "Reinstatement makes paid sales active again");
+        check(f.audit.actions.contains("PAID_SALES_REINSTATED"), "Reinstatement is audited");
+        check(f.activations.find(f.event).orElseThrow().paymentId().equals(feeBefore), "No new activation fee is charged");
+        check(f.start() != null, "Paid checkout works again after reinstatement");
+        fails(() -> f.administration.reinstate(new ReinstatePaidSalesCommand(f.event, "Twice")));
+    }
+
+    @Test
+    void onlyAdministratorsCanReinstatePaidSales() {
+        var f = new Fixture();
+        f.administration.suspend(new SuspendPaidSalesCommand(f.event, "Fraud investigation"));
+        f.admin.administrator = false;
+        try {
+            f.administration.reinstate(new ReinstatePaidSalesCommand(f.event, "Not an admin"));
+            check(false, "A non-administrator must be rejected");
+        } catch (AuthorizationException expected) {
+            check(!f.activations.find(f.event).orElseThrow().aggregate().permitsPaidSales(), "Paid sales stay suspended");
+            check(!f.audit.actions.contains("PAID_SALES_REINSTATED"), "Nothing is audited");
+        }
+    }
+
+    @Test
+    void processingFeeRateOverrideAppliesOnlyToPaymentsStartedAfterIt() {
+        var f = new Fixture();
+        var before = f.work(f.start());
+        check(before.getFee().compareTo(new BigDecimal("30.00")) == 0, "The configured 3% fee applies by default");
+
+        f.settings.rate = new PaymentSettingsRepository.ProcessingFeeRateSetting(new BigDecimal("0.0500"), 99, f.clock.instant());
+        var after = f.work(f.start());
+
+        check(after.getFee().compareTo(new BigDecimal("50.00")) == 0, "A new payment uses the administrator's 5% rate");
+        check(f.works.find(before.getId()).orElseThrow().getFee().compareTo(new BigDecimal("30.00")) == 0, "Earlier payments keep their fee");
     }
 
     @Test
@@ -869,6 +931,10 @@ public class PaymentSagaTest {
         public Map<String, BigDecimal> summary(long o) {
             return Map.of();
         }
+
+        public Map<String, BigDecimal> eventSummary(UUID e) {
+            return Map.of();
+        }
     }
 
     static final class Actor implements CurrentActor {
@@ -903,6 +969,30 @@ public class PaymentSagaTest {
 
         public void saveActivationFee(ActivationFeeSetting setting) {
             fee = setting;
+        }
+
+        ProcessingFeeRateSetting rate;
+
+        public Optional<ProcessingFeeRateSetting> processingFeeRate() {
+            return Optional.ofNullable(rate);
+        }
+
+        public void saveProcessingFeeRate(ProcessingFeeRateSetting setting) {
+            rate = setting;
+        }
+    }
+
+    static final class PayoutAccounts implements PayoutAccountRepository {
+
+        final Map<Long, PayoutAccount> rows = new HashMap<>();
+
+        public Optional<PayoutAccount> findByOrganizerId(long organizerId) {
+            return Optional.ofNullable(rows.get(organizerId));
+        }
+
+        public PayoutAccount save(PayoutAccount account) {
+            rows.put(account.getOrganizerId(), account);
+            return account;
         }
     }
 
@@ -1141,6 +1231,7 @@ public class PaymentSagaTest {
         Notices notices = new Notices();
         PaidTypes paidTypes = new PaidTypes();
         Settings settings = new Settings();
+        PayoutAccounts payoutAccounts = new PayoutAccounts();
         PaymentNotices paymentNotices = new PaymentNotices();
         PaymentService service = new PaymentService(
             works,
@@ -1153,7 +1244,8 @@ public class PaymentSagaTest {
             bank,
             secrets,
             paidTypes,
-            new ActivationTermsProvider(terms, settings)
+            new PaymentTermsProvider(terms, settings),
+            payoutAccounts
         );
         PaymentTransitions transitions = new PaymentTransitions(
             works,
@@ -1185,6 +1277,7 @@ public class PaymentSagaTest {
         );
 
         Fixture() {
+            payoutAccounts.save(PayoutAccount.register(7L, "Organizer Seven", KzIban.parse("KZ86125KZT5004100100"), clock.instant()));
             activations.save(
                 new ActivationRepository.Activation(
                     new EventPaidSalesActivation(

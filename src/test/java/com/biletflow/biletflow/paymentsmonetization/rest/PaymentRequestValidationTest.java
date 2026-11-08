@@ -53,13 +53,38 @@ class PaymentRequestValidationTest {
     void suspensionRequiresAReasonAndTheFeeMustBeValid() {
         try (var factory = Validation.buildDefaultValidatorFactory()) {
             var validator = factory.getValidator();
-            assertFalse(validator.validate(new PaymentAdministrationResource.SuspendRequest(" ")).isEmpty());
-            assertFalse(validator.validate(new PaymentAdministrationResource.SuspendRequest("x".repeat(201))).isEmpty());
-            assertTrue(validator.validate(new PaymentAdministrationResource.SuspendRequest("Fraud investigation")).isEmpty());
+            assertFalse(validator.validate(new PaymentAdministrationResource.ReasonRequest(" ")).isEmpty());
+            assertFalse(validator.validate(new PaymentAdministrationResource.ReasonRequest("x".repeat(201))).isEmpty());
+            assertTrue(validator.validate(new PaymentAdministrationResource.ReasonRequest("Fraud investigation")).isEmpty());
             assertFalse(validator.validate(new PaymentAdministrationResource.ActivationFeeRequest(null)).isEmpty());
             assertFalse(validator.validate(new PaymentAdministrationResource.ActivationFeeRequest(BigDecimal.ZERO)).isEmpty());
             assertFalse(validator.validate(new PaymentAdministrationResource.ActivationFeeRequest(new BigDecimal("10.001"))).isEmpty());
             assertTrue(validator.validate(new PaymentAdministrationResource.ActivationFeeRequest(new BigDecimal("1500.00"))).isEmpty());
+        }
+    }
+
+    @Test
+    void payoutAccountNeedsHolderIbanAndSimulationConsent() {
+        try (var factory = Validation.buildDefaultValidatorFactory()) {
+            var validator = factory.getValidator();
+            assertFalse(validator.validate(new PayoutAccountResource.Request(" ", "KZ86125KZT5004100100", true)).isEmpty());
+            assertFalse(validator.validate(new PayoutAccountResource.Request("Holder", "", true)).isEmpty());
+            assertFalse(validator.validate(new PayoutAccountResource.Request("Holder", "KZ86125KZT5004100100", false)).isEmpty());
+            assertFalse(validator.validate(new PayoutAccountResource.Request("x".repeat(101), "KZ86125KZT5004100100", true)).isEmpty());
+            assertTrue(validator.validate(new PayoutAccountResource.Request("Holder", "KZ86 125K ZT50 0410 0100", true)).isEmpty());
+        }
+    }
+
+    @Test
+    void processingFeeRateMustBeAPercentageBelowOneHundred() {
+        try (var factory = Validation.buildDefaultValidatorFactory()) {
+            var validator = factory.getValidator();
+            assertFalse(validator.validate(new PaymentAdministrationResource.ProcessingFeeRateRequest(null)).isEmpty());
+            assertFalse(validator.validate(new PaymentAdministrationResource.ProcessingFeeRateRequest(new BigDecimal("-0.01"))).isEmpty());
+            assertFalse(validator.validate(new PaymentAdministrationResource.ProcessingFeeRateRequest(new BigDecimal("100"))).isEmpty());
+            assertFalse(validator.validate(new PaymentAdministrationResource.ProcessingFeeRateRequest(new BigDecimal("2.555"))).isEmpty());
+            assertTrue(validator.validate(new PaymentAdministrationResource.ProcessingFeeRateRequest(BigDecimal.ZERO)).isEmpty());
+            assertTrue(validator.validate(new PaymentAdministrationResource.ProcessingFeeRateRequest(new BigDecimal("2.5"))).isEmpty());
         }
     }
 }

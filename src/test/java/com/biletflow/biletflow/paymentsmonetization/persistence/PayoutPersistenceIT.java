@@ -9,6 +9,7 @@ import com.biletflow.biletflow.paymentsmonetization.application.*;
 import com.biletflow.biletflow.paymentsmonetization.application.command.RequestPayoutCommand;
 import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.InsufficientBalanceException;
 import com.biletflow.biletflow.paymentsmonetization.domain.payout.*;
+import com.biletflow.biletflow.paymentsmonetization.domain.payoutaccount.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.revenue.OrganizerBalanceRepository;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.*;
 import jakarta.persistence.EntityManager;
@@ -17,6 +18,7 @@ import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -43,6 +45,9 @@ class PayoutPersistenceIT {
 
     @Autowired
     PayoutNoticeStore notices;
+
+    @Autowired
+    PayoutAccountRepository accounts;
 
     @Autowired
     TransactionLocks locks;
@@ -85,9 +90,20 @@ class PayoutPersistenceIT {
         });
     }
 
+    @BeforeEach
+    void registerPayoutAccount() {
+        tx().executeWithoutResult(status ->
+            accounts.save(PayoutAccount.register(organizer, "IT Organizer", KzIban.parse("KZ86125KZT5004100100"), now))
+        );
+    }
+
     @AfterEach
     void cleanup() {
         tx().executeWithoutResult(status -> {
+            entities
+                .createQuery("delete PayoutAccountJpaEntity a where a.organizerId = :organizer")
+                .setParameter("organizer", organizer)
+                .executeUpdate();
             entities
                 .createQuery(
                     "delete FinancialAuditJpaEntity a where a.actor = :organizer or a.aggregateId in (select p.id from PayoutJpaEntity p where p.organizerId = :organizer)"
@@ -199,7 +215,7 @@ class PayoutPersistenceIT {
         seedCharge();
         UUID id = UUID.randomUUID();
         var audit = mock(FinancialAudit.class);
-        var subject = new PayoutService(payouts, balances, locks, audit, Clock.fixed(now, ZoneOffset.UTC));
+        var subject = new PayoutService(payouts, balances, locks, audit, Clock.fixed(now, ZoneOffset.UTC), accounts);
         doThrow(new IllegalStateException("audit failure")).when(audit).record("payments", id, organizer, "PAYOUT_REQUESTED_SIMULATED");
         assertThrows(IllegalStateException.class, () -> tx().executeWithoutResult(s -> subject.request(request(id, "970"))));
         assertTrue(payouts.findById(new PayoutId(id)).isEmpty());
@@ -241,5 +257,24 @@ class PayoutPersistenceIT {
         assertEquals(new BigDecimal("1000.00"), service.balance(organizer).deficitKzt());
         assertEquals(new BigDecimal("0.00"), service.balance(organizer).availableKzt());
         assertThrows(InsufficientBalanceException.class, () -> service.request(request(UUID.randomUUID(), "0.01")));
+    }
+
+    @Test
+    void payoutAccountRoundTripsAndReplacementKeepsOnlyTheMaskedIban() {
+        var stored = accounts.findByOrganizerId(organizer).orElseThrow();
+        assertEquals("IT Organizer", stored.getHolderName());
+        assertEquals("125", stored.getBankCode());
+        assertEquals("KZ** **** **** **** 0100", stored.maskedIban());
+
+        tx().executeWithoutResult(status -> {
+            var account = accounts.findByOrganizerId(organizer).orElseThrow();
+            account.replace("Renamed Organizer", KzIban.parse("KZ86125KZT5004100100"), now.plusSeconds(60));
+            accounts.save(account);
+        });
+
+        var replaced = accounts.findByOrganizerId(organizer).orElseThrow();
+        assertEquals("Renamed Organizer", replaced.getHolderName());
+        assertEquals(now.plusSeconds(60).truncatedTo(java.time.temporal.ChronoUnit.MILLIS), replaced.getUpdatedAt().truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
+        assertEquals(stored.getRegisteredAt(), replaced.getRegisteredAt());
     }
 }

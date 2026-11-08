@@ -4,6 +4,7 @@ import com.biletflow.biletflow.common.application.EntityNotFoundException;
 import com.biletflow.biletflow.common.application.FinancialAudit;
 import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.common.security.CurrentActor;
+import com.biletflow.biletflow.paymentsmonetization.application.command.ReinstatePaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.application.command.SuspendPaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.application.view.ActivationRecordView;
 import java.time.Clock;
@@ -47,6 +48,16 @@ public class PaidSalesAdministrationService {
         activation.aggregate().suspend(command.reason(), clock.instant());
         activations.save(activation);
         audit.recordDetails("payments", command.eventId(), admin, "PAID_SALES_SUSPENDED", command.reason());
+        return ActivationRecordView.from(activation);
+    }
+
+    public ActivationRecordView reinstate(ReinstatePaidSalesCommand command) {
+        long admin = actor.requireAdministrator();
+        locks.lock("activation:" + command.eventId());
+        var activation = activations.find(command.eventId()).orElseThrow(() -> new EntityNotFoundException("Activation not found"));
+        activation.aggregate().reinstate();
+        activations.save(activation);
+        audit.recordDetails("payments", command.eventId(), admin, "PAID_SALES_REINSTATED", command.reason());
         return ActivationRecordView.from(activation);
     }
 }

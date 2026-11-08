@@ -9,6 +9,7 @@ import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.paymentsmonetization.application.command.ActivatePaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.domain.activation.EventPaidSalesActivation;
 import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.ActivationNotAllowedException;
+import com.biletflow.biletflow.paymentsmonetization.domain.payoutaccount.PayoutAccountRepository;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentOperation;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentOperationState;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentTerms;
@@ -36,7 +37,8 @@ public class PaymentService implements PaymentsOhs {
     private final PaymentGateway bank;
     private final CallbackSecrets secrets;
     private final PaidSalesInventoryOhs inventory;
-    private final ActivationTermsProvider activationTerms;
+    private final PaymentTermsProvider currentTerms;
+    private final PayoutAccountRepository payoutAccounts;
 
     public PaymentService(
         PaymentWorkRepository works,
@@ -49,7 +51,8 @@ public class PaymentService implements PaymentsOhs {
         PaymentGateway bank,
         CallbackSecrets secrets,
         PaidSalesInventoryOhs inventory,
-        ActivationTermsProvider activationTerms
+        PaymentTermsProvider currentTerms,
+        PayoutAccountRepository payoutAccounts
     ) {
         this.works = Objects.requireNonNull(works, "works cannot be null");
         this.activations = Objects.requireNonNull(activations, "activations cannot be null");
@@ -61,7 +64,8 @@ public class PaymentService implements PaymentsOhs {
         this.bank = Objects.requireNonNull(bank, "bank cannot be null");
         this.secrets = Objects.requireNonNull(secrets, "secrets cannot be null");
         this.inventory = Objects.requireNonNull(inventory, "inventory cannot be null");
-        this.activationTerms = Objects.requireNonNull(activationTerms, "activationTerms cannot be null");
+        this.currentTerms = Objects.requireNonNull(currentTerms, "currentTerms cannot be null");
+        this.payoutAccounts = Objects.requireNonNull(payoutAccounts, "payoutAccounts cannot be null");
     }
 
     @Override
@@ -83,7 +87,7 @@ public class PaymentService implements PaymentsOhs {
         locks.lock("activation:" + c.eventId());
         var activation = activations.find(c.eventId()).orElseThrow(() -> new IllegalStateException("Paid sales are not activated"));
         terms.requirePaidSales(scope.registrationOpen(), activation.aggregate().permitsPaidSales());
-        PaymentWork w = terms.ticket(
+        PaymentWork w = currentTerms.current().ticket(
             c.orderId(),
             c.eventId(),
             c.payerId(),
@@ -129,9 +133,12 @@ public class PaymentService implements PaymentsOhs {
         if (!inventory.hasPaidTicketType(eventId)) throw new ActivationNotAllowedException(
             "Add a paid ticket type before activating paid sales"
         );
-        var currentTerms = activationTerms.current();
-        bank.validateAmount(currentTerms.activationFee());
-        PaymentWork w = currentTerms.activation(eventId, organizer, clock.instant(), works.nextInvoice(), secrets.generate());
+        if (payoutAccounts.findByOrganizerId(organizer).isEmpty()) throw new ActivationNotAllowedException(
+            "Register a payout account before activating paid sales"
+        );
+        var feeTerms = currentTerms.current();
+        bank.validateAmount(feeTerms.activationFee());
+        PaymentWork w = feeTerms.activation(eventId, organizer, clock.instant(), works.nextInvoice(), secrets.generate());
         works.insert(w);
         activations.save(
             new ActivationRepository.Activation(

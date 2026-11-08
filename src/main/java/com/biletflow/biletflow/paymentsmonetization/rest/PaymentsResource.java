@@ -125,7 +125,7 @@ public class PaymentsResource {
     @PostMapping("/events/{eventId}/activation")
     @Operation(
         summary = "Request paid sales activation",
-        description = "Organizer-only. Terms and simulated verification must be accepted, and the event needs a paid ticket type (409 otherwise). An administrator suspension cannot be lifted by requesting activation again (409). The returned activation fee payment must settle before paid sales become active.")
+        description = "Organizer-only. Terms and simulated verification must be accepted, the event needs a paid ticket type and the organizer needs a registered payout account (PUT /api/payments/payout-account) (409 otherwise). An administrator suspension cannot be lifted by requesting activation again (409). The returned activation fee payment must settle before paid sales become active.")
     @ApiResponse(
         responseCode = "200",
         description = "Current or new activation fee payment",
@@ -183,6 +183,20 @@ public class PaymentsResource {
     )
     public ResponseEntity<RevenueView> revenue() {
         return response(queries.revenue(actor.requireUserId()));
+    }
+
+    @GetMapping("/events/{eventId}/revenue")
+    @Operation(
+        summary = "Get one event's estimated revenue",
+        description = "SRS 4.6. Gross sales, estimated fees, refunds and estimated net in KZT for one event. Available to the event's organizers. Not a bank payout balance."
+    )
+    @ApiResponse(
+        responseCode = "200",
+        description = "Event revenue summary",
+        content = @Content(schema = @Schema(implementation = RevenueView.class))
+    )
+    public ResponseEntity<RevenueView> eventRevenue(@PathVariable UUID eventId) {
+        return response(queries.eventRevenue(eventId, actor.requireUserId()));
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

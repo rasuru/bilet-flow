@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class JpaPaymentSettingsRepository implements PaymentSettingsRepository {
 
     static final String ACTIVATION_FEE = "activation-fee-kzt";
+    static final String PROCESSING_FEE_RATE = "processing-fee-rate";
 
     private final EntityManager entities;
 
@@ -36,5 +37,22 @@ public class JpaPaymentSettingsRepository implements PaymentSettingsRepository {
             new PaymentSettingJpaEntity(ACTIVATION_FEE, setting.amountKzt(), setting.updatedBy(), setting.updatedAt())
         );
         else row.update(setting.amountKzt(), setting.updatedBy(), setting.updatedAt());
+    }
+
+    @Override
+    public Optional<ProcessingFeeRateSetting> processingFeeRate() {
+        return Optional.ofNullable(entities.find(PaymentSettingJpaEntity.class, PROCESSING_FEE_RATE)).map(row ->
+            new ProcessingFeeRateSetting(row.getRate(), row.getUpdatedBy(), row.getUpdatedAt())
+        );
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void saveProcessingFeeRate(ProcessingFeeRateSetting setting) {
+        var row = entities.find(PaymentSettingJpaEntity.class, PROCESSING_FEE_RATE);
+        if (row == null) entities.persist(
+            PaymentSettingJpaEntity.rate(PROCESSING_FEE_RATE, setting.rate(), setting.updatedBy(), setting.updatedAt())
+        );
+        else row.updateRate(setting.rate(), setting.updatedBy(), setting.updatedAt());
     }
 }

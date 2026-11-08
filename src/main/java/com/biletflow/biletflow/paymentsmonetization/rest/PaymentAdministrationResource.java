@@ -4,10 +4,12 @@ import com.biletflow.biletflow.paymentsmonetization.application.PaidSalesAdminis
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentAdminQueries;
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentAdminQueryService;
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentSettingsService;
+import com.biletflow.biletflow.paymentsmonetization.application.command.ReinstatePaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.application.command.SuspendPaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.application.view.ActivationFeeView;
 import com.biletflow.biletflow.paymentsmonetization.application.view.ActivationRecordView;
 import com.biletflow.biletflow.paymentsmonetization.application.view.AdminPaymentView;
+import com.biletflow.biletflow.paymentsmonetization.application.view.ProcessingFeeRateView;
 import com.biletflow.biletflow.paymentsmonetization.domain.activation.EventPaidSalesActivationStatus;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentPurpose;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentStatus;
@@ -113,21 +115,36 @@ public class PaymentAdministrationResource {
         return response(queries.activations(status, offset, limit));
     }
 
-    public record SuspendRequest(@NotBlank @Size(max = 200) String reason) {}
+    public record ReasonRequest(@NotBlank @Size(max = 200) String reason) {}
 
     @PostMapping("/events/{eventId}/paid-sales/suspend")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     @Operation(
         summary = "Suspend an event's paid sales",
-        description = "SRS 4.5. New paid checkouts are rejected immediately; payments already started still settle and issued tickets stay valid. The fee is kept and the reason is audited. Requesting activation again cannot lift the suspension."
+        description = "SRS 4.5. New paid checkouts are rejected immediately; payments already started still settle and issued tickets stay valid. The fee is kept and the reason is audited. Requesting activation again cannot lift the suspension; use the reinstate endpoint."
     )
     @ApiResponse(
         responseCode = "200",
         description = "Suspended activation",
         content = @Content(schema = @Schema(implementation = ActivationRecordView.class))
     )
-    public ResponseEntity<ActivationRecordView> suspend(@PathVariable UUID eventId, @Valid @RequestBody SuspendRequest request) {
+    public ResponseEntity<ActivationRecordView> suspend(@PathVariable UUID eventId, @Valid @RequestBody ReasonRequest request) {
         return response(paidSales.suspend(new SuspendPaidSalesCommand(eventId, request.reason())));
+    }
+
+    @PostMapping("/events/{eventId}/paid-sales/reinstate")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    @Operation(
+        summary = "Reinstate an event's suspended paid sales",
+        description = "Lifts an administrator suspension. No new activation fee is charged. New paid checkouts still require the event to be open for registration. The administrator and reason are audited. 409 if paid sales are not suspended."
+    )
+    @ApiResponse(
+        responseCode = "200",
+        description = "Reinstated activation",
+        content = @Content(schema = @Schema(implementation = ActivationRecordView.class))
+    )
+    public ResponseEntity<ActivationRecordView> reinstate(@PathVariable UUID eventId, @Valid @RequestBody ReasonRequest request) {
+        return response(paidSales.reinstate(new ReinstatePaidSalesCommand(eventId, request.reason())));
     }
 
     @GetMapping("/settings/activation-fee")
@@ -157,6 +174,37 @@ public class PaymentAdministrationResource {
     )
     public ResponseEntity<ActivationFeeView> changeActivationFee(@Valid @RequestBody ActivationFeeRequest request) {
         return response(settings.changeActivationFee(request.amountKzt()));
+    }
+
+    @GetMapping("/settings/processing-fee-rate")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    @Operation(summary = "Get the estimated processing-fee rate for new ticket payments")
+    @ApiResponse(
+        responseCode = "200",
+        description = "Current rate as a percentage",
+        content = @Content(schema = @Schema(implementation = ProcessingFeeRateView.class))
+    )
+    public ResponseEntity<ProcessingFeeRateView> processingFeeRate() {
+        return response(settings.processingFeeRate());
+    }
+
+    public record ProcessingFeeRateRequest(
+        @NotNull @DecimalMin("0") @DecimalMax(value = "100", inclusive = false) @Digits(integer = 2, fraction = 2) BigDecimal ratePercent
+    ) {}
+
+    @PutMapping("/settings/processing-fee-rate")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    @Operation(
+        summary = "Change the estimated processing-fee rate for new ticket payments",
+        description = "SRS 4.12. A percentage, for example 2.5. Takes effect without a restart for payments started afterwards; existing payments keep their fee. The change is audited."
+    )
+    @ApiResponse(
+        responseCode = "200",
+        description = "Updated rate",
+        content = @Content(schema = @Schema(implementation = ProcessingFeeRateView.class))
+    )
+    public ResponseEntity<ProcessingFeeRateView> changeProcessingFeeRate(@Valid @RequestBody ProcessingFeeRateRequest request) {
+        return response(settings.changeProcessingFeeRate(request.ratePercent()));
     }
 
     private <T> ResponseEntity<T> response(T body) {
