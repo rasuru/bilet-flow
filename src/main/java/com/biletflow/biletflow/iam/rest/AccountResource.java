@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.iam.rest;
 
+import com.biletflow.biletflow.common.rest.ApiProblems;
 import com.biletflow.biletflow.iam.application.MailService;
 import com.biletflow.biletflow.iam.application.UserService;
 import com.biletflow.biletflow.iam.application.dto.AdminUserDTO;
@@ -105,7 +106,12 @@ public class AccountResource {
 
         Optional<User> user = userService.activateRegistration(key);
         if (user.isEmpty()) {
-            throw new AccountResourceException("No user was found for this activation key");
+            throw ApiProblems.exception(
+                HttpStatus.BAD_REQUEST,
+                "invalid-activation-key",
+                "Invalid activation key",
+                "No user was found for this activation key"
+            );
         }
     }
 
@@ -242,7 +248,12 @@ public class AccountResource {
 
         if (user.isEmpty()) {
             passwordEncoder.encode(request.newPassword());
-            throw new AccountResourceException("No user was found for this reset key");
+            throw ApiProblems.exception(
+                HttpStatus.BAD_REQUEST,
+                "invalid-password-reset-key",
+                "Invalid password reset key",
+                "No user was found for this reset key"
+            );
         }
     }
 

@@ -13,10 +13,9 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
-import org.springframework.security.oauth2.server.resource.web.access.BearerTokenAccessDeniedHandler;
 import org.springframework.security.web.SecurityFilterChain;
 import tech.jhipster.config.JHipsterProperties;
+import tools.jackson.databind.ObjectMapper;
 
 @Configuration
 @EnableMethodSecurity(securedEnabled = true)
@@ -42,7 +41,8 @@ public class SecurityConfiguration {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) {
+    public SecurityFilterChain filterChain(HttpSecurity http, ObjectMapper mapper) {
+        var bearerProblems = new BearerProblemHandlers(mapper);
         http.cors(withDefaults())
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(authz -> {
@@ -79,11 +79,9 @@ public class SecurityConfiguration {
             })
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .exceptionHandling(exceptions ->
-                exceptions
-                    .authenticationEntryPoint(new BearerTokenAuthenticationEntryPoint())
-                    .accessDeniedHandler(new BearerTokenAccessDeniedHandler())
+                exceptions.authenticationEntryPoint(bearerProblems::unauthenticated).accessDeniedHandler(bearerProblems::forbidden)
             )
-            .oauth2ResourceServer(oauth2 -> oauth2.jwt(withDefaults()));
+            .oauth2ResourceServer(oauth2 -> oauth2.authenticationEntryPoint(bearerProblems::unauthenticated).jwt(withDefaults()));
         return http.build();
     }
 }

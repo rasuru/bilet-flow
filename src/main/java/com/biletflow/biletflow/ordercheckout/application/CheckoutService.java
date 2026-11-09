@@ -75,11 +75,17 @@ public class CheckoutService {
         if (prior.isPresent()) {
             var p = prior.orElseThrow();
             authorizeOwner(p, owner);
-            if (!p.fingerprint().equals(fingerprint)) throw new IllegalStateException("Idempotency-Key was used for a different checkout");
+            if (!p.fingerprint().equals(fingerprint)) throw new CheckoutConflict(
+                CheckoutConflict.Reason.IDEMPOTENCY_KEY_REUSED,
+                "Idempotency-Key was used for a different checkout"
+            );
             return view(p, requireCheckout(id));
         }
         var scope = events.salesScope(request.eventId(), clock.instant());
-        if (!scope.registrationOpen()) throw new IllegalStateException("Event is not accepting registrations");
+        if (!scope.registrationOpen()) throw new CheckoutConflict(
+            CheckoutConflict.Reason.REGISTRATION_CLOSED,
+            "Event is not accepting registrations"
+        );
         var held = inventory.reserve(request.eventId(), id, request.selections());
         var checkout = new CheckoutSession(
             new CheckoutSessionId(id),
