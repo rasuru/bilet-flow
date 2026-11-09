@@ -2,73 +2,57 @@ package com.biletflow.biletflow.iam.rest.errors;
 
 import static org.springframework.core.annotation.AnnotatedElementUtils.findMergedAnnotation;
 
+import com.biletflow.biletflow.common.rest.ApiProblems;
 import com.biletflow.biletflow.iam.application.UsernameAlreadyUsedException;
 import com.biletflow.biletflow.iam.security.UserNotActivatedException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import java.net.URI;
-import java.util.Collection;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.Strings;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.env.Environment;
 import org.springframework.dao.ConcurrencyFailureException;
-import org.springframework.dao.DataAccessException;
 import org.springframework.http.*;
-import org.springframework.http.converter.HttpMessageConversionException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.validation.FieldError;
+import org.springframework.validation.method.ParameterErrors;
 import org.springframework.web.ErrorResponse;
-import org.springframework.web.ErrorResponseException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
-import tech.jhipster.config.JHipsterConstants;
-import tech.jhipster.web.rest.errors.ProblemDetailWithCause;
-import tech.jhipster.web.rest.errors.ProblemDetailWithCause.ProblemDetailWithCauseBuilder;
 import tech.jhipster.web.util.HeaderUtil;
 
-/**
- * Controller advice to translate the server side exceptions to client-friendly json structures.
- * The error response follows RFC7807 - Problem Details for HTTP APIs (https://tools.ietf.org/html/rfc7807).
- */
+/** Translates shared MVC and IAM failures into RFC 9457 Problem Details. */
 @ControllerAdvice
 public class ExceptionTranslator extends ResponseEntityExceptionHandler {
 
     private static final String FIELD_ERRORS_KEY = "fieldErrors";
     private static final String MESSAGE_KEY = "message";
     private static final String PATH_KEY = "path";
-    private static final boolean CAUSAL_CHAIN_ENABLED = false;
 
     private static final Logger LOG = LoggerFactory.getLogger(ExceptionTranslator.class);
 
     @Value("${jhipster.clientApp.name:biletFlow}")
     private String applicationName;
 
-    private final Environment env;
-
-    public ExceptionTranslator(Environment env) {
-        this.env = env;
-    }
-
     @ExceptionHandler
-    public ResponseEntity<Object> handleAnyException(Throwable ex, NativeWebRequest request) {
-        LOG.debug("Converting Exception to Problem Details:", ex);
-        ProblemDetailWithCause pdCause = wrapAndCustomizeProblem(ex, request);
-        return handleExceptionInternal((Exception) ex, pdCause, buildHeaders(ex), HttpStatusCode.valueOf(pdCause.getStatus()), request);
+    public ResponseEntity<Object> handleAnyException(Exception ex, NativeWebRequest request) {
+        ProblemDetail problem = problemFor(ex, toStatus(ex));
+        return handleExceptionInternal(ex, problem, buildHeaders(ex), HttpStatusCode.valueOf(problem.getStatus()), request);
     }
 
-    @SuppressWarnings("java:S2638")
     @Nullable
     @Override
     protected ResponseEntity<Object> handleExceptionInternal(
@@ -78,104 +62,123 @@ public class ExceptionTranslator extends ResponseEntityExceptionHandler {
         HttpStatusCode statusCode,
         WebRequest request
     ) {
-        body = body == null ? wrapAndCustomizeProblem(ex, (NativeWebRequest) request) : body;
-        return super.handleExceptionInternal(ex, body, headers, statusCode, request);
-    }
-
-    protected ProblemDetailWithCause wrapAndCustomizeProblem(Throwable ex, NativeWebRequest request) {
-        return customizeProblem(getProblemDetailWithCause(ex), ex, request);
-    }
-
-    private ProblemDetailWithCause getProblemDetailWithCause(Throwable ex) {
-        if (ex instanceof UsernameAlreadyUsedException) return (ProblemDetailWithCause) new LoginAlreadyUsedException().getBody();
-        if (
-            ex instanceof com.biletflow.biletflow.iam.application.EmailAlreadyUsedException
-        ) return (ProblemDetailWithCause) new EmailAlreadyUsedException().getBody();
-        if (
-            ex instanceof com.biletflow.biletflow.iam.application.InvalidPasswordException
-        ) return (ProblemDetailWithCause) new InvalidPasswordException().getBody();
-
-        if (
-            ex instanceof ErrorResponseException exp && exp.getBody() instanceof ProblemDetailWithCause problemDetailWithCause
-        ) return problemDetailWithCause;
-        return ProblemDetailWithCauseBuilder.instance().withStatus(toStatus(ex).value()).build();
-    }
-
-    protected ProblemDetailWithCause customizeProblem(ProblemDetailWithCause problem, Throwable err, NativeWebRequest request) {
-        if (problem.getStatus() <= 0) problem.setStatus(toStatus(err));
-
-        if (problem.getType() == null || problem.getType().equals(URI.create("about:blank"))) problem.setType(getMappedType(err));
-
-        // higher precedence to Custom/ResponseStatus types
-        String title = extractTitle(err, problem.getStatus());
-        String problemTitle = problem.getTitle();
-        if (problemTitle == null || !problemTitle.equals(title)) {
-            problem.setTitle(title);
+        if (body != null && !(body instanceof ProblemDetail)) {
+            return super.handleExceptionInternal(ex, body, headers, statusCode, request);
         }
 
-        if (problem.getDetail() == null) {
-            // higher precedence to cause
-            problem.setDetail(getCustomizedErrorDetails(err));
+        ProblemDetail problem = body instanceof ProblemDetail supplied ? supplied : problemFor(ex, statusCode);
+        problem.setStatus(statusCode.value());
+        if (statusCode.is5xxServerError()) {
+            LOG.error("Unexpected REST error", ex);
+            problem.setDetail("An unexpected server error occurred.");
+        } else if (ex instanceof HttpMessageNotReadableException) {
+            problem.setDetail("Malformed or unreadable request body");
         }
 
-        Map<String, Object> problemProperties = problem.getProperties();
-        if (problemProperties == null || !problemProperties.containsKey(MESSAGE_KEY)) problem.setProperty(
-            MESSAGE_KEY,
-            getMappedMessageKey(err) != null ? getMappedMessageKey(err) : "error.http." + problem.getStatus()
-        );
+        if (problem.getType() == null || ApiProblems.GENERIC_TYPE.equals(problem.getType())) {
+            problem.setType(getMappedType(ex));
+        }
+        if (problem.getProperties() == null || !problem.getProperties().containsKey(MESSAGE_KEY)) {
+            String key = getMappedMessageKey(ex);
+            problem.setProperty(MESSAGE_KEY, key == null ? "error.http." + statusCode.value() : key);
+        }
+        if (request instanceof NativeWebRequest nativeRequest) {
+            HttpServletRequest servletRequest = nativeRequest.getNativeRequest(HttpServletRequest.class);
+            if (servletRequest != null) problem.setProperty(PATH_KEY, URI.create(servletRequest.getRequestURI()));
+        }
+        if (isRequestValidation(ex)) {
+            problem.setProperty(FIELD_ERRORS_KEY, getFieldErrors(ex));
+        }
 
-        if (problemProperties == null || !problemProperties.containsKey(PATH_KEY)) problem.setProperty(PATH_KEY, getPathValue(request));
+        HttpHeaders responseHeaders = new HttpHeaders();
+        responseHeaders.putAll(headers);
+        responseHeaders.setContentType(MediaType.APPLICATION_PROBLEM_JSON);
+        return super.handleExceptionInternal(ex, problem, responseHeaders, statusCode, request);
+    }
 
-        if (
-            err instanceof MethodArgumentNotValidException fieldException &&
-            (problemProperties == null || !problemProperties.containsKey(FIELD_ERRORS_KEY))
-        ) problem.setProperty(FIELD_ERRORS_KEY, getFieldErrors(fieldException));
+    private ProblemDetail problemFor(Exception exception, HttpStatusCode status) {
+        if (exception instanceof UsernameAlreadyUsedException) return new LoginAlreadyUsedException().getBody();
+        if (exception instanceof com.biletflow.biletflow.iam.application.EmailAlreadyUsedException) {
+            return new EmailAlreadyUsedException().getBody();
+        }
+        if (exception instanceof com.biletflow.biletflow.iam.application.InvalidPasswordException) {
+            return new InvalidPasswordException().getBody();
+        }
+        if (exception instanceof ErrorResponse error) return error.getBody();
 
-        problem.setCause(buildCause(err.getCause(), request).orElse(null));
-
+        ProblemDetail problem = ProblemDetail.forStatus(status);
+        var responseStatus = resolveResponseStatus(exception);
+        if (responseStatus != null && !responseStatus.reason().isBlank()) {
+            problem.setTitle(responseStatus.reason());
+        }
+        if (!status.is5xxServerError()) {
+            problem.setDetail(exception.getMessage());
+        }
         return problem;
     }
 
-    private String extractTitle(Throwable err, int statusCode) {
-        return getCustomizedTitle(err) != null ? getCustomizedTitle(err) : extractTitleForResponseStatus(err, statusCode);
+    private List<FieldErrorVM> getFieldErrors(Throwable exception) {
+        if (exception instanceof MethodArgumentNotValidException invalidBody) {
+            return invalidBody.getBindingResult().getFieldErrors().stream().map(this::toFieldError).toList();
+        }
+        if (exception instanceof ConstraintViolationException invalidConstraint) {
+            return invalidConstraint
+                .getConstraintViolations()
+                .stream()
+                .map(violation -> {
+                    String path = violation.getPropertyPath().toString();
+                    int separator = path.indexOf('.');
+                    return new FieldErrorVM(
+                        violation.getRootBeanClass().getSimpleName(),
+                        separator < 0 ? path : path.substring(separator + 1),
+                        violation.getMessage(),
+                        violation.getConstraintDescriptor().getAnnotation().annotationType().getSimpleName()
+                    );
+                })
+                .toList();
+        }
+        var validation = (HandlerMethodValidationException) exception;
+        List<FieldErrorVM> errors = new ArrayList<>();
+        for (var result : validation.getParameterValidationResults()) {
+            if (result instanceof ParameterErrors bean) {
+                bean.getFieldErrors().stream().map(this::toFieldError).forEach(errors::add);
+                continue;
+            }
+            var parameter = result.getMethodParameter();
+            String field = parameter.getParameterName();
+            if (field == null) continue;
+            for (var error : result.getResolvableErrors()) {
+                String[] codes = error.getCodes();
+                String code = codes == null || codes.length == 0 ? null : codes[codes.length - 1];
+                errors.add(new FieldErrorVM(parameter.getContainingClass().getSimpleName(), field, error.getDefaultMessage(), code));
+            }
+        }
+        return errors;
     }
 
-    private List<FieldErrorVM> getFieldErrors(MethodArgumentNotValidException ex) {
-        return ex
-            .getBindingResult()
-            .getFieldErrors()
-            .stream()
-            .map(f ->
-                new FieldErrorVM(
-                    f.getObjectName().replaceFirst("DTO$", ""),
-                    f.getField(),
-                    StringUtils.isNotBlank(f.getDefaultMessage()) ? f.getDefaultMessage() : f.getCode()
-                )
-            )
-            .toList();
-    }
-
-    private String extractTitleForResponseStatus(Throwable err, int statusCode) {
-        var specialStatus = extractResponseStatus(err);
-        return specialStatus == null ? HttpStatus.valueOf(statusCode).getReasonPhrase() : specialStatus.reason();
-    }
-
-    private String extractURI(NativeWebRequest request) {
-        HttpServletRequest nativeRequest = request.getNativeRequest(HttpServletRequest.class);
-        return nativeRequest != null ? nativeRequest.getRequestURI() : StringUtils.EMPTY;
-    }
-
-    private HttpStatus toStatus(final Throwable throwable) {
-        // Let the ErrorResponse take this responsibility
-        if (throwable instanceof ErrorResponse err) return HttpStatus.valueOf(err.getBody().getStatus());
-
-        return Optional.ofNullable(getMappedStatus(throwable)).orElse(
-            Optional.ofNullable(resolveResponseStatus(throwable)).map(ResponseStatus::value).orElse(HttpStatus.INTERNAL_SERVER_ERROR)
+    private FieldErrorVM toFieldError(FieldError error) {
+        return new FieldErrorVM(
+            error.getObjectName().replaceFirst("DTO$", ""),
+            error.getField(),
+            StringUtils.defaultIfBlank(error.getDefaultMessage(), error.getCode()),
+            error.getCode()
         );
     }
 
-    private ResponseStatus extractResponseStatus(final Throwable throwable) {
-        return resolveResponseStatus(throwable);
+    private boolean isRequestValidation(Throwable error) {
+        return (
+            error instanceof MethodArgumentNotValidException ||
+            error instanceof ConstraintViolationException ||
+            (error instanceof HandlerMethodValidationException validation && !validation.isForReturnValue())
+        );
+    }
+
+    private HttpStatusCode toStatus(Throwable exception) {
+        if (exception instanceof ErrorResponse error) return error.getStatusCode();
+
+        return Optional.ofNullable(getMappedStatus(exception)).orElseGet(() ->
+            Optional.ofNullable(resolveResponseStatus(exception)).map(ResponseStatus::value).orElse(HttpStatus.INTERNAL_SERVER_ERROR)
+        );
     }
 
     private ResponseStatus resolveResponseStatus(final Throwable type) {
@@ -184,36 +187,20 @@ public class ExceptionTranslator extends ResponseEntityExceptionHandler {
     }
 
     private URI getMappedType(Throwable err) {
-        if (
-            err instanceof MethodArgumentNotValidException || err instanceof ConstraintViolationException
-        ) return ErrorConstants.CONSTRAINT_VIOLATION_TYPE;
-        return ErrorConstants.DEFAULT_TYPE;
+        if (isRequestValidation(err)) return ErrorConstants.CONSTRAINT_VIOLATION_TYPE;
+        if (err instanceof BadCredentialsException) return ApiProblems.type("invalid-credentials");
+        if (err instanceof ConcurrencyFailureException) return ApiProblems.type("concurrent-update");
+        if (err instanceof HttpMessageNotReadableException) return ApiProblems.type("malformed-request");
+        return ApiProblems.GENERIC_TYPE;
     }
 
     private String getMappedMessageKey(Throwable err) {
-        if (err instanceof MethodArgumentNotValidException || err instanceof ConstraintViolationException) {
+        if (isRequestValidation(err)) {
             return ErrorConstants.ERR_VALIDATION;
         } else if (err instanceof ConcurrencyFailureException || err.getCause() instanceof ConcurrencyFailureException) {
             return ErrorConstants.ERR_CONCURRENCY_FAILURE;
         }
         return null;
-    }
-
-    private String getCustomizedTitle(Throwable err) {
-        if (
-            err instanceof MethodArgumentNotValidException || err instanceof ConstraintViolationException
-        ) return "Method argument not valid";
-        return null;
-    }
-
-    private String getCustomizedErrorDetails(Throwable err) {
-        Collection<String> activeProfiles = List.of(env.getActiveProfiles());
-        if (activeProfiles.contains(JHipsterConstants.SPRING_PROFILE_PRODUCTION)) {
-            if (err instanceof HttpMessageConversionException) return "Unable to convert http message";
-            if (err instanceof DataAccessException) return "Failure during data access";
-            if (containsPackageName(err.getMessage())) return "Unexpected runtime exception";
-        }
-        return err.getCause() != null ? err.getCause().getMessage() : err.getMessage();
     }
 
     private HttpStatus getMappedStatus(Throwable err) {
@@ -225,11 +212,6 @@ public class ExceptionTranslator extends ResponseEntityExceptionHandler {
         return null;
     }
 
-    private URI getPathValue(NativeWebRequest request) {
-        if (request == null) return URI.create("about:blank");
-        return URI.create(extractURI(request));
-    }
-
     private HttpHeaders buildHeaders(Throwable err) {
         return err instanceof BadRequestAlertException badRequestAlertException
             ? HeaderUtil.createFailureAlert(
@@ -239,43 +221,19 @@ public class ExceptionTranslator extends ResponseEntityExceptionHandler {
                   badRequestAlertException.getErrorKey(),
                   badRequestAlertException.getMessage()
               )
-            : null;
-    }
-
-    public Optional<ProblemDetailWithCause> buildCause(final Throwable throwable, NativeWebRequest request) {
-        if (throwable != null && isCausalChainEnabled()) {
-            return Optional.of(customizeProblem(getProblemDetailWithCause(throwable), throwable, request));
-        }
-        return Optional.ofNullable(null);
-    }
-
-    private boolean isCausalChainEnabled() {
-        // Customize as per the needs
-        return CAUSAL_CHAIN_ENABLED;
-    }
-
-    private boolean containsPackageName(String message) {
-        // This list is for sure not complete
-        return Strings.CS.containsAny(
-            message,
-            "org.",
-            "java.",
-            "net.",
-            "jakarta.",
-            "javax.",
-            "com.",
-            "io.",
-            "de.",
-            "com.biletflow.biletflow"
-        );
+            : HttpHeaders.EMPTY;
     }
 
     @ExceptionHandler(UserNotActivatedException.class)
-    public ResponseEntity<ProblemDetail> handleUserNotActivatedException(UserNotActivatedException ex, NativeWebRequest request) {
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, ex.getMessage());
-        problemDetail.setTitle("User Not Activated");
+    public ResponseEntity<ProblemDetail> handleUserNotActivatedException(UserNotActivatedException ex) {
+        ProblemDetail problemDetail = ApiProblems.body(
+            HttpStatus.UNAUTHORIZED,
+            "account-not-activated",
+            "User Not Activated",
+            ex.getMessage()
+        );
         problemDetail.setProperty("errorKey", "usernotactivated");
 
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(problemDetail);
+        return ApiProblems.response(problemDetail);
     }
 }

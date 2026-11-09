@@ -49,7 +49,7 @@ public final class AssignedSeatingInventory implements InventoryMode {
             );
 
         if (seatTaken) {
-            throw new IllegalStateException("Seat is currently held or sold: " + seatId);
+            throw new InventoryUnavailableException("Seat is currently held or sold: " + seatId, seatId.value());
         }
 
         SeatHold hold = SeatHold.create(ticketTypeId, seatId, sessionId, holdExpiry.calculateExpirationFrom(now));
