@@ -15,6 +15,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class CampaignTest {
+
     private static final Instant NOW = Instant.parse("2026-11-08T10:00:00Z");
     private static final Instant HOLD_EXPIRES = NOW.plusSeconds(600);
     private static final ValidityPeriod VALIDITY = new ValidityPeriod(NOW.minusSeconds(3_600), NOW.plusSeconds(86_400));
@@ -54,17 +55,15 @@ class CampaignTest {
     void campaignCannotBeCreatedWithAValidityPeriodThatAlreadyEnded() {
         ValidityPeriod past = new ValidityPeriod(NOW.minusSeconds(7_200), NOW.minusSeconds(3_600));
 
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> Campaign.create(UUID.randomUUID(), "Old", Discount.percentage(10), past, Set.of(), RedemptionLimit.unlimited(), NOW)
+        assertThrows(IllegalArgumentException.class, () ->
+            Campaign.create(UUID.randomUUID(), "Old", Discount.percentage(10), past, Set.of(), RedemptionLimit.unlimited(), NOW)
         );
     }
 
     @Test
     void campaignNameIsRequired() {
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> Campaign.create(UUID.randomUUID(), "  ", Discount.percentage(10), VALIDITY, Set.of(), RedemptionLimit.unlimited(), NOW)
+        assertThrows(IllegalArgumentException.class, () ->
+            Campaign.create(UUID.randomUUID(), "  ", Discount.percentage(10), VALIDITY, Set.of(), RedemptionLimit.unlimited(), NOW)
         );
     }
 
@@ -84,6 +83,14 @@ class CampaignTest {
 
         assertEquals(Money.kzt(25_000), quote.eligibleSubtotal());
         assertEquals(Money.kzt(1_000), quote.discountAmount());
+    }
+
+    @Test
+    void codeIsInapplicableForAnotherEvent() {
+        Campaign campaign = tenPercentOnVip(RedemptionLimit.unlimited());
+
+        campaign.ensureAppliesToEvent(campaign.getEventId());
+        assertEquals(RejectionReason.INAPPLICABLE, rejection(() -> campaign.ensureAppliesToEvent(UUID.randomUUID())));
     }
 
     @Test

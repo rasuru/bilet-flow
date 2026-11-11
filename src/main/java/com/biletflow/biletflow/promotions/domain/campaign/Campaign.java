@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.UUID;
 
 public class Campaign {
+
     private static final int MAX_NAME_LENGTH = 100;
 
     private final CampaignId id;
@@ -199,13 +200,24 @@ public class Campaign {
             .orElseThrow(() -> new RedemptionNotFoundException(redemptionId.value().toString()));
     }
 
+    public void ensureAppliesToEvent(UUID eventId) {
+        Objects.requireNonNull(eventId, "eventId cannot be null");
+
+        if (!this.eventId.equals(eventId)) {
+            throw new PromoCodeRejectedException(RejectionReason.INAPPLICABLE);
+        }
+    }
+
     public boolean appliesTo(UUID ticketTypeId) {
         return applicableTicketTypeIds.isEmpty() || applicableTicketTypeIds.contains(ticketTypeId);
     }
 
     public int usedRedemptionsAt(Instant now) {
         Objects.requireNonNull(now, "now cannot be null");
-        return (int) redemptions.stream().filter(redemption -> redemption.countsTowardsLimitAt(now)).count();
+        return (int) redemptions
+            .stream()
+            .filter(redemption -> redemption.countsTowardsLimitAt(now))
+            .count();
     }
 
     public Integer remainingRedemptionsAt(Instant now) {
@@ -216,7 +228,10 @@ public class Campaign {
     }
 
     public int confirmedRedemptionCount() {
-        return (int) redemptions.stream().filter(redemption -> redemption.getStatus() == RedemptionStatus.CONFIRMED).count();
+        return (int) redemptions
+            .stream()
+            .filter(redemption -> redemption.getStatus() == RedemptionStatus.CONFIRMED)
+            .count();
     }
 
     private void ensureRedeemableAt(Instant now) {
