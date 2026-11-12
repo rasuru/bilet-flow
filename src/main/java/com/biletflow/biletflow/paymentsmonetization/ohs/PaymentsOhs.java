@@ -6,6 +6,8 @@ import java.util.UUID;
 
 /** Published PM contract; callers never use PM repositories or provider-specific types. */
 public interface PaymentsOhs {
+    boolean permitsPaidSales(UUID eventId);
+
     PaymentView initiate(StartPaymentCommand command);
     PaymentView get(UUID paymentId);
     void abandon(UUID paymentId);
