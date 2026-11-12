@@ -48,16 +48,6 @@ public class EventResource {
         this.clock = Objects.requireNonNull(clock, "clock cannot be null");
     }
 
-    @GetMapping
-    @Operation(
-        summary = "List public events",
-        description = "Returns published events with PUBLIC visibility, ordered by event start time."
-    )
-    @ApiResponse(responseCode = "200", description = "Public events returned")
-    public List<PublicEventView> listPublic() {
-        return eventQueryService.listPublic();
-    }
-
     @GetMapping("/{eventId}")
     @Operation(
         summary = "Get a publicly readable event",

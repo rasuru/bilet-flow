@@ -1,21 +1,27 @@
 package com.biletflow.biletflow.ticketinventory.application.eventinventory;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.*;
 
+import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.command.AssignedSeatsSelection;
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.command.HoldInventoryCommand;
 import com.biletflow.biletflow.ticketinventory.domain.common.HoldExpiry;
 import com.biletflow.biletflow.ticketinventory.domain.common.SeatId;
+import com.biletflow.biletflow.ticketinventory.domain.common.SessionId;
 import com.biletflow.biletflow.ticketinventory.domain.eventinventory.AssignedSeatingInventory;
 import com.biletflow.biletflow.ticketinventory.domain.eventinventory.EventInventory;
 import com.biletflow.biletflow.ticketinventory.domain.eventinventory.EventInventoryRepository;
+import com.biletflow.biletflow.ticketinventory.domain.tickettype.SalesWindow;
 import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketType;
 import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeId;
 import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeRepository;
+import com.biletflow.biletflow.ticketinventory.ohs.TicketSalesAvailability;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -71,6 +77,43 @@ class EventInventoryServiceTest {
 
         assertThrows(IllegalStateException.class, () -> service.hold(command));
 
+        verify(inventoryRepository, never()).save(any());
+    }
+
+    @Test
+    void paidAssignedSeatingRequiresActivationAndAnAvailableSeatInTheRightCategory() {
+        UUID eventId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-03T12:00:00Z");
+        SeatId vipSeat = new SeatId(UUID.randomUUID());
+        SeatId standardSeat = new SeatId(UUID.randomUUID());
+        TicketType ticketType = TicketType.createAssignedSeating(
+            eventId,
+            "VIP",
+            "VIP admission",
+            Money.kzt(1000),
+            1,
+            new SalesWindow(now.minusSeconds(3600), now.plusSeconds(3600)),
+            "VIP"
+        );
+        EventInventory inventory = EventInventory.create(
+            eventId,
+            HoldExpiry.defaultExpiry(),
+            AssignedSeatingInventory.create(Map.of(vipSeat, "VIP", standardSeat, "STANDARD"))
+        );
+        var hold = inventory.holdSeat(ticketType.getId(), vipSeat, new SessionId("session-a"), now);
+        EventInventoryRepository inventoryRepository = mock(EventInventoryRepository.class);
+        TicketTypeRepository ticketTypeRepository = mock(TicketTypeRepository.class);
+        when(inventoryRepository.findByEventId(eventId)).thenReturn(Optional.of(inventory));
+        when(ticketTypeRepository.findAllByEventId(eventId)).thenReturn(List.of(ticketType));
+        EventInventoryService service = new EventInventoryService(
+            inventoryRepository,
+            ticketTypeRepository,
+            Clock.fixed(now, ZoneOffset.UTC)
+        );
+
+        assertEquals(TicketSalesAvailability.UNAVAILABLE, service.salesAvailability(eventId, now, false));
+        assertEquals(TicketSalesAvailability.SOLD_OUT, service.salesAvailability(eventId, now, true));
+        assertEquals(TicketSalesAvailability.AVAILABLE, service.salesAvailability(eventId, hold.getExpiresAt(), true));
         verify(inventoryRepository, never()).save(any());
     }
 }
