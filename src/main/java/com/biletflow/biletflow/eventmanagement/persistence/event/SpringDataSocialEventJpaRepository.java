@@ -20,7 +20,7 @@ interface SpringDataSocialEventJpaRepository extends JpaRepository<SocialEventJp
 
     @Query("""
         select new com.biletflow.biletflow.eventmanagement.ohs.dto.DiscoveryEvent(
-            e.id, e.title, e.category, e.eventStartAt, e.imageUrl, e.registrationStartAt
+            e.id, e.title, e.category, e.eventStartAt, e.imageUrl, e.venueName, e.venueAddress, e.registrationStartAt
         )
         from SocialEventJpaEntity e
         where e.status = :status and e.visibility = :visibility and e.eventEndAt >= :now

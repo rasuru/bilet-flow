@@ -9,5 +9,7 @@ public record DiscoveryEvent(
     String category,
     Instant startAt,
     String imageUrl,
+    String venueName,
+    String venueAddress,
     Instant registrationStartAt
 ) {}

@@ -43,11 +43,22 @@ class EventDiscoveryServiceTest {
 
         var filteredPage = service.discover(1, 1, "jazz", "Music", true, false);
         assertEquals(List.of(second.id()), filteredPage.items().stream().map(EventDiscoveryService.DiscoveryItem::id).toList());
+        assertEquals("Jazz Hall", filteredPage.items().getFirst().venueName());
+        assertEquals("10 Dostyq Street", filteredPage.items().getFirst().venueAddress());
         assertEquals(2, filteredPage.totalItems());
         assertEquals(2, filteredPage.totalPages());
     }
 
     private DiscoveryEvent event(String title, Instant startsAt, Instant registrationStartsAt) {
-        return new DiscoveryEvent(UUID.randomUUID(), title, "Music", startsAt, "https://example.com/image.jpg", registrationStartsAt);
+        return new DiscoveryEvent(
+            UUID.randomUUID(),
+            title,
+            "Music",
+            startsAt,
+            "https://example.com/image.jpg",
+            "Jazz Hall",
+            "10 Dostyq Street",
+            registrationStartsAt
+        );
     }
 }
