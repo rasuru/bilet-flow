@@ -58,7 +58,16 @@ public class EventDiscoveryService {
     }
 
     private DiscoveryItem item(DiscoveryEvent event, Instant now) {
-        return new DiscoveryItem(event.id(), event.title(), event.category(), event.startAt(), event.imageUrl(), salesStatus(event, now));
+        return new DiscoveryItem(
+            event.id(),
+            event.title(),
+            event.category(),
+            event.startAt(),
+            event.imageUrl(),
+            event.venueName(),
+            event.venueAddress(),
+            salesStatus(event, now)
+        );
     }
 
     private SalesStatus salesStatus(DiscoveryEvent event, Instant now) {
@@ -84,7 +93,16 @@ public class EventDiscoveryService {
         UNAVAILABLE,
     }
 
-    public record DiscoveryItem(UUID id, String title, String category, Instant startAt, String imageUrl, SalesStatus salesStatus) {}
+    public record DiscoveryItem(
+        UUID id,
+        String title,
+        String category,
+        Instant startAt,
+        String imageUrl,
+        String venueName,
+        String venueAddress,
+        SalesStatus salesStatus
+    ) {}
 
     public record DiscoveryPage(List<DiscoveryItem> items, int page, int size, int totalItems, int totalPages) {}
 }
