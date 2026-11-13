@@ -15,6 +15,7 @@ class SupportCaseTest {
 
     private SupportCase openCase() {
         return SupportCase.open(
+            SupportCaseType.ATTENDEE_SUPPORT,
             10L,
             "Ticket was not delivered",
             IssueCategory.TICKET,
@@ -46,13 +47,13 @@ class SupportCaseTest {
     @Test
     void openingRejectsInvalidRequesterSubjectAndInitialMessage() {
         assertThrows(NullPointerException.class, () ->
-            SupportCase.open(null, "Subject", IssueCategory.GENERAL, "Message", null, null, null, OPENED_AT)
+            SupportCase.open(SupportCaseType.ATTENDEE_SUPPORT, null, "Subject", IssueCategory.GENERAL, "Message", null, null, null, OPENED_AT)
         );
         assertThrows(IllegalArgumentException.class, () ->
-            SupportCase.open(10L, "  ", IssueCategory.GENERAL, "Message", null, null, null, OPENED_AT)
+            SupportCase.open(SupportCaseType.ATTENDEE_SUPPORT, 10L, "  ", IssueCategory.GENERAL, "Message", null, null, null, OPENED_AT)
         );
         assertThrows(IllegalArgumentException.class, () ->
-            SupportCase.open(10L, "Subject", IssueCategory.GENERAL, "  ", null, null, null, OPENED_AT)
+            SupportCase.open(SupportCaseType.ATTENDEE_SUPPORT, 10L, "Subject", IssueCategory.GENERAL, "  ", null, null, null, OPENED_AT)
         );
     }
 
@@ -73,7 +74,7 @@ class SupportCaseTest {
         SupportCase supportCase = openCase();
         supportCase.assignTo(20L, REPLIED_AT);
 
-        supportCase.reply(20L, MessageAuthorType.SUPPORT_AGENT, "Please check your email inbox.", RESOLVED_AT);
+        supportCase.replyAsSupportAgent(20L, "Please check your email inbox.", RESOLVED_AT);
 
         assertEquals(CaseStatus.WAITING_FOR_CUSTOMER, supportCase.getStatus());
         assertEquals(2, supportCase.getMessages().size());
@@ -85,9 +86,9 @@ class SupportCaseTest {
     void requesterReplyMovesWaitingCaseBackToInProgress() {
         SupportCase supportCase = openCase();
         supportCase.assignTo(20L, REPLIED_AT);
-        supportCase.reply(20L, MessageAuthorType.SUPPORT_AGENT, "Can you confirm your email?", REPLIED_AT);
+        supportCase.replyAsSupportAgent(20L, "Can you confirm your email?", REPLIED_AT);
 
-        supportCase.reply(10L, MessageAuthorType.REQUESTER, "Yes, that is the correct email.", RESOLVED_AT);
+        supportCase.replyAsRequester(10L, "Yes, that is the correct email.", RESOLVED_AT);
 
         assertEquals(CaseStatus.IN_PROGRESS, supportCase.getStatus());
         assertEquals(3, supportCase.getMessages().size());
@@ -99,7 +100,7 @@ class SupportCaseTest {
         SupportCase supportCase = openCase();
 
         assertThrows(InvalidSupportCaseStateException.class, () ->
-            supportCase.reply(99L, MessageAuthorType.REQUESTER, "A reply", REPLIED_AT)
+            supportCase.replyAsRequester(99L, "A reply", REPLIED_AT)
         );
         assertEquals(1, supportCase.getMessages().size());
     }
@@ -114,7 +115,7 @@ class SupportCaseTest {
         assertEquals(RESOLVED_AT, supportCase.getResolvedAt());
         assertThrows(InvalidSupportCaseStateException.class, () -> supportCase.assignTo(20L, RESOLVED_AT));
         assertThrows(InvalidSupportCaseStateException.class, () ->
-            supportCase.reply(10L, MessageAuthorType.REQUESTER, "One more thing", RESOLVED_AT)
+            supportCase.replyAsRequester(10L, "One more thing", RESOLVED_AT)
         );
         assertThrows(InvalidSupportCaseStateException.class, () -> supportCase.resolve(RESOLVED_AT));
     }
@@ -150,7 +151,7 @@ class SupportCaseTest {
         supportCase.assignTo(20L, REPLIED_AT);
 
         assertThrows(IllegalArgumentException.class, () ->
-            supportCase.reply(10L, MessageAuthorType.REQUESTER, "A reply", OPENED_AT)
+            supportCase.replyAsRequester(10L, "A reply", OPENED_AT)
         );
         assertEquals(1, supportCase.getMessages().size());
         assertEquals(REPLIED_AT, supportCase.getUpdatedAt());
@@ -163,7 +164,7 @@ class SupportCaseTest {
         UUID ticketId = UUID.randomUUID();
 
         SupportCase supportCase = SupportCase.open(
-            10L, "Payment question", IssueCategory.PAYMENT, "I have a question.", eventId, orderId, ticketId, OPENED_AT
+            SupportCaseType.ATTENDEE_SUPPORT, 10L, "Payment question", IssueCategory.PAYMENT, "I have a question.", eventId, orderId, ticketId, OPENED_AT
         );
 
         assertEquals(eventId, supportCase.getEventId());

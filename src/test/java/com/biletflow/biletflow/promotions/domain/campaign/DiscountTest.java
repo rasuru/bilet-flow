@@ -32,6 +32,14 @@ class DiscountTest {
     }
 
     @Test
+    void discountValueIsStoredInPlainForm() {
+        assertEquals("10", Discount.percentage(BigDecimal.TEN).value().toPlainString());
+        assertEquals("10", Discount.percentage(BigDecimal.TEN).value().toString());
+        assertEquals("12.5", Discount.percentage(new BigDecimal("12.5000")).value().toString());
+        assertEquals("1500", Discount.fixedKzt(Money.kzt(1_500)).value().toString());
+    }
+
+    @Test
     void invalidDiscountValuesAreRejected() {
         assertThrows(IllegalArgumentException.class, () -> Discount.percentage(0));
         assertThrows(IllegalArgumentException.class, () -> Discount.percentage(101));

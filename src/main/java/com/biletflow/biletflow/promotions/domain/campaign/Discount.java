@@ -21,6 +21,9 @@ public record Discount(DiscountType type, BigDecimal value) {
         }
 
         value = value.stripTrailingZeros();
+        if (value.scale() < 0) {
+            value = value.setScale(0);
+        }
     }
 
     public static Discount percentage(BigDecimal percent) {
