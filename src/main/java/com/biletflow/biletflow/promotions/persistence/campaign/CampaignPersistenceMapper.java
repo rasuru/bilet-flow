@@ -29,11 +29,7 @@ public class CampaignPersistenceMapper {
             entity.getStatus(),
             entity.getCreatedAt(),
             entity.getEndedAt(),
-            entity
-                .getRedemptions()
-                .stream()
-                .map(this::toDomain)
-                .toList()
+            entity.getRedemptions().stream().map(this::toDomain).toList()
         );
     }
 
@@ -59,20 +55,12 @@ public class CampaignPersistenceMapper {
             throw new IllegalArgumentException("Cannot map onto a different Campaign id");
         }
 
-        entity.replaceState(
-            domain.getStatus(),
-            domain.getEndedAt(),
-            domain
-                .getRedemptions()
-                .stream()
-                .map(this::toEmbeddable)
-                .toList()
-        );
+        entity.replaceState(domain.getStatus(), domain.getEndedAt(), domain.getRedemptions().stream().map(this::toEmbeddable).toList());
     }
 
     private PromoRedemption toDomain(PromoRedemptionJpaEmbeddable embeddable) {
         return PromoRedemption.rehydrate(
-            new RedemptionId(embeddable.getId()),
+            new RedemptionId(embeddable.getRedemptionId()),
             embeddable.getSessionId(),
             new Money(embeddable.getDiscountAmount(), Currency.getInstance(embeddable.getDiscountCurrency())),
             embeddable.getReservedAt(),

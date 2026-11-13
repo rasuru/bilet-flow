@@ -57,7 +57,7 @@ public class CampaignJpaEntity {
 
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "promotions_campaign_ticket_type", joinColumns = @JoinColumn(name = "campaign_id"))
-    @Column(name = "ticket_type_id", nullable = false, updatable = false)
+    @Column(name = "ticket_type_id", nullable = false)
     private Set<UUID> applicableTicketTypeIds = new HashSet<>();
 
     @ElementCollection(fetch = FetchType.LAZY)

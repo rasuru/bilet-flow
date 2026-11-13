@@ -10,7 +10,7 @@ import java.util.UUID;
 public class PromoRedemptionJpaEmbeddable {
 
     @Column(name = "redemption_id", nullable = false)
-    private UUID id;
+    private UUID redemptionId;
 
     @Column(name = "session_id", nullable = false)
     private UUID sessionId;
@@ -40,7 +40,7 @@ public class PromoRedemptionJpaEmbeddable {
     protected PromoRedemptionJpaEmbeddable() {}
 
     public PromoRedemptionJpaEmbeddable(
-        UUID id,
+        UUID redemptionId,
         UUID sessionId,
         BigDecimal discountAmount,
         String discountCurrency,
@@ -50,7 +50,7 @@ public class PromoRedemptionJpaEmbeddable {
         RedemptionStatus status,
         Instant confirmedAt
     ) {
-        this.id = id;
+        this.redemptionId = redemptionId;
         this.sessionId = sessionId;
         this.discountAmount = discountAmount;
         this.discountCurrency = discountCurrency;
@@ -61,8 +61,8 @@ public class PromoRedemptionJpaEmbeddable {
         this.confirmedAt = confirmedAt;
     }
 
-    public UUID getId() {
-        return id;
+    public UUID getRedemptionId() {
+        return redemptionId;
     }
 
     public UUID getSessionId() {

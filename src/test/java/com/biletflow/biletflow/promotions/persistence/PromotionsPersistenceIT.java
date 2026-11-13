@@ -91,11 +91,13 @@ class PromotionsPersistenceIT {
     @AfterEach
     void cleanup() {
         String campaignIds = "select id from promotions_campaign where event_id = ?";
-        jdbc.update("delete from promotions_campaign_redemption where campaign_id in (" + campaignIds + ")", eventId);
-        jdbc.update("delete from promotions_campaign_ticket_type where campaign_id in (" + campaignIds + ")", eventId);
-        jdbc.update("delete from promotions_promo_code where campaign_id in (" + campaignIds + ")", eventId);
-        jdbc.update("delete from promotions_campaign where event_id = ?", eventId);
-        jdbc.update("delete from promotions_activity_log where event_id = ?", eventId);
+        tx().executeWithoutResult(status -> {
+            jdbc.update("delete from promotions_campaign_redemption where campaign_id in (" + campaignIds + ")", eventId);
+            jdbc.update("delete from promotions_campaign_ticket_type where campaign_id in (" + campaignIds + ")", eventId);
+            jdbc.update("delete from promotions_promo_code where campaign_id in (" + campaignIds + ")", eventId);
+            jdbc.update("delete from promotions_campaign where event_id = ?", eventId);
+            jdbc.update("delete from promotions_activity_log where event_id = ?", eventId);
+        });
     }
 
     @Test
@@ -162,7 +164,12 @@ class PromotionsPersistenceIT {
         assertEquals(Boolean.TRUE, exists);
         assertEquals(promoCode.getId(), tx().execute(status -> promoCodes.findByCode(promoCode.getCode()).orElseThrow().getId()));
         assertEquals(promoCode.getId(), tx().execute(status -> promoCodes.findByToken(promoCode.getToken()).orElseThrow().getId()));
-        assertEquals(1, tx().execute(status -> promoCodes.findByCampaignId(campaignId)).size());
+        assertEquals(
+            1,
+            tx()
+                .execute(status -> promoCodes.findByCampaignId(campaignId))
+                .size()
+        );
 
         tx().executeWithoutResult(status -> {
             PromoCode loaded = promoCodes.findById(promoCode.getId()).orElseThrow();
