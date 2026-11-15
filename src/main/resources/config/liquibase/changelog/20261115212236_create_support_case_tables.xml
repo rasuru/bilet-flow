@@ -1,0 +1,42 @@
+<?xml version="1.1" encoding="UTF-8" standalone="no"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog" xmlns:ext="http://www.liquibase.org/xml/ns/dbchangelog-ext" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog-ext http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-ext.xsd http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+  <changeSet author="user (generated)" id="1794759768913-30">
+    <createIndex indexName="idx_support_case_assignee" tableName="support_case">
+      <column name="assigned_support_user_id" />
+    </createIndex>
+  </changeSet>
+  <changeSet author="user (generated)" id="1794759768913-31">
+    <createIndex indexName="idx_support_case_event" tableName="support_case">
+      <column name="event_id" />
+    </createIndex>
+  </changeSet>
+  <changeSet author="user (generated)" id="1794759768913-33">
+    <createIndex indexName="idx_support_case_order" tableName="support_case">
+      <column name="order_id" />
+    </createIndex>
+  </changeSet>
+  <changeSet author="user (generated)" id="1794759768913-34">
+    <createIndex indexName="idx_support_case_requester" tableName="support_case">
+      <column name="requester_user_id" />
+    </createIndex>
+  </changeSet>
+  <changeSet author="user (generated)" id="1794759768913-35">
+    <createIndex indexName="idx_support_case_status" tableName="support_case">
+      <column name="status" />
+    </createIndex>
+  </changeSet>
+  <changeSet author="user (generated)" id="1794759768913-36">
+    <createIndex indexName="idx_support_case_ticket" tableName="support_case">
+      <column name="ticket_id" />
+    </createIndex>
+  </changeSet>
+  <changeSet author="user (generated)" id="1794759768913-37">
+    <createIndex indexName="idx_support_case_type_status" tableName="support_case">
+      <column name="case_type" />
+      <column name="status" />
+    </createIndex>
+  </changeSet>
+  <changeSet author="user (generated)" id="1794759768913-38">
+    <addForeignKeyConstraint baseColumnNames="support_case_id" baseTableName="support_case_message" constraintName="FK7opj8gvxglkfxpkfox9dcnifa" deferrable="false" initiallyDeferred="false" referencedColumnNames="id" referencedTableName="support_case" validate="true" />
+  </changeSet>
+</databaseChangeLog>
