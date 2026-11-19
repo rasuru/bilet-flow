@@ -55,7 +55,7 @@ class SupportCasePersistenceIT {
             SupportCaseType.ATTENDEE_SUPPORT,
             101L,
             "Ticket delivery issue",
-            IssueCategory.TICKET,
+            IssueCategory.TICKET_DELIVERY,
             "I cannot find my ticket.",
             eventId,
             orderId,
