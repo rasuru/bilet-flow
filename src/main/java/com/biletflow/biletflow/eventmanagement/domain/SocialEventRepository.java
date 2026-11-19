@@ -12,8 +12,6 @@ public interface SocialEventRepository {
 
     List<SocialEvent> findByStaffUserId(Long userId);
 
-    List<SocialEvent> findByStatusAndVisibility(SocialEventStatus status, EventVisibility visibility);
-
     boolean existsById(SocialEventId id);
 
     void deleteById(SocialEventId id);

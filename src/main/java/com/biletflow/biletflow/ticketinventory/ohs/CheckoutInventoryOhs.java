@@ -4,6 +4,7 @@ import com.biletflow.biletflow.common.domain.Money;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 
 public interface CheckoutInventoryOhs {
     record Selection(UUID ticketTypeId, List<UUID> seats, List<String> attendeeEmails) {
@@ -20,6 +21,27 @@ public interface CheckoutInventoryOhs {
     record Reservation(List<Line> lines, List<Hold> holds, Instant expiresAt, boolean assignedSeating) {}
 
     record IssuedTicket(UUID id, UUID code, String status, UUID ticketTypeId, UUID seatId, String attendeeEmail) {}
+
+    final class MixedSeatingModes extends IllegalArgumentException {
+
+        public MixedSeatingModes() {
+            super("Cannot mix seating modes");
+        }
+    }
+
+    final class Unavailable extends IllegalStateException {
+
+        private final @Nullable UUID seatId;
+
+        public Unavailable(String message, @Nullable UUID seatId, Throwable cause) {
+            super(message, cause);
+            this.seatId = seatId;
+        }
+
+        public @Nullable UUID seatId() {
+            return seatId;
+        }
+    }
 
     Reservation reserve(UUID eventId, UUID checkoutId, List<Selection> selections);
     void release(UUID eventId, UUID checkoutId, List<Hold> holds);

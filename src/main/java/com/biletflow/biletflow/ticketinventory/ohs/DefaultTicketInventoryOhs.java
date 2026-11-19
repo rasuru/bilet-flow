@@ -7,8 +7,10 @@ import com.biletflow.biletflow.ticketinventory.application.eventinventory.result
 import com.biletflow.biletflow.ticketinventory.application.sale.TicketSaleService;
 import com.biletflow.biletflow.ticketinventory.application.sale.command.CompleteSaleCommand;
 import com.biletflow.biletflow.ticketinventory.application.ticket.view.TicketView;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -20,6 +22,11 @@ public class DefaultTicketInventoryOhs implements TicketInventoryOhs {
     public DefaultTicketInventoryOhs(EventInventoryService inventoryService, TicketSaleService saleService) {
         this.inventoryService = Objects.requireNonNull(inventoryService);
         this.saleService = Objects.requireNonNull(saleService);
+    }
+
+    @Override
+    public TicketSalesAvailability salesAvailability(UUID eventId, Instant now, boolean paidSalesPermitted) {
+        return inventoryService.salesAvailability(eventId, now, paidSalesPermitted);
     }
 
     @Override

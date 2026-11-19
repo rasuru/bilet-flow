@@ -2,12 +2,14 @@ package com.biletflow.biletflow.ticketinventory.ohs;
 
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.EventInventoryService;
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.command.*;
+import com.biletflow.biletflow.ticketinventory.application.eventinventory.result.HoldInventoryResult;
 import com.biletflow.biletflow.ticketinventory.application.sale.TicketSaleService;
 import com.biletflow.biletflow.ticketinventory.application.sale.command.CompleteSaleCommand;
 import com.biletflow.biletflow.ticketinventory.application.ticket.command.IssueTicketItem;
 import com.biletflow.biletflow.ticketinventory.application.tickettype.TicketTypeService;
 import com.biletflow.biletflow.ticketinventory.domain.common.OrderId;
 import com.biletflow.biletflow.ticketinventory.domain.eventinventory.EventInventoryRepository;
+import com.biletflow.biletflow.ticketinventory.domain.eventinventory.InventoryUnavailableException;
 import com.biletflow.biletflow.ticketinventory.domain.ticket.*;
 import java.time.Instant;
 import java.util.*;
@@ -54,7 +56,7 @@ public class DefaultCheckoutInventoryOhs implements CheckoutInventoryOhs {
             );
             s.attendeeEmails().forEach(AttendeeEmail::new);
             boolean seatMode = !s.seats().isEmpty();
-            if (assigned != null && assigned != seatMode) throw new IllegalArgumentException("Cannot mix seating modes");
+            if (assigned != null && assigned != seatMode) throw new MixedSeatingModes();
             assigned = seatMode;
             if (
                 seatMode && (s.seats().size() != s.attendeeEmails().size() || new HashSet<>(s.seats()).size() != s.seats().size())
@@ -62,7 +64,7 @@ public class DefaultCheckoutInventoryOhs implements CheckoutInventoryOhs {
             HoldSelection choice = seatMode
                 ? new AssignedSeatsSelection(new LinkedHashSet<>(s.seats()))
                 : new GeneralAdmissionSelection(s.attendeeEmails().size());
-            var held = inventory.hold(new HoldInventoryCommand(eventId, s.ticketTypeId(), checkoutId.toString(), choice));
+            var held = reserveInventory(new HoldInventoryCommand(eventId, s.ticketTypeId(), checkoutId.toString(), choice));
             if (held.expiresAt().isBefore(deadline)) deadline = held.expiresAt();
             held.holds().forEach(h ->
                 holds.add(
@@ -77,6 +79,14 @@ public class DefaultCheckoutInventoryOhs implements CheckoutInventoryOhs {
         }
         if (lines.isEmpty() || lines.size() > 100) throw new IllegalArgumentException("Checkout requires 1 to 100 tickets");
         return new Reservation(List.copyOf(lines), List.copyOf(holds), deadline, Boolean.TRUE.equals(assigned));
+    }
+
+    private HoldInventoryResult reserveInventory(HoldInventoryCommand command) {
+        try {
+            return inventory.hold(command);
+        } catch (InventoryUnavailableException exception) {
+            throw new Unavailable(exception.getMessage(), exception.seatId(), exception);
+        }
     }
 
     @Override
