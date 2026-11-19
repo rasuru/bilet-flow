@@ -89,7 +89,7 @@ public class Ticket {
 
     public void checkIn() {
         if (status != TicketStatus.VALID) {
-            throw new IllegalStateException("Only VALID tickets can be checked in; current status: " + status);
+            throw new CheckInStateException("Only VALID tickets can be checked in; current status: " + status, status);
         }
 
         status = TicketStatus.CHECKED_IN;
@@ -97,7 +97,7 @@ public class Ticket {
 
     public void reverseCheckIn() {
         if (status != TicketStatus.CHECKED_IN) {
-            throw new IllegalStateException("Only CHECKED_IN tickets can have check-in reversed");
+            throw new CheckInStateException("Only CHECKED_IN tickets can have check-in reversed", status);
         }
 
         status = TicketStatus.VALID;

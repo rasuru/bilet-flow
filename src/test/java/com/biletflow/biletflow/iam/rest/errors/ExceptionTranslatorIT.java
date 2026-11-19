@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.biletflow.biletflow.IntegrationTest;
+import com.biletflow.biletflow.common.rest.ApiProblems;
 import com.biletflow.biletflow.iam.rest.errors.ErrorConstants;
 import com.biletflow.biletflow.iam.rest.errors.ExceptionTranslator;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,7 @@ class ExceptionTranslatorIT {
             .perform(get("/api/exception-translator-test/concurrency-failure"))
             .andExpect(status().isConflict())
             .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+            .andExpect(jsonPath("$.type").value(ApiProblems.type("concurrent-update").toString()))
             .andExpect(jsonPath("$.message").value(ErrorConstants.ERR_CONCURRENCY_FAILURE));
     }
 
@@ -44,7 +46,9 @@ class ExceptionTranslatorIT {
             .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
             .andExpect(jsonPath("$.message").value(ErrorConstants.ERR_VALIDATION))
             .andExpect(jsonPath("$.fieldErrors.[0].objectName").value("test"))
+            .andExpect(jsonPath("$.type").value(ErrorConstants.CONSTRAINT_VIOLATION_TYPE.toString()))
             .andExpect(jsonPath("$.fieldErrors.[0].field").value("test"))
+            .andExpect(jsonPath("$.fieldErrors.[0].code").value("NotNull"))
             .andExpect(jsonPath("$.fieldErrors.[0].message").value("must not be null"));
     }
 
@@ -94,7 +98,8 @@ class ExceptionTranslatorIT {
             .andExpect(status().isMethodNotAllowed())
             .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
             .andExpect(jsonPath("$.message").value("error.http.405"))
-            .andExpect(jsonPath("$.detail").value("Request method 'POST' is not supported"));
+            .andExpect(jsonPath("$.type").value("about:blank"))
+            .andExpect(jsonPath("$.status").value(405));
     }
 
     @Test
@@ -114,6 +119,7 @@ class ExceptionTranslatorIT {
             .andExpect(status().isInternalServerError())
             .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
             .andExpect(jsonPath("$.message").value("error.http.500"))
-            .andExpect(jsonPath("$.title").value("Internal Server Error"));
+            .andExpect(jsonPath("$.title").value("Internal Server Error"))
+            .andExpect(jsonPath("$.detail").value("An unexpected server error occurred."));
     }
 }

@@ -26,15 +26,6 @@ public class EventQueryService {
         this.currentActor = Objects.requireNonNull(currentActor, "currentActor cannot be null");
     }
 
-    public List<PublicEventView> listPublic() {
-        return repository
-            .findByStatusAndVisibility(SocialEventStatus.PUBLISHED, EventVisibility.PUBLIC)
-            .stream()
-            .sorted(Comparator.comparing(event -> event.getDateRange().startAt()))
-            .map(this::toPublicView)
-            .toList();
-    }
-
     public PublicEventView getPublic(SocialEventId eventId) {
         SocialEvent event = requireEvent(eventId);
 

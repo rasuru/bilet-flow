@@ -119,7 +119,13 @@ class AccountResourceIT {
 
     @Test
     void testGetUnknownAccount() throws Exception {
-        restAccountMockMvc.perform(get("/api/account").accept(MediaType.APPLICATION_PROBLEM_JSON)).andExpect(status().isUnauthorized());
+        restAccountMockMvc
+            .perform(get("/api/account").accept(MediaType.APPLICATION_PROBLEM_JSON))
+            .andExpect(status().isUnauthorized())
+            .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+            .andExpect(header().string("WWW-Authenticate", "Bearer"))
+            .andExpect(jsonPath("$.type").value("about:blank"))
+            .andExpect(jsonPath("$.status").value(401));
     }
 
     @Test

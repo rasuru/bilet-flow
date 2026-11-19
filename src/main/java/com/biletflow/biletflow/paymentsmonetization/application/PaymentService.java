@@ -65,6 +65,11 @@ public class PaymentService implements PaymentsOhs {
     }
 
     @Override
+    public boolean permitsPaidSales(UUID eventId) {
+        return activations.find(eventId).map(activation -> activation.aggregate().permitsPaidSales()).orElse(false);
+    }
+
+    @Override
     @Transactional
     public PaymentView initiate(StartPaymentCommand c) {
         Objects.requireNonNull(c);

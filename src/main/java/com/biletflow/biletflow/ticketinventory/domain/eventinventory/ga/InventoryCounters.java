@@ -1,5 +1,7 @@
 package com.biletflow.biletflow.ticketinventory.domain.eventinventory.ga;
 
+import com.biletflow.biletflow.ticketinventory.domain.eventinventory.InventoryUnavailableException;
+
 public record InventoryCounters(int totalCapacity, int reserved, int sold) {
     public InventoryCounters {
         if (totalCapacity < 0) {
@@ -41,7 +43,7 @@ public record InventoryCounters(int totalCapacity, int reserved, int sold) {
         validateQuantity(quantity);
 
         if (quantity > available()) {
-            throw new IllegalStateException("Insufficient inventory available to reserve");
+            throw new InventoryUnavailableException("Insufficient inventory available to reserve", null);
         }
 
         return new InventoryCounters(totalCapacity, reserved + quantity, sold);

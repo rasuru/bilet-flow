@@ -195,7 +195,7 @@ public class TicketService {
 
         return ticketRepository
             .findById(new TicketId(ticketId))
-            .orElseThrow(() -> new EntityNotFoundException("Ticket not found: " + ticketId));
+            .orElseThrow(() -> new TicketNotFoundException("Ticket not found: " + ticketId));
     }
 
     private Ticket requireTicketByCode(UUID rawTicketCode) {
@@ -205,14 +205,14 @@ public class TicketService {
 
         return ticketRepository
             .findByTicketCode(ticketCode)
-            .orElseThrow(() -> new EntityNotFoundException("Ticket not found for supplied ticket code"));
+            .orElseThrow(() -> new TicketNotFoundException("Ticket not found for supplied ticket code"));
     }
 
     private Ticket requireTicketByCodeForUpdate(UUID rawTicketCode) {
         Objects.requireNonNull(rawTicketCode, "ticketCode cannot be null");
         return ticketRepository
             .findByTicketCodeForUpdate(new TicketCode(rawTicketCode))
-            .orElseThrow(() -> new EntityNotFoundException("Ticket not found for supplied ticket code"));
+            .orElseThrow(() -> new TicketNotFoundException("Ticket not found for supplied ticket code"));
     }
 
     private EventInventory requireInventory(UUID eventId) {

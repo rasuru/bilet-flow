@@ -4,6 +4,7 @@ import static com.biletflow.biletflow.iam.security.SecurityUtils.AUTHORITIES_CLA
 import static com.biletflow.biletflow.iam.security.SecurityUtils.JWT_ALGORITHM;
 import static com.biletflow.biletflow.iam.security.SecurityUtils.USER_ID_CLAIM;
 
+import com.biletflow.biletflow.common.rest.ApiProblems;
 import com.biletflow.biletflow.iam.rest.dto.AuthenticateRequest;
 import com.biletflow.biletflow.iam.rest.dto.AuthenticateResponse;
 import com.biletflow.biletflow.iam.security.DomainUserDetailsService.UserWithId;
@@ -99,9 +100,12 @@ public class AuthenticateController {
         @ApiResponse(responseCode = "204", description = "User is authenticated"),
         @ApiResponse(responseCode = "401", description = "User is not authenticated"),
     })
-    public ResponseEntity<Void> isAuthenticated(Principal principal) {
+    public ResponseEntity<?> isAuthenticated(Principal principal) {
         LOG.debug("REST request to check if the current user is authenticated");
-        return ResponseEntity.status(principal == null ? HttpStatus.UNAUTHORIZED : HttpStatus.NO_CONTENT).build();
+        if (principal == null) {
+            return ApiProblems.response(ApiProblems.body(HttpStatus.UNAUTHORIZED, null, "Unauthorized", "Authentication required"));
+        }
+        return ResponseEntity.noContent().build();
     }
 
     public String createToken(Authentication authentication, boolean rememberMe) {
