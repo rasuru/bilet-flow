@@ -1,42 +1,84 @@
-<?xml version="1.1" encoding="UTF-8" standalone="no"?>
-<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog" xmlns:ext="http://www.liquibase.org/xml/ns/dbchangelog-ext" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog-ext http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-ext.xsd http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
-  <changeSet author="user (generated)" id="1794759768913-30">
-    <createIndex indexName="idx_support_case_assignee" tableName="support_case">
-      <column name="assigned_support_user_id" />
-    </createIndex>
-  </changeSet>
-  <changeSet author="user (generated)" id="1794759768913-31">
-    <createIndex indexName="idx_support_case_event" tableName="support_case">
-      <column name="event_id" />
-    </createIndex>
-  </changeSet>
-  <changeSet author="user (generated)" id="1794759768913-33">
-    <createIndex indexName="idx_support_case_order" tableName="support_case">
-      <column name="order_id" />
-    </createIndex>
-  </changeSet>
-  <changeSet author="user (generated)" id="1794759768913-34">
-    <createIndex indexName="idx_support_case_requester" tableName="support_case">
-      <column name="requester_user_id" />
-    </createIndex>
-  </changeSet>
-  <changeSet author="user (generated)" id="1794759768913-35">
-    <createIndex indexName="idx_support_case_status" tableName="support_case">
-      <column name="status" />
-    </createIndex>
-  </changeSet>
-  <changeSet author="user (generated)" id="1794759768913-36">
-    <createIndex indexName="idx_support_case_ticket" tableName="support_case">
-      <column name="ticket_id" />
-    </createIndex>
-  </changeSet>
-  <changeSet author="user (generated)" id="1794759768913-37">
-    <createIndex indexName="idx_support_case_type_status" tableName="support_case">
-      <column name="case_type" />
-      <column name="status" />
-    </createIndex>
-  </changeSet>
-  <changeSet author="user (generated)" id="1794759768913-38">
-    <addForeignKeyConstraint baseColumnNames="support_case_id" baseTableName="support_case_message" constraintName="FK7opj8gvxglkfxpkfox9dcnifa" deferrable="false" initiallyDeferred="false" referencedColumnNames="id" referencedTableName="support_case" validate="true" />
-  </changeSet>
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet author="support" id="20261115212236-1">
+        <createTable tableName="support_case">
+            <column name="id" type="uuid"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="case_type" type="varchar(32)"><constraints nullable="false"/></column>
+            <column name="requester_user_id" type="bigint"><constraints nullable="false"/></column>
+            <column name="subject" type="varchar(255)"><constraints nullable="false"/></column>
+            <column name="category" type="varchar(32)"><constraints nullable="false"/></column>
+            <column name="event_id" type="uuid"/>
+            <column name="order_id" type="uuid"/>
+            <column name="ticket_id" type="uuid"/>
+            <column name="status" type="varchar(32)"><constraints nullable="false"/></column>
+            <column name="assigned_support_user_id" type="bigint"/>
+            <column name="assigned_at" type="timestamp with time zone"/>
+            <column name="created_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="updated_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="resolved_at" type="timestamp with time zone"/>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+    </changeSet>
+
+    <changeSet author="support" id="20261115212236-2">
+        <createTable tableName="support_case_message">
+            <column name="support_case_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="message_order" type="int"><constraints nullable="false"/></column>
+            <column name="message_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="author_user_id" type="bigint"><constraints nullable="false"/></column>
+            <column name="author_type" type="varchar(32)"><constraints nullable="false"/></column>
+            <column name="content" type="text"><constraints nullable="false"/></column>
+            <column name="sent_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+        </createTable>
+        <addPrimaryKey tableName="support_case_message" columnNames="support_case_id, message_order" constraintName="pk_support_case_message"/>
+    </changeSet>
+
+    <changeSet author="support" id="1794759768913-30">
+        <createIndex indexName="idx_support_case_assignee" tableName="support_case">
+            <column name="assigned_support_user_id"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="support" id="1794759768913-31">
+        <createIndex indexName="idx_support_case_event" tableName="support_case">
+            <column name="event_id"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="support" id="1794759768913-33">
+        <createIndex indexName="idx_support_case_order" tableName="support_case">
+            <column name="order_id"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="support" id="1794759768913-34">
+        <createIndex indexName="idx_support_case_requester" tableName="support_case">
+            <column name="requester_user_id"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="support" id="1794759768913-35">
+        <createIndex indexName="idx_support_case_status" tableName="support_case">
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="support" id="1794759768913-36">
+        <createIndex indexName="idx_support_case_ticket" tableName="support_case">
+            <column name="ticket_id"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="support" id="1794759768913-37">
+        <createIndex indexName="idx_support_case_type_status" tableName="support_case">
+            <column name="case_type"/>
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="support" id="1794759768913-38">
+        <addForeignKeyConstraint
+            baseColumnNames="support_case_id"
+            baseTableName="support_case_message"
+            constraintName="fk_support_case_message_case"
+            referencedColumnNames="id"
+            referencedTableName="support_case"/>
+    </changeSet>
 </databaseChangeLog>
