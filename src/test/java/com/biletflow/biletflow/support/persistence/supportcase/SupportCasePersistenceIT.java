@@ -107,14 +107,24 @@ class SupportCasePersistenceIT {
 
         tx().executeWithoutResult(status -> supportCases.save(supportCase));
 
-        assertEquals(1L, tx().execute(status -> supportCases.findByRequesterUserId(303L).stream()
-            .filter(candidate -> candidate.getId().equals(supportCase.getId()))
-            .count()));
-        assertEquals(1L, tx().execute(status -> supportCases.findByAssignedSupportUserId(404L).stream()
-            .filter(candidate -> candidate.getId().equals(supportCase.getId()))
-            .count()));
-        assertEquals(1L, tx().execute(status -> supportCases.findByStatus(CaseStatus.IN_PROGRESS).stream()
-            .filter(candidate -> candidate.getId().equals(supportCase.getId()))
-            .count()));
+        long requesterMatches = tx().execute(status ->
+            supportCases.findByRequesterUserId(303L).stream()
+                .filter(candidate -> candidate.getId().equals(supportCase.getId()))
+                .count()
+        );
+        long assignedMatches = tx().execute(status ->
+            supportCases.findByAssignedSupportUserId(404L).stream()
+                .filter(candidate -> candidate.getId().equals(supportCase.getId()))
+                .count()
+        );
+        long statusMatches = tx().execute(status ->
+            supportCases.findByStatus(CaseStatus.IN_PROGRESS).stream()
+                .filter(candidate -> candidate.getId().equals(supportCase.getId()))
+                .count()
+        );
+
+        assertEquals(1L, requesterMatches);
+        assertEquals(1L, assignedMatches);
+        assertEquals(1L, statusMatches);
     }
 }
