@@ -96,9 +96,7 @@ public class TicketService {
     public TicketView checkIn(CheckInTicketCommand command) {
         Objects.requireNonNull(command, "command cannot be null");
         locks.lock("event-lifecycle:" + command.expectedEventId());
-        if (events.ticketDetails(command.expectedEventId(), null).cancelled()) {
-            throw new IllegalStateException("Event is cancelled");
-        }
+        requireAdmission(command.expectedEventId());
 
         Ticket ticket = requireTicketByCodeForUpdate(command.ticketCode());
 
@@ -113,9 +111,7 @@ public class TicketService {
     public TicketView reverseCheckIn(ReverseCheckInCommand command) {
         Objects.requireNonNull(command, "command cannot be null");
         locks.lock("event-lifecycle:" + command.expectedEventId());
-        if (events.ticketDetails(command.expectedEventId(), null).cancelled()) {
-            throw new IllegalStateException("Event is cancelled");
-        }
+        requireAdmission(command.expectedEventId());
 
         Ticket ticket = requireTicketByCodeForUpdate(command.ticketCode());
 
@@ -181,8 +177,19 @@ public class TicketService {
             ticket.getTicketTypeId().value(),
             ticket.getSeatId() == null ? null : ticket.getSeatId().value(),
             ticket.getStatus(),
-            ticket.getStatus() == TicketStatus.VALID && !events.ticketDetails(ticket.getEventId(), null).cancelled()
+            ticket.getStatus() == TicketStatus.VALID && allowsAdmission(ticket.getEventId())
         );
+    }
+
+    private void requireAdmission(UUID eventId) {
+        var details = events.ticketDetails(eventId, null);
+        if (details.cancelled()) throw new IllegalStateException("Event is cancelled");
+        if (details.suspended()) throw new IllegalStateException("Event is suspended");
+    }
+
+    private boolean allowsAdmission(UUID eventId) {
+        var details = events.ticketDetails(eventId, null);
+        return !details.cancelled() && !details.suspended();
     }
 
     private Ticket requireTicketForUpdate(UUID ticketId) {
