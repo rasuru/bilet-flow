@@ -83,6 +83,9 @@ public class SupportCaseJpaEntity {
     @Column(name = "resolved_at")
     private Instant resolvedAt;
 
+    @Column(name = "escalated_at")
+    private Instant escalatedAt;
+
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(
         name = "support_case_message",
@@ -115,7 +118,8 @@ public class SupportCaseJpaEntity {
         Long assignedSupportUserId,
         Instant assignedAt,
         Instant updatedAt,
-        Instant resolvedAt
+        Instant resolvedAt,
+        Instant escalatedAt
     ) {
         this.subject = subject;
         this.category = category;
@@ -127,6 +131,7 @@ public class SupportCaseJpaEntity {
         this.assignedAt = assignedAt;
         this.updatedAt = updatedAt;
         this.resolvedAt = resolvedAt;
+        this.escalatedAt = escalatedAt;
     }
 
     public void replaceMessages(List<SupportMessageJpaEmbeddable> messages) {
@@ -147,6 +152,7 @@ public class SupportCaseJpaEntity {
     public Instant getAssignedAt() { return assignedAt; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public Instant getEscalatedAt() { return escalatedAt; }
     public Instant getResolvedAt() { return resolvedAt; }
     public List<SupportMessageJpaEmbeddable> getMessages() { return messages; }
     public long getVersion() { return version; }

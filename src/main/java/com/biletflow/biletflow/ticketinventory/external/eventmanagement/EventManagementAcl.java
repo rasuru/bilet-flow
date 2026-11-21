@@ -56,7 +56,8 @@ public class EventManagementAcl implements EventManagementPort {
                 details.venue(),
                 details.address(),
                 details.seat(),
-                details.cancelled()
+                details.cancelled(),
+                details.suspended()
             );
         } catch (SocialEventNotFoundException exception) {
             throw new EntityNotFoundException("Event not found: " + eventId);

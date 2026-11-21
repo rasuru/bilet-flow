@@ -7,4 +7,5 @@ public enum SocialEventStatus {
     PUBLISHED,
     UNPUBLISHED,
     CANCELLED,
+    SUSPENDED,
 }

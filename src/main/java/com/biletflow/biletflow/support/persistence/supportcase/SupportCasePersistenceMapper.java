@@ -40,6 +40,7 @@ public class SupportCasePersistenceMapper {
             entity.getCreatedAt(),
             entity.getUpdatedAt(),
             entity.getResolvedAt(),
+            entity.getEscalatedAt(),
             messages
         );
     }
@@ -84,7 +85,8 @@ public class SupportCasePersistenceMapper {
             domain.getAssignedSupportUserId(),
             domain.getAssignedAt(),
             domain.getUpdatedAt(),
-            domain.getResolvedAt()
+            domain.getResolvedAt(),
+            domain.getEscalatedAt()
         );
 
         entity.replaceMessages(domain.getMessages().stream()
