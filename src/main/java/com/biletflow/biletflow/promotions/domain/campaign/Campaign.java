@@ -3,14 +3,8 @@ package com.biletflow.biletflow.promotions.domain.campaign;
 import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.promotions.domain.exceptions.InvalidCampaignStateException;
 import com.biletflow.biletflow.promotions.domain.exceptions.PromoCodeRejectedException;
-import com.biletflow.biletflow.promotions.domain.exceptions.RedemptionNotFoundException;
 import com.biletflow.biletflow.promotions.domain.exceptions.RejectionReason;
-import com.biletflow.biletflow.promotions.domain.redemption.PromoRedemption;
-import com.biletflow.biletflow.promotions.domain.redemption.RedemptionId;
-import com.biletflow.biletflow.promotions.domain.redemption.RedemptionStatus;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -32,8 +26,6 @@ public class Campaign {
     private CampaignStatus status;
     private Instant endedAt;
 
-    private final List<PromoRedemption> redemptions;
-
     private Campaign(
         CampaignId id,
         UUID eventId,
@@ -44,8 +36,7 @@ public class Campaign {
         RedemptionLimit redemptionLimit,
         CampaignStatus status,
         Instant createdAt,
-        Instant endedAt,
-        List<PromoRedemption> redemptions
+        Instant endedAt
     ) {
         this.id = Objects.requireNonNull(id, "CampaignId cannot be null");
         this.eventId = Objects.requireNonNull(eventId, "eventId cannot be null");
@@ -59,7 +50,6 @@ public class Campaign {
         this.status = Objects.requireNonNull(status, "status cannot be null");
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt cannot be null");
         this.endedAt = endedAt;
-        this.redemptions = new ArrayList<>(Objects.requireNonNull(redemptions, "redemptions cannot be null"));
 
         if ((status == CampaignStatus.ENDED) != (endedAt != null)) {
             throw new IllegalStateException("endedAt must be set exactly when the campaign has ended");
@@ -92,8 +82,7 @@ public class Campaign {
             redemptionLimit,
             CampaignStatus.ACTIVE,
             now,
-            null,
-            List.of()
+            null
         );
     }
 
@@ -107,76 +96,44 @@ public class Campaign {
         RedemptionLimit redemptionLimit,
         CampaignStatus status,
         Instant createdAt,
-        Instant endedAt,
-        List<PromoRedemption> redemptions
+        Instant endedAt
     ) {
-        return new Campaign(
-            id,
-            eventId,
-            name,
-            discount,
-            validity,
-            applicableTicketTypeIds,
-            redemptionLimit,
-            status,
-            createdAt,
-            endedAt,
-            redemptions
-        );
+        return new Campaign(id, eventId, name, discount, validity, applicableTicketTypeIds, redemptionLimit, status, createdAt, endedAt);
     }
 
-    public DiscountQuote quote(UUID sessionId, List<CheckoutLine> lines, Instant now) {
-        Objects.requireNonNull(sessionId, "sessionId cannot be null");
+    public void ensureAcceptsRedemptions(int usedRedemptions, Instant now) {
         Objects.requireNonNull(now, "now cannot be null");
 
-        ensureRedeemableAt(now);
-
-        if (redemptionLimit.isReachedBy(usedRedemptionsExcluding(sessionId, now))) {
+        if (usedRedemptions < 0) {
+            throw new IllegalArgumentException("Used redemptions cannot be negative");
+        }
+        if (status == CampaignStatus.ENDED) {
+            throw new PromoCodeRejectedException(RejectionReason.CAMPAIGN_ENDED);
+        }
+        if (validity.hasNotStartedAt(now)) {
+            throw new PromoCodeRejectedException(RejectionReason.NOT_YET_VALID);
+        }
+        if (validity.hasEndedAt(now)) {
+            throw new PromoCodeRejectedException(RejectionReason.EXPIRED);
+        }
+        if (redemptionLimit.isReachedBy(usedRedemptions)) {
             throw new PromoCodeRejectedException(RejectionReason.EXHAUSTED);
         }
+    }
 
-        Money eligibleSubtotal = eligibleSubtotal(lines);
+    public DiscountQuote quote(List<CheckoutLine> lines, int usedRedemptions, Instant now) {
+        ensureAcceptsRedemptions(usedRedemptions, now);
+
+        List<CheckoutLine> eligibleLines = eligibleLines(lines);
+        Money eligibleSubtotal = eligibleLines.stream().map(CheckoutLine::total).reduce(Money.zeroKzt(), Money::add);
+
         if (eligibleSubtotal.isZero()) {
             throw new PromoCodeRejectedException(RejectionReason.INAPPLICABLE);
         }
 
-        return new DiscountQuote(eligibleSubtotal, discount.calculateFor(eligibleSubtotal));
-    }
+        int eligibleTicketQuantity = eligibleLines.stream().mapToInt(CheckoutLine::quantity).sum();
 
-    public PromoRedemption reserveRedemption(UUID sessionId, List<CheckoutLine> lines, Instant now, Instant expiresAt) {
-        Objects.requireNonNull(sessionId, "sessionId cannot be null");
-        Objects.requireNonNull(now, "now cannot be null");
-
-        expireStaleRedemptions(now);
-
-        DiscountQuote quote = quote(sessionId, lines, now);
-
-        redemptions
-            .stream()
-            .filter(redemption -> redemption.isActiveReservationFor(sessionId, now))
-            .forEach(redemption -> redemption.release(sessionId));
-
-        PromoRedemption redemption = PromoRedemption.reserve(sessionId, quote.discountAmount(), now, expiresAt);
-        redemptions.add(redemption);
-        return redemption;
-    }
-
-    public void confirmRedemption(RedemptionId redemptionId, UUID orderId, Instant now) {
-        findRedemption(redemptionId).confirm(orderId, now);
-    }
-
-    public void releaseRedemption(RedemptionId redemptionId, UUID sessionId) {
-        findRedemption(redemptionId).release(sessionId);
-    }
-
-    public void expireStaleRedemptions(Instant now) {
-        Objects.requireNonNull(now, "now cannot be null");
-
-        for (PromoRedemption redemption : redemptions) {
-            if (redemption.getStatus() == RedemptionStatus.RESERVED && redemption.isExpiredAt(now)) {
-                redemption.markExpired();
-            }
-        }
+        return new DiscountQuote(eligibleSubtotal, eligibleTicketQuantity, discount.calculateFor(eligibleSubtotal));
     }
 
     public void end(Instant now) {
@@ -188,16 +145,6 @@ public class Campaign {
 
         status = CampaignStatus.ENDED;
         endedAt = now;
-    }
-
-    public PromoRedemption findRedemption(RedemptionId redemptionId) {
-        Objects.requireNonNull(redemptionId, "RedemptionId cannot be null");
-
-        return redemptions
-            .stream()
-            .filter(redemption -> redemption.getId().equals(redemptionId))
-            .findFirst()
-            .orElseThrow(() -> new RedemptionNotFoundException(redemptionId.value().toString()));
     }
 
     public void ensureAppliesToEvent(UUID eventId) {
@@ -212,49 +159,14 @@ public class Campaign {
         return applicableTicketTypeIds.isEmpty() || applicableTicketTypeIds.contains(ticketTypeId);
     }
 
-    public int usedRedemptionsAt(Instant now) {
-        Objects.requireNonNull(now, "now cannot be null");
-        return (int) redemptions
-            .stream()
-            .filter(redemption -> redemption.countsTowardsLimitAt(now))
-            .count();
-    }
-
-    public Integer remainingRedemptionsAt(Instant now) {
+    public Integer remainingRedemptions(int usedRedemptions) {
         if (redemptionLimit.isUnlimited()) {
             return null;
         }
-        return Math.max(0, redemptionLimit.maxRedemptions() - usedRedemptionsAt(now));
+        return Math.max(0, redemptionLimit.maxRedemptions() - usedRedemptions);
     }
 
-    public int confirmedRedemptionCount() {
-        return (int) redemptions
-            .stream()
-            .filter(redemption -> redemption.getStatus() == RedemptionStatus.CONFIRMED)
-            .count();
-    }
-
-    private void ensureRedeemableAt(Instant now) {
-        if (status == CampaignStatus.ENDED) {
-            throw new PromoCodeRejectedException(RejectionReason.CAMPAIGN_ENDED);
-        }
-        if (validity.hasNotStartedAt(now)) {
-            throw new PromoCodeRejectedException(RejectionReason.NOT_YET_VALID);
-        }
-        if (validity.hasEndedAt(now)) {
-            throw new PromoCodeRejectedException(RejectionReason.EXPIRED);
-        }
-    }
-
-    private int usedRedemptionsExcluding(UUID sessionId, Instant now) {
-        return (int) redemptions
-            .stream()
-            .filter(redemption -> redemption.countsTowardsLimitAt(now))
-            .filter(redemption -> !redemption.isActiveReservationFor(sessionId, now))
-            .count();
-    }
-
-    private Money eligibleSubtotal(List<CheckoutLine> lines) {
+    private List<CheckoutLine> eligibleLines(List<CheckoutLine> lines) {
         Objects.requireNonNull(lines, "lines cannot be null");
 
         if (lines.isEmpty()) {
@@ -265,8 +177,7 @@ public class Campaign {
             .stream()
             .map(line -> Objects.requireNonNull(line, "line cannot be null"))
             .filter(line -> appliesTo(line.ticketTypeId()))
-            .map(CheckoutLine::total)
-            .reduce(Money.zeroKzt(), Money::add);
+            .toList();
     }
 
     private static String validateName(String name) {
@@ -321,9 +232,5 @@ public class Campaign {
 
     public Instant getEndedAt() {
         return endedAt;
-    }
-
-    public List<PromoRedemption> getRedemptions() {
-        return Collections.unmodifiableList(redemptions);
     }
 }

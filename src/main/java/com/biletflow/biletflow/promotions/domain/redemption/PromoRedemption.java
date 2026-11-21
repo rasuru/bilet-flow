@@ -1,14 +1,23 @@
 package com.biletflow.biletflow.promotions.domain.redemption;
 
 import com.biletflow.biletflow.common.domain.Money;
+import com.biletflow.biletflow.promotions.domain.campaign.CampaignId;
+import com.biletflow.biletflow.promotions.domain.campaign.DiscountQuote;
 import com.biletflow.biletflow.promotions.domain.exceptions.InvalidCampaignStateException;
+import com.biletflow.biletflow.promotions.domain.promocode.PromoCodeId;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
 public class PromoRedemption {
+
     private final RedemptionId id;
+    private final CampaignId campaignId;
+    private final PromoCodeId promoCodeId;
     private final UUID sessionId;
+    private final RedemptionSource source;
+    private final int ticketQuantity;
+    private final Money grossAmount;
     private final Money discountAmount;
     private final Instant reservedAt;
     private final Instant expiresAt;
@@ -19,7 +28,12 @@ public class PromoRedemption {
 
     private PromoRedemption(
         RedemptionId id,
+        CampaignId campaignId,
+        PromoCodeId promoCodeId,
         UUID sessionId,
+        RedemptionSource source,
+        int ticketQuantity,
+        Money grossAmount,
         Money discountAmount,
         Instant reservedAt,
         Instant expiresAt,
@@ -28,13 +42,26 @@ public class PromoRedemption {
         Instant confirmedAt
     ) {
         this.id = Objects.requireNonNull(id, "RedemptionId cannot be null");
+        this.campaignId = Objects.requireNonNull(campaignId, "CampaignId cannot be null");
+        this.promoCodeId = Objects.requireNonNull(promoCodeId, "PromoCodeId cannot be null");
         this.sessionId = Objects.requireNonNull(sessionId, "sessionId cannot be null");
+        this.source = Objects.requireNonNull(source, "source cannot be null");
+        this.grossAmount = Objects.requireNonNull(grossAmount, "grossAmount cannot be null");
         this.discountAmount = Objects.requireNonNull(discountAmount, "discountAmount cannot be null");
         this.reservedAt = Objects.requireNonNull(reservedAt, "reservedAt cannot be null");
         this.expiresAt = Objects.requireNonNull(expiresAt, "expiresAt cannot be null");
         this.orderId = orderId;
         this.status = Objects.requireNonNull(status, "status cannot be null");
         this.confirmedAt = confirmedAt;
+
+        if (ticketQuantity <= 0) {
+            throw new IllegalArgumentException("Ticket quantity must be greater than 0");
+        }
+        this.ticketQuantity = ticketQuantity;
+
+        if (discountAmount.isGreaterThan(grossAmount)) {
+            throw new IllegalArgumentException("Discount cannot exceed the gross amount");
+        }
 
         if (!expiresAt.isAfter(reservedAt)) {
             throw new IllegalArgumentException("Redemption must expire after it is reserved");
@@ -45,20 +72,29 @@ public class PromoRedemption {
         }
     }
 
-    public static PromoRedemption reserve(UUID sessionId, Money discountAmount, Instant now, Instant expiresAt) {
-        Objects.requireNonNull(now, "now cannot be null");
-        Objects.requireNonNull(expiresAt, "expiresAt cannot be null");
-
-        if (!expiresAt.isAfter(now)) {
-            throw new IllegalArgumentException("Redemption expiry must be in the future");
-        }
+    public static PromoRedemption reserve(
+        CampaignId campaignId,
+        PromoCodeId promoCodeId,
+        UUID sessionId,
+        RedemptionSource source,
+        DiscountQuote quote,
+        Instant now,
+        ReservationLifetime lifetime
+    ) {
+        Objects.requireNonNull(quote, "quote cannot be null");
+        Objects.requireNonNull(lifetime, "lifetime cannot be null");
 
         return new PromoRedemption(
             RedemptionId.generate(),
+            campaignId,
+            promoCodeId,
             sessionId,
-            discountAmount,
+            source,
+            quote.eligibleTicketQuantity(),
+            quote.eligibleSubtotal(),
+            quote.discountAmount(),
             now,
-            expiresAt,
+            lifetime.expiresAtFrom(now),
             null,
             RedemptionStatus.RESERVED,
             null
@@ -67,7 +103,12 @@ public class PromoRedemption {
 
     public static PromoRedemption rehydrate(
         RedemptionId id,
+        CampaignId campaignId,
+        PromoCodeId promoCodeId,
         UUID sessionId,
+        RedemptionSource source,
+        int ticketQuantity,
+        Money grossAmount,
         Money discountAmount,
         Instant reservedAt,
         Instant expiresAt,
@@ -75,7 +116,21 @@ public class PromoRedemption {
         RedemptionStatus status,
         Instant confirmedAt
     ) {
-        return new PromoRedemption(id, sessionId, discountAmount, reservedAt, expiresAt, orderId, status, confirmedAt);
+        return new PromoRedemption(
+            id,
+            campaignId,
+            promoCodeId,
+            sessionId,
+            source,
+            ticketQuantity,
+            grossAmount,
+            discountAmount,
+            reservedAt,
+            expiresAt,
+            orderId,
+            status,
+            confirmedAt
+        );
     }
 
     public boolean confirm(UUID orderId, Instant now) {
@@ -129,8 +184,8 @@ public class PromoRedemption {
         return status == RedemptionStatus.CONFIRMED || (status == RedemptionStatus.RESERVED && !isExpiredAt(now));
     }
 
-    public boolean isActiveReservationFor(UUID sessionId, Instant now) {
-        return status == RedemptionStatus.RESERVED && this.sessionId.equals(sessionId) && !isExpiredAt(now);
+    public Money netAmount() {
+        return grossAmount.subtract(discountAmount);
     }
 
     private void ensureReserved() {
@@ -143,8 +198,28 @@ public class PromoRedemption {
         return id;
     }
 
+    public CampaignId getCampaignId() {
+        return campaignId;
+    }
+
+    public PromoCodeId getPromoCodeId() {
+        return promoCodeId;
+    }
+
     public UUID getSessionId() {
         return sessionId;
+    }
+
+    public RedemptionSource getSource() {
+        return source;
+    }
+
+    public int getTicketQuantity() {
+        return ticketQuantity;
+    }
+
+    public Money getGrossAmount() {
+        return grossAmount;
     }
 
     public Money getDiscountAmount() {

@@ -3,15 +3,16 @@ package com.biletflow.biletflow.promotions.persistence.campaign;
 import com.biletflow.biletflow.promotions.domain.campaign.Campaign;
 import com.biletflow.biletflow.promotions.domain.campaign.CampaignId;
 import com.biletflow.biletflow.promotions.domain.campaign.CampaignRepository;
-import com.biletflow.biletflow.promotions.domain.redemption.RedemptionId;
 import com.biletflow.biletflow.promotions.persistence.campaign.entity.CampaignJpaEntity;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceContext;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Repository
@@ -36,19 +37,18 @@ public class JpaCampaignRepository implements CampaignRepository {
     }
 
     @Override
-    public Optional<Campaign> findByRedemptionId(RedemptionId redemptionId) {
-        Objects.requireNonNull(redemptionId, "RedemptionId cannot be null");
-        return jpaRepository.findByRedemptionId(redemptionId.value()).map(mapper::toDomain);
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<Campaign> findByIdForUpdate(CampaignId id) {
+        Objects.requireNonNull(id, "CampaignId cannot be null");
+        return Optional.ofNullable(entityManager.find(CampaignJpaEntity.class, id.value(), LockModeType.PESSIMISTIC_WRITE)).map(
+            mapper::toDomain
+        );
     }
 
     @Override
     public List<Campaign> findByEventId(UUID eventId) {
         Objects.requireNonNull(eventId, "eventId cannot be null");
-        return jpaRepository
-            .findByEventIdOrderByCreatedAtAsc(eventId)
-            .stream()
-            .map(mapper::toDomain)
-            .toList();
+        return jpaRepository.findByEventIdOrderByCreatedAtAsc(eventId).stream().map(mapper::toDomain).toList();
     }
 
     @Override

@@ -5,9 +5,7 @@ import com.biletflow.biletflow.promotions.domain.campaign.DiscountType;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -60,10 +58,6 @@ public class CampaignJpaEntity {
     @Column(name = "ticket_type_id", nullable = false)
     private Set<UUID> applicableTicketTypeIds = new HashSet<>();
 
-    @ElementCollection(fetch = FetchType.LAZY)
-    @CollectionTable(name = "promotions_campaign_redemption", joinColumns = @JoinColumn(name = "campaign_id"))
-    private List<PromoRedemptionJpaEmbeddable> redemptions = new ArrayList<>();
-
     protected CampaignJpaEntity() {}
 
     public CampaignJpaEntity(
@@ -90,12 +84,9 @@ public class CampaignJpaEntity {
         this.applicableTicketTypeIds.addAll(applicableTicketTypeIds);
     }
 
-    public void replaceState(CampaignStatus status, Instant endedAt, List<PromoRedemptionJpaEmbeddable> redemptions) {
+    public void replaceState(CampaignStatus status, Instant endedAt) {
         this.status = status;
         this.endedAt = endedAt;
-
-        this.redemptions.clear();
-        this.redemptions.addAll(redemptions);
     }
 
     public UUID getId() {
@@ -148,9 +139,5 @@ public class CampaignJpaEntity {
 
     public Set<UUID> getApplicableTicketTypeIds() {
         return applicableTicketTypeIds;
-    }
-
-    public List<PromoRedemptionJpaEmbeddable> getRedemptions() {
-        return redemptions;
     }
 }

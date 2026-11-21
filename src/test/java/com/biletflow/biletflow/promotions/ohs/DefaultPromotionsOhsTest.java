@@ -9,18 +9,17 @@ import com.biletflow.biletflow.promotions.application.PromotionsTestFixture;
 import com.biletflow.biletflow.promotions.application.campaign.view.CampaignView;
 import com.biletflow.biletflow.promotions.application.promocode.command.DisablePromoCodeCommand;
 import com.biletflow.biletflow.promotions.domain.exceptions.RejectionReason;
+import com.biletflow.biletflow.promotions.domain.redemption.RedemptionSource;
 import com.biletflow.biletflow.promotions.ohs.PromotionRejectedException.Reason;
 import com.biletflow.biletflow.promotions.ohs.PromotionsOhs.Line;
 import com.biletflow.biletflow.promotions.ohs.PromotionsOhs.Quote;
 import com.biletflow.biletflow.promotions.ohs.PromotionsOhs.Reservation;
-import java.time.Instant;
+import com.biletflow.biletflow.promotions.ohs.PromotionsOhs.Source;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class DefaultPromotionsOhsTest {
-
-    private static final Instant EXPIRES_AT = NOW.plusSeconds(600);
 
     private final PromotionsTestFixture fixture = new PromotionsTestFixture();
     private final PromotionsOhs ohs = new DefaultPromotionsOhs(fixture.redemptionService);
@@ -54,10 +53,10 @@ class DefaultPromotionsOhsTest {
     void reserveConfirmFlowAttributesTheOrderToTheCampaign() {
         String code = fixture.createTenPercentOnVip(5).promoCodes().get(0).code();
 
-        Reservation reservation = ohs.reserve(fixture.eventId, checkoutId, code, twoVip(), EXPIRES_AT);
+        Reservation reservation = ohs.reserve(fixture.eventId, checkoutId, code, twoVip(), Source.CODE);
 
         assertEquals(Money.kzt(2_000), reservation.discountAmount());
-        assertEquals(EXPIRES_AT, reservation.expiresAt());
+        assertEquals(NOW.plus(PromotionsTestFixture.LIFETIME), reservation.expiresAt());
         assertEquals(campaign().id(), reservation.campaignId());
 
         ohs.confirm(reservation.redemptionId(), UUID.randomUUID());
@@ -69,7 +68,7 @@ class DefaultPromotionsOhsTest {
     @Test
     void releaseGivesTheRedemptionBack() {
         String code = fixture.createTenPercentOnVip(1).promoCodes().get(0).code();
-        Reservation reservation = ohs.reserve(fixture.eventId, checkoutId, code, twoVip(), EXPIRES_AT);
+        Reservation reservation = ohs.reserve(fixture.eventId, checkoutId, code, twoVip(), Source.CODE);
 
         ohs.release(reservation.redemptionId(), checkoutId);
 
@@ -84,8 +83,8 @@ class DefaultPromotionsOhsTest {
         assertEquals(Reason.NOT_FOUND, rejection(() -> ohs.quote(fixture.eventId, checkoutId, "NOSUCHCODE", twoVip())));
         assertEquals(Reason.INAPPLICABLE, rejection(() -> ohs.quote(UUID.randomUUID(), checkoutId, code, twoVip())));
 
-        ohs.reserve(fixture.eventId, checkoutId, code, twoVip(), EXPIRES_AT);
-        assertEquals(Reason.EXHAUSTED, rejection(() -> ohs.reserve(fixture.eventId, UUID.randomUUID(), code, twoVip(), EXPIRES_AT)));
+        ohs.reserve(fixture.eventId, checkoutId, code, twoVip(), Source.CODE);
+        assertEquals(Reason.EXHAUSTED, rejection(() -> ohs.reserve(fixture.eventId, UUID.randomUUID(), code, twoVip(), Source.CODE)));
 
         fixture.promoCodeService.disable(new DisablePromoCodeCommand(created.promoCodes().get(0).id()));
         assertEquals(Reason.DISABLED, rejection(() -> ohs.quote(fixture.eventId, checkoutId, code, twoVip())));
@@ -95,6 +94,13 @@ class DefaultPromotionsOhsTest {
     void everyDomainRejectionReasonHasAnOhsReason() {
         for (RejectionReason reason : RejectionReason.values()) {
             assertEquals(reason.name(), Reason.valueOf(reason.name()).name());
+        }
+    }
+
+    @Test
+    void everyOhsSourceHasADomainSource() {
+        for (Source source : Source.values()) {
+            assertEquals(source.name(), RedemptionSource.valueOf(source.name()).name());
         }
     }
 

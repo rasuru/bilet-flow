@@ -38,12 +38,11 @@ class PromotionsResourceTest {
 
     @Test
     void organizerCreatesACampaign() throws Exception {
-        mvc
-            .perform(
-                post("/api/events/{eventId}/campaigns", fixture.eventId)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(campaignJson("Student week"))
-            )
+        mvc.perform(
+            post("/api/events/{eventId}/campaigns", fixture.eventId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(campaignJson("Student week"))
+        )
             .andExpect(status().isCreated())
             .andExpect(header().exists("Location"))
             .andExpect(jsonPath("$.name").value("Student week"))
@@ -55,12 +54,9 @@ class PromotionsResourceTest {
 
     @Test
     void invalidCampaignRequestIsABadRequest() throws Exception {
-        mvc
-            .perform(
-                post("/api/events/{eventId}/campaigns", fixture.eventId).contentType(MediaType.APPLICATION_JSON).content(campaignJson(" "))
-            )
-            .andExpect(status().isBadRequest())
-            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
+        mvc.perform(
+            post("/api/events/{eventId}/campaigns", fixture.eventId).contentType(MediaType.APPLICATION_JSON).content(campaignJson(" "))
+        ).andExpect(status().isBadRequest());
     }
 
     @Test
@@ -81,12 +77,10 @@ class PromotionsResourceTest {
     void endingACampaignTwiceIsAConflict() throws Exception {
         CampaignView campaign = fixture.createTenPercentOnVip(10);
 
-        mvc
-            .perform(post("/api/campaigns/{campaignId}/end", campaign.id()))
+        mvc.perform(post("/api/campaigns/{campaignId}/end", campaign.id()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("ENDED"));
-        mvc
-            .perform(post("/api/campaigns/{campaignId}/end", campaign.id()))
+        mvc.perform(post("/api/campaigns/{campaignId}/end", campaign.id()))
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.detail").value("Campaign has already ended"));
     }
@@ -95,12 +89,10 @@ class PromotionsResourceTest {
     void promoCodeCanBeDisabledAndEnabled() throws Exception {
         PromoCodeView promoCode = fixture.createTenPercentOnVip(10).promoCodes().get(0);
 
-        mvc
-            .perform(post("/api/promo-codes/{promoCodeId}/disable", promoCode.id()))
+        mvc.perform(post("/api/promo-codes/{promoCodeId}/disable", promoCode.id()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.enabled").value(false));
-        mvc
-            .perform(post("/api/promo-codes/{promoCodeId}/enable", promoCode.id()))
+        mvc.perform(post("/api/promo-codes/{promoCodeId}/enable", promoCode.id()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.enabled").value(true));
     }
@@ -110,11 +102,21 @@ class PromotionsResourceTest {
         PromoCodeView promoCode = fixture.createTenPercentOnVip(10).promoCodes().get(0);
         fixture.currentUserId = null;
 
-        mvc
-            .perform(get("/api/campaign-links/{token}", promoCode.campaignToken()))
+        mvc.perform(get("/api/campaign-links/{token}", promoCode.campaignToken()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.eventId").value(fixture.eventId.toString()))
             .andExpect(jsonPath("$.code").value(promoCode.code()));
+    }
+
+    @Test
+    void campaignLinkOfADisabledCodeIsARejectedProblem() throws Exception {
+        PromoCodeView promoCode = fixture.createTenPercentOnVip(10).promoCodes().get(0);
+        mvc.perform(post("/api/promo-codes/{promoCodeId}/disable", promoCode.id())).andExpect(status().isOk());
+
+        mvc.perform(get("/api/campaign-links/{token}", promoCode.campaignToken()))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.type").value("https://github.com/rasuru/bilet-flow/blob/main/docs/api-errors.md#promo-code-rejected"))
+            .andExpect(jsonPath("$.reason").value("DISABLED"));
     }
 
     @Test

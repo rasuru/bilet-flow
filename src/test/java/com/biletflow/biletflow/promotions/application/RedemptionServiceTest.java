@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.promotions.application;
 
+import static com.biletflow.biletflow.promotions.application.PromotionsTestFixture.LIFETIME;
 import static com.biletflow.biletflow.promotions.application.PromotionsTestFixture.NOW;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -16,14 +17,16 @@ import com.biletflow.biletflow.promotions.application.redemption.view.PromotionQ
 import com.biletflow.biletflow.promotions.application.redemption.view.ReservedPromotionView;
 import com.biletflow.biletflow.promotions.domain.exceptions.PromoCodeRejectedException;
 import com.biletflow.biletflow.promotions.domain.exceptions.RejectionReason;
-import java.time.Instant;
+import com.biletflow.biletflow.promotions.domain.redemption.PromoRedemption;
+import com.biletflow.biletflow.promotions.domain.redemption.RedemptionId;
+import com.biletflow.biletflow.promotions.domain.redemption.RedemptionSource;
+import com.biletflow.biletflow.promotions.domain.redemption.RedemptionStatus;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class RedemptionServiceTest {
-
-    private static final Instant EXPIRES_AT = NOW.plusSeconds(600);
 
     private final PromotionsTestFixture fixture = new PromotionsTestFixture();
     private final UUID checkoutId = UUID.randomUUID();
@@ -33,13 +36,22 @@ class RedemptionServiceTest {
     }
 
     private String createCode(Integer maxRedemptions) {
-        CampaignView campaign = fixture.createTenPercentOnVip(maxRedemptions);
-        return campaign.promoCodes().get(0).code();
+        return fixture.createTenPercentOnVip(maxRedemptions).promoCodes().get(0).code();
     }
 
     private ReservedPromotionView reserve(String code, UUID checkout) {
-        ReservePromotionCommand command = new ReservePromotionCommand(fixture.eventId, checkout, code, vipAndStandard(), EXPIRES_AT);
+        ReservePromotionCommand command = new ReservePromotionCommand(
+            fixture.eventId,
+            checkout,
+            code,
+            vipAndStandard(),
+            RedemptionSource.CODE
+        );
         return fixture.redemptionService.reserve(command);
+    }
+
+    private PromoRedemption stored(ReservedPromotionView reserved) {
+        return fixture.redemptions.stored.get(new RedemptionId(reserved.redemptionId()));
     }
 
     private CampaignView campaign() {
@@ -53,7 +65,6 @@ class RedemptionServiceTest {
     @Test
     void quoteCalculatesTheDiscountWithoutReservingIt() {
         String code = createCode(1);
-
         QuotePromotionCommand command = new QuotePromotionCommand(fixture.eventId, checkoutId, code, vipAndStandard());
 
         PromotionQuoteView quote = fixture.redemptionService.quote(command);
@@ -61,7 +72,19 @@ class RedemptionServiceTest {
         assertEquals(code, quote.code());
         assertEquals(Money.kzt(20_000), quote.eligibleSubtotal());
         assertEquals(Money.kzt(2_000), quote.discountAmount());
-        assertEquals(1, campaign().remainingRedemptions());
+        assertTrue(fixture.redemptions.stored.isEmpty());
+    }
+
+    @Test
+    void quoteIgnoresTheSessionsOwnReservation() {
+        String code = createCode(1);
+        reserve(code, checkoutId);
+
+        QuotePromotionCommand command = new QuotePromotionCommand(fixture.eventId, checkoutId, code, vipAndStandard());
+
+        PromotionQuoteView quote = fixture.redemptionService.quote(command);
+
+        assertEquals(Money.kzt(2_000), quote.discountAmount());
     }
 
     @Test
@@ -76,20 +99,50 @@ class RedemptionServiceTest {
     }
 
     @Test
-    void reservingAndConfirmingAttributesTheRedemptionToTheOrder() {
+    void reservationLocksTheCampaignAndRecordsAttribution() {
         String code = createCode(5);
+        ReservePromotionCommand command = new ReservePromotionCommand(
+            fixture.eventId,
+            checkoutId,
+            code,
+            vipAndStandard(),
+            RedemptionSource.CAMPAIGN_LINK
+        );
 
-        ReservedPromotionView reserved = reserve(code, checkoutId);
+        ReservedPromotionView reserved = fixture.redemptionService.reserve(command);
 
+        assertEquals(1, fixture.campaigns.lockedLoads);
         assertEquals(Money.kzt(2_000), reserved.discountAmount());
-        assertEquals(EXPIRES_AT, reserved.expiresAt());
+        PromoRedemption redemption = stored(reserved);
+        assertEquals(RedemptionSource.CAMPAIGN_LINK, redemption.getSource());
+        assertEquals(2, redemption.getTicketQuantity());
+        assertEquals(Money.kzt(20_000), redemption.getGrossAmount());
         assertEquals(4, campaign().remainingRedemptions());
+    }
 
-        fixture.redemptionService.confirm(new ConfirmRedemptionCommand(reserved.redemptionId(), UUID.randomUUID()));
+    @Test
+    void promotionsDecidesTheReservationLifetime() {
+        ReservedPromotionView reserved = reserve(createCode(null), checkoutId);
 
+        assertEquals(NOW.plus(LIFETIME), reserved.expiresAt());
+    }
+
+    @Test
+    void confirmingAttributesTheSaleToTheCampaign() {
+        String code = createCode(5);
+        ReservedPromotionView reserved = reserve(code, checkoutId);
+        UUID order = UUID.randomUUID();
+
+        fixture.redemptionService.confirm(new ConfirmRedemptionCommand(reserved.redemptionId(), order));
+        fixture.redemptionService.confirm(new ConfirmRedemptionCommand(reserved.redemptionId(), order));
+
+        assertEquals(order, stored(reserved).getOrderId());
         CampaignView campaign = campaign();
         assertEquals(1, campaign.confirmedRedemptions());
+        assertEquals(2, campaign.ticketsSold());
+        assertEquals(Money.kzt(20_000), campaign.grossRevenue());
         assertEquals(Money.kzt(2_000), campaign.totalDiscountGiven());
+        assertEquals(Money.kzt(18_000), campaign.netRevenue());
     }
 
     @Test
@@ -98,6 +151,31 @@ class RedemptionServiceTest {
         reserve(code, checkoutId);
 
         assertEquals(RejectionReason.EXHAUSTED, rejection(() -> reserve(code, UUID.randomUUID())));
+    }
+
+    @Test
+    void reservingAgainForTheSameCheckoutReplacesThePreviousReservation() {
+        String code = createCode(1);
+        ReservedPromotionView first = reserve(code, checkoutId);
+
+        ReservedPromotionView second = reserve(code, checkoutId);
+
+        assertEquals(RedemptionStatus.RELEASED, stored(first).getStatus());
+        assertEquals(RedemptionStatus.RESERVED, stored(second).getStatus());
+        assertEquals(0, campaign().remainingRedemptions());
+    }
+
+    @Test
+    void expiredReservationsFreeTheirRedemption() {
+        String code = createCode(1);
+        ReservedPromotionView stale = reserve(code, checkoutId);
+
+        fixture.clock.advance(LIFETIME);
+
+        assertNotNull(reserve(code, UUID.randomUUID()));
+        assertThrows(RuntimeException.class, () ->
+            fixture.redemptionService.confirm(new ConfirmRedemptionCommand(stale.redemptionId(), UUID.randomUUID()))
+        );
     }
 
     @Test
@@ -145,5 +223,15 @@ class RedemptionServiceTest {
         assertThrows(EntityNotFoundException.class, () ->
             fixture.redemptionService.confirm(new ConfirmRedemptionCommand(UUID.randomUUID(), UUID.randomUUID()))
         );
+    }
+
+    @Test
+    void reservationAfterTheLifetimeStillRespectsOtherActiveReservations() {
+        String code = createCode(2);
+        reserve(code, UUID.randomUUID());
+        fixture.clock.advance(Duration.ofMinutes(5));
+        reserve(code, UUID.randomUUID());
+
+        assertEquals(RejectionReason.EXHAUSTED, rejection(() -> reserve(code, UUID.randomUUID())));
     }
 }

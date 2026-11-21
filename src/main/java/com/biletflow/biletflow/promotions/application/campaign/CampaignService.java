@@ -21,12 +21,16 @@ import com.biletflow.biletflow.promotions.domain.exceptions.InvalidCampaignState
 import com.biletflow.biletflow.promotions.domain.promocode.CodeValue;
 import com.biletflow.biletflow.promotions.domain.promocode.PromoCode;
 import com.biletflow.biletflow.promotions.domain.promocode.PromoCodeRepository;
+import com.biletflow.biletflow.promotions.domain.redemption.CampaignRedemptionStats;
+import com.biletflow.biletflow.promotions.domain.redemption.PromoRedemptionRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,6 +42,7 @@ public class CampaignService {
 
     private final CampaignRepository campaignRepository;
     private final PromoCodeRepository promoCodeRepository;
+    private final PromoRedemptionRepository redemptionRepository;
     private final EventManagementPort eventManagementPort;
     private final TicketInventoryPort ticketInventoryPort;
     private final PromotionAuditService auditService;
@@ -47,6 +52,7 @@ public class CampaignService {
     public CampaignService(
         CampaignRepository campaignRepository,
         PromoCodeRepository promoCodeRepository,
+        PromoRedemptionRepository redemptionRepository,
         EventManagementPort eventManagementPort,
         TicketInventoryPort ticketInventoryPort,
         PromotionAuditService auditService,
@@ -55,6 +61,7 @@ public class CampaignService {
     ) {
         this.campaignRepository = Objects.requireNonNull(campaignRepository);
         this.promoCodeRepository = Objects.requireNonNull(promoCodeRepository);
+        this.redemptionRepository = Objects.requireNonNull(redemptionRepository);
         this.eventManagementPort = Objects.requireNonNull(eventManagementPort);
         this.ticketInventoryPort = Objects.requireNonNull(ticketInventoryPort);
         this.auditService = Objects.requireNonNull(auditService);
@@ -103,7 +110,7 @@ public class CampaignService {
             "Promo code " + promoCode.getCode().value() + " created for campaign \"" + saved.getName() + "\""
         );
 
-        return CampaignView.from(saved, List.of(promoCode), now);
+        return CampaignView.from(saved, List.of(promoCode), CampaignRedemptionStats.empty());
     }
 
     @Transactional
@@ -124,25 +131,44 @@ public class CampaignService {
             "Campaign \"" + saved.getName() + "\" ended"
         );
 
-        return CampaignView.from(saved, promoCodeRepository.findByCampaignId(saved.getId()), now);
+        return toViews(List.of(saved), now).get(0);
     }
 
     public CampaignView get(UUID campaignId) {
         Campaign campaign = requireCampaign(campaignId);
         authorize(campaign.getEventId());
 
-        return CampaignView.from(campaign, promoCodeRepository.findByCampaignId(campaign.getId()), Instant.now(clock));
+        return toViews(List.of(campaign), Instant.now(clock)).get(0);
     }
 
     public List<CampaignView> listForEvent(UUID eventId) {
         Objects.requireNonNull(eventId, "eventId cannot be null");
         authorize(eventId);
 
-        Instant now = Instant.now(clock);
-        return campaignRepository
-            .findByEventId(eventId)
+        return toViews(campaignRepository.findByEventId(eventId), Instant.now(clock));
+    }
+
+    private List<CampaignView> toViews(List<Campaign> campaigns, Instant now) {
+        if (campaigns.isEmpty()) {
+            return List.of();
+        }
+
+        List<CampaignId> ids = campaigns.stream().map(Campaign::getId).toList();
+        Map<CampaignId, List<PromoCode>> codesByCampaign = promoCodeRepository
+            .findByCampaignIds(ids)
             .stream()
-            .map(campaign -> CampaignView.from(campaign, promoCodeRepository.findByCampaignId(campaign.getId()), now))
+            .collect(Collectors.groupingBy(PromoCode::getCampaignId));
+        Map<CampaignId, CampaignRedemptionStats> stats = redemptionRepository.statsFor(ids, now);
+
+        return campaigns
+            .stream()
+            .map(campaign ->
+                CampaignView.from(
+                    campaign,
+                    codesByCampaign.getOrDefault(campaign.getId(), List.of()),
+                    stats.getOrDefault(campaign.getId(), CampaignRedemptionStats.empty())
+                )
+            )
             .toList();
     }
 

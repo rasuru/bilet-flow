@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.promotions.application;
 
+import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.common.security.CurrentActor;
 import com.biletflow.biletflow.promotions.application.audit.PromotionAuditRepository;
 import com.biletflow.biletflow.promotions.application.audit.PromotionAuditService;
@@ -19,12 +20,21 @@ import com.biletflow.biletflow.promotions.domain.promocode.CodeValue;
 import com.biletflow.biletflow.promotions.domain.promocode.PromoCode;
 import com.biletflow.biletflow.promotions.domain.promocode.PromoCodeId;
 import com.biletflow.biletflow.promotions.domain.promocode.PromoCodeRepository;
+import com.biletflow.biletflow.promotions.domain.redemption.CampaignRedemptionStats;
+import com.biletflow.biletflow.promotions.domain.redemption.PromoRedemption;
+import com.biletflow.biletflow.promotions.domain.redemption.PromoRedemptionRepository;
 import com.biletflow.biletflow.promotions.domain.redemption.RedemptionId;
+import com.biletflow.biletflow.promotions.domain.redemption.RedemptionStatus;
+import com.biletflow.biletflow.promotions.domain.redemption.ReservationLifetime;
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,6 +46,7 @@ import java.util.UUID;
 public class PromotionsTestFixture {
 
     public static final Instant NOW = Instant.parse("2026-11-12T10:00:00Z");
+    public static final Duration LIFETIME = Duration.ofMinutes(15);
     public static final Long ORGANIZER = 7L;
     public static final Long STRANGER = 99L;
 
@@ -45,18 +56,20 @@ public class PromotionsTestFixture {
 
     public final InMemoryCampaignRepository campaigns = new InMemoryCampaignRepository();
     public final InMemoryPromoCodeRepository promoCodes = new InMemoryPromoCodeRepository();
+    public final InMemoryRedemptionRepository redemptions = new InMemoryRedemptionRepository();
     public final FakeEventManagement eventManagement = new FakeEventManagement();
     public final FakeTicketInventory ticketInventory = new FakeTicketInventory();
     public final RecordingAuditRepository audit = new RecordingAuditRepository();
+    public final MutableClock clock = new MutableClock(NOW);
     public Long currentUserId = ORGANIZER;
 
-    public final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
     private final CurrentActor currentActor = () -> Optional.ofNullable(currentUserId);
     private final PromotionAuditService auditService = new PromotionAuditService(audit, clock);
 
     public final CampaignService campaignService = new CampaignService(
         campaigns,
         promoCodes,
+        redemptions,
         eventManagement,
         ticketInventory,
         auditService,
@@ -66,12 +79,19 @@ public class PromotionsTestFixture {
     public final PromoCodeService promoCodeService = new PromoCodeService(
         promoCodes,
         campaigns,
+        redemptions,
         eventManagement,
         auditService,
         currentActor,
         clock
     );
-    public final RedemptionService redemptionService = new RedemptionService(campaigns, promoCodes, clock);
+    public final RedemptionService redemptionService = new RedemptionService(
+        campaigns,
+        promoCodes,
+        redemptions,
+        new ReservationLifetime(LIFETIME),
+        clock
+    );
 
     public PromotionsTestFixture() {
         eventManagement.managers.put(eventId, ORGANIZER);
@@ -95,9 +115,38 @@ public class PromotionsTestFixture {
         return campaignService.create(tenPercentOnVip(maxRedemptions));
     }
 
+    public static class MutableClock extends Clock {
+
+        private Instant now;
+
+        public MutableClock(Instant now) {
+            this.now = now;
+        }
+
+        public void advance(Duration duration) {
+            now = now.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
+    }
+
     public static class InMemoryCampaignRepository implements CampaignRepository {
 
         public final Map<CampaignId, Campaign> stored = new LinkedHashMap<>();
+        public int lockedLoads;
 
         @Override
         public Optional<Campaign> findById(CampaignId id) {
@@ -105,17 +154,9 @@ public class PromotionsTestFixture {
         }
 
         @Override
-        public Optional<Campaign> findByRedemptionId(RedemptionId redemptionId) {
-            return stored
-                .values()
-                .stream()
-                .filter(campaign ->
-                    campaign
-                        .getRedemptions()
-                        .stream()
-                        .anyMatch(redemption -> redemption.getId().equals(redemptionId))
-                )
-                .findFirst();
+        public Optional<Campaign> findByIdForUpdate(CampaignId id) {
+            lockedLoads++;
+            return findById(id);
         }
 
         @Override
@@ -137,6 +178,7 @@ public class PromotionsTestFixture {
     public static class InMemoryPromoCodeRepository implements PromoCodeRepository {
 
         public final Map<PromoCodeId, PromoCode> stored = new LinkedHashMap<>();
+        public int batchLookups;
 
         @Override
         public Optional<PromoCode> findById(PromoCodeId id) {
@@ -171,6 +213,16 @@ public class PromotionsTestFixture {
         }
 
         @Override
+        public List<PromoCode> findByCampaignIds(Collection<CampaignId> campaignIds) {
+            batchLookups++;
+            return stored
+                .values()
+                .stream()
+                .filter(promoCode -> campaignIds.contains(promoCode.getCampaignId()))
+                .toList();
+        }
+
+        @Override
         public boolean existsByCode(CodeValue code) {
             return findByCode(code).isPresent();
         }
@@ -179,6 +231,68 @@ public class PromotionsTestFixture {
         public PromoCode save(PromoCode promoCode) {
             stored.put(promoCode.getId(), promoCode);
             return promoCode;
+        }
+    }
+
+    public static class InMemoryRedemptionRepository implements PromoRedemptionRepository {
+
+        public final Map<RedemptionId, PromoRedemption> stored = new LinkedHashMap<>();
+
+        @Override
+        public Optional<PromoRedemption> findById(RedemptionId id) {
+            return Optional.ofNullable(stored.get(id));
+        }
+
+        @Override
+        public List<PromoRedemption> findActiveReservations(CampaignId campaignId, UUID sessionId, Instant now) {
+            return stored
+                .values()
+                .stream()
+                .filter(r -> r.getCampaignId().equals(campaignId) && r.getSessionId().equals(sessionId))
+                .filter(r -> r.getStatus() == RedemptionStatus.RESERVED && !r.isExpiredAt(now))
+                .toList();
+        }
+
+        @Override
+        public int countActive(CampaignId campaignId, Instant now) {
+            return (int) stored
+                .values()
+                .stream()
+                .filter(r -> r.getCampaignId().equals(campaignId) && r.countsTowardsLimitAt(now))
+                .count();
+        }
+
+        @Override
+        public Map<CampaignId, CampaignRedemptionStats> statsFor(Collection<CampaignId> campaignIds, Instant now) {
+            Map<CampaignId, CampaignRedemptionStats> stats = new HashMap<>();
+            for (CampaignId id : campaignIds) {
+                List<PromoRedemption> confirmed = stored
+                    .values()
+                    .stream()
+                    .filter(r -> r.getCampaignId().equals(id) && r.getStatus() == RedemptionStatus.CONFIRMED)
+                    .toList();
+                int used = countActive(id, now);
+                if (used == 0 && confirmed.isEmpty()) {
+                    continue;
+                }
+                stats.put(
+                    id,
+                    new CampaignRedemptionStats(
+                        used,
+                        confirmed.size(),
+                        confirmed.stream().mapToInt(PromoRedemption::getTicketQuantity).sum(),
+                        confirmed.stream().map(PromoRedemption::getGrossAmount).reduce(Money.zeroKzt(), Money::add),
+                        confirmed.stream().map(PromoRedemption::getDiscountAmount).reduce(Money.zeroKzt(), Money::add)
+                    )
+                );
+            }
+            return stats;
+        }
+
+        @Override
+        public PromoRedemption save(PromoRedemption redemption) {
+            stored.put(redemption.getId(), redemption);
+            return redemption;
         }
     }
 

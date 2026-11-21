@@ -2,24 +2,28 @@ package com.biletflow.biletflow.promotions.rest;
 
 import com.biletflow.biletflow.common.application.AuthorizationException;
 import com.biletflow.biletflow.common.application.EntityNotFoundException;
+import com.biletflow.biletflow.common.rest.ApiProblems;
 import com.biletflow.biletflow.common.security.UnauthenticatedActorException;
+import com.biletflow.biletflow.promotions.domain.exceptions.PromoCodeRejectedException;
 import com.biletflow.biletflow.promotions.domain.exceptions.PromotionsDomainException;
-import jakarta.validation.ConstraintViolationException;
-import java.net.URI;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.converter.HttpMessageNotReadableException;
-import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice(basePackages = "com.biletflow.biletflow.promotions.rest")
 public class PromotionsExceptionHandler {
+
+    @ExceptionHandler(PromoCodeRejectedException.class)
+    public ResponseEntity<ProblemDetail> handleRejected(PromoCodeRejectedException exception) {
+        ProblemDetail problem = ApiProblems.body(HttpStatus.CONFLICT, "promo-code-rejected", "Promo code rejected", exception.getMessage());
+        problem.setProperty("reason", exception.getReason().name());
+        return ApiProblems.response(problem);
+    }
 
     @ExceptionHandler(EntityNotFoundException.class)
     public ResponseEntity<ProblemDetail> handleNotFound(EntityNotFoundException exception) {
@@ -36,14 +40,9 @@ public class PromotionsExceptionHandler {
         return problem(HttpStatus.FORBIDDEN, "Forbidden", exception.getMessage());
     }
 
-    @ExceptionHandler({
-        IllegalArgumentException.class,
-        ConstraintViolationException.class,
-        MethodArgumentNotValidException.class,
-        HttpMessageNotReadableException.class,
-    })
-    public ResponseEntity<ProblemDetail> handleBadRequest(Exception exception) {
-        return problem(HttpStatus.BAD_REQUEST, "Invalid request", messageFor(exception));
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ProblemDetail> handleBadRequest(IllegalArgumentException exception) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid request", exception.getMessage());
     }
 
     @ExceptionHandler({ IllegalStateException.class, PromotionsDomainException.class })
@@ -52,27 +51,6 @@ public class PromotionsExceptionHandler {
     }
 
     private ResponseEntity<ProblemDetail> problem(HttpStatus status, String title, String detail) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail == null ? status.getReasonPhrase() : detail);
-        problem.setTitle(title);
-        problem.setType(URI.create("about:blank"));
-        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_PROBLEM_JSON).body(problem);
-    }
-
-    private String messageFor(Exception exception) {
-        if (exception instanceof MethodArgumentNotValidException validationException) {
-            return validationException
-                .getBindingResult()
-                .getFieldErrors()
-                .stream()
-                .findFirst()
-                .map(error -> error.getField() + ": " + error.getDefaultMessage())
-                .orElse("Request validation failed");
-        }
-
-        if (exception instanceof HttpMessageNotReadableException) {
-            return "Malformed or unreadable request body";
-        }
-
-        return exception.getMessage();
+        return ApiProblems.response(ApiProblems.body(status, null, title, detail));
     }
 }

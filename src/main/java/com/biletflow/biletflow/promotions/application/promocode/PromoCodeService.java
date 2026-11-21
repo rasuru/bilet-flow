@@ -17,6 +17,7 @@ import com.biletflow.biletflow.promotions.domain.promocode.CampaignToken;
 import com.biletflow.biletflow.promotions.domain.promocode.PromoCode;
 import com.biletflow.biletflow.promotions.domain.promocode.PromoCodeId;
 import com.biletflow.biletflow.promotions.domain.promocode.PromoCodeRepository;
+import com.biletflow.biletflow.promotions.domain.redemption.PromoRedemptionRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
@@ -30,6 +31,7 @@ public class PromoCodeService {
 
     private final PromoCodeRepository promoCodeRepository;
     private final CampaignRepository campaignRepository;
+    private final PromoRedemptionRepository redemptionRepository;
     private final EventManagementPort eventManagementPort;
     private final PromotionAuditService auditService;
     private final CurrentActor currentActor;
@@ -38,6 +40,7 @@ public class PromoCodeService {
     public PromoCodeService(
         PromoCodeRepository promoCodeRepository,
         CampaignRepository campaignRepository,
+        PromoRedemptionRepository redemptionRepository,
         EventManagementPort eventManagementPort,
         PromotionAuditService auditService,
         CurrentActor currentActor,
@@ -45,6 +48,7 @@ public class PromoCodeService {
     ) {
         this.promoCodeRepository = Objects.requireNonNull(promoCodeRepository);
         this.campaignRepository = Objects.requireNonNull(campaignRepository);
+        this.redemptionRepository = Objects.requireNonNull(redemptionRepository);
         this.eventManagementPort = Objects.requireNonNull(eventManagementPort);
         this.auditService = Objects.requireNonNull(auditService);
         this.currentActor = Objects.requireNonNull(currentActor);
@@ -100,6 +104,10 @@ public class PromoCodeService {
             .findByToken(new CampaignToken(campaignToken))
             .orElseThrow(() -> new EntityNotFoundException("Campaign link not found"));
         Campaign campaign = requireCampaign(promoCode.getCampaignId());
+        Instant now = Instant.now(clock);
+
+        promoCode.ensureRedeemable();
+        campaign.ensureAcceptsRedemptions(redemptionRepository.countActive(campaign.getId(), now), now);
 
         return new CampaignLinkView(campaign.getEventId(), promoCode.getCode().value());
     }

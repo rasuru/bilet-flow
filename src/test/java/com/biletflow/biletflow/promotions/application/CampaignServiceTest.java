@@ -37,6 +37,8 @@ class CampaignServiceTest {
         assertEquals(CampaignStatus.ACTIVE, campaign.status());
         assertEquals(100, campaign.remainingRedemptions());
         assertEquals(Money.zeroKzt(), campaign.totalDiscountGiven());
+        assertEquals(0, campaign.ticketsSold());
+        assertEquals(Money.zeroKzt(), campaign.netRevenue());
         assertEquals(NOW, campaign.createdAt());
 
         assertEquals(1, campaign.promoCodes().size());
@@ -143,13 +145,22 @@ class CampaignServiceTest {
     }
 
     @Test
-    void listingReturnsTheEventsCampaigns() {
+    void listingLoadsPromoCodesForAllCampaignsInOneLookup() {
         fixture.createTenPercentOnVip(10);
         fixture.createTenPercentOnVip(20);
+        fixture.promoCodes.batchLookups = 0;
 
         List<CampaignView> campaigns = fixture.campaignService.listForEvent(fixture.eventId);
 
         assertEquals(2, campaigns.size());
+        assertEquals(1, fixture.promoCodes.batchLookups);
+        assertEquals(1, campaigns.get(0).promoCodes().size());
+        assertEquals(1, campaigns.get(1).promoCodes().size());
         assertNotEquals(campaigns.get(0).promoCodes().get(0).code(), campaigns.get(1).promoCodes().get(0).code());
+    }
+
+    @Test
+    void listingAnEventWithoutCampaignsIsEmpty() {
+        assertTrue(fixture.campaignService.listForEvent(fixture.eventId).isEmpty());
     }
 }

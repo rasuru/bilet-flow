@@ -16,7 +16,9 @@ import com.biletflow.biletflow.promotions.domain.promocode.CodeValue;
 import com.biletflow.biletflow.promotions.domain.promocode.PromoCode;
 import com.biletflow.biletflow.promotions.domain.promocode.PromoCodeRepository;
 import com.biletflow.biletflow.promotions.domain.redemption.PromoRedemption;
+import com.biletflow.biletflow.promotions.domain.redemption.PromoRedemptionRepository;
 import com.biletflow.biletflow.promotions.domain.redemption.RedemptionId;
+import com.biletflow.biletflow.promotions.domain.redemption.ReservationLifetime;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -31,22 +33,36 @@ public class RedemptionService {
 
     private final CampaignRepository campaignRepository;
     private final PromoCodeRepository promoCodeRepository;
+    private final PromoRedemptionRepository redemptionRepository;
+    private final ReservationLifetime reservationLifetime;
     private final Clock clock;
 
-    public RedemptionService(CampaignRepository campaignRepository, PromoCodeRepository promoCodeRepository, Clock clock) {
+    public RedemptionService(
+        CampaignRepository campaignRepository,
+        PromoCodeRepository promoCodeRepository,
+        PromoRedemptionRepository redemptionRepository,
+        ReservationLifetime reservationLifetime,
+        Clock clock
+    ) {
         this.campaignRepository = Objects.requireNonNull(campaignRepository);
         this.promoCodeRepository = Objects.requireNonNull(promoCodeRepository);
+        this.redemptionRepository = Objects.requireNonNull(redemptionRepository);
+        this.reservationLifetime = Objects.requireNonNull(reservationLifetime);
         this.clock = Objects.requireNonNull(clock);
     }
 
     public PromotionQuoteView quote(QuotePromotionCommand command) {
         Objects.requireNonNull(command, "command cannot be null");
+        Objects.requireNonNull(command.checkoutId(), "checkoutId cannot be null");
 
+        Instant now = Instant.now(clock);
         PromoCode promoCode = requireRedeemableCode(command.code());
-        Campaign campaign = requireCampaign(promoCode);
+        Campaign campaign = campaignRepository.findById(promoCode.getCampaignId()).orElseThrow(() -> campaignNotFound(promoCode));
         campaign.ensureAppliesToEvent(command.eventId());
 
-        DiscountQuote quote = campaign.quote(command.checkoutId(), toCheckoutLines(command.lines()), Instant.now(clock));
+        int ownReservations = redemptionRepository.findActiveReservations(campaign.getId(), command.checkoutId(), now).size();
+        int usedByOthers = redemptionRepository.countActive(campaign.getId(), now) - ownReservations;
+        DiscountQuote quote = campaign.quote(toCheckoutLines(command.lines()), usedByOthers, now);
 
         return new PromotionQuoteView(
             campaign.getId().value(),
@@ -59,18 +75,32 @@ public class RedemptionService {
     @Transactional
     public ReservedPromotionView reserve(ReservePromotionCommand command) {
         Objects.requireNonNull(command, "command cannot be null");
+        Objects.requireNonNull(command.checkoutId(), "checkoutId cannot be null");
 
+        Instant now = Instant.now(clock);
         PromoCode promoCode = requireRedeemableCode(command.code());
-        Campaign campaign = requireCampaign(promoCode);
+        Campaign campaign = campaignRepository.findByIdForUpdate(promoCode.getCampaignId()).orElseThrow(() -> campaignNotFound(promoCode));
         campaign.ensureAppliesToEvent(command.eventId());
 
-        PromoRedemption redemption = campaign.reserveRedemption(
-            command.checkoutId(),
-            toCheckoutLines(command.lines()),
-            Instant.now(clock),
-            command.expiresAt()
+        for (PromoRedemption previous : redemptionRepository.findActiveReservations(campaign.getId(), command.checkoutId(), now)) {
+            previous.release(command.checkoutId());
+            redemptionRepository.save(previous);
+        }
+
+        int used = redemptionRepository.countActive(campaign.getId(), now);
+        DiscountQuote quote = campaign.quote(toCheckoutLines(command.lines()), used, now);
+
+        PromoRedemption redemption = redemptionRepository.save(
+            PromoRedemption.reserve(
+                campaign.getId(),
+                promoCode.getId(),
+                command.checkoutId(),
+                command.source(),
+                quote,
+                now,
+                reservationLifetime
+            )
         );
-        campaignRepository.save(campaign);
 
         return new ReservedPromotionView(
             redemption.getId().value(),
@@ -85,22 +115,19 @@ public class RedemptionService {
     public void confirm(ConfirmRedemptionCommand command) {
         Objects.requireNonNull(command, "command cannot be null");
 
-        RedemptionId redemptionId = toRedemptionId(command.redemptionId());
-        Campaign campaign = requireCampaignOf(redemptionId);
-
-        campaign.confirmRedemption(redemptionId, command.orderId(), Instant.now(clock));
-        campaignRepository.save(campaign);
+        PromoRedemption redemption = requireRedemption(command.redemptionId());
+        if (redemption.confirm(command.orderId(), Instant.now(clock))) {
+            redemptionRepository.save(redemption);
+        }
     }
 
     @Transactional
     public void release(ReleaseRedemptionCommand command) {
         Objects.requireNonNull(command, "command cannot be null");
 
-        RedemptionId redemptionId = toRedemptionId(command.redemptionId());
-        Campaign campaign = requireCampaignOf(redemptionId);
-
-        campaign.releaseRedemption(redemptionId, command.checkoutId());
-        campaignRepository.save(campaign);
+        PromoRedemption redemption = requireRedemption(command.redemptionId());
+        redemption.release(command.checkoutId());
+        redemptionRepository.save(redemption);
     }
 
     private PromoCode requireRedeemableCode(String rawCode) {
@@ -118,20 +145,16 @@ public class RedemptionService {
         return promoCode;
     }
 
-    private Campaign requireCampaign(PromoCode promoCode) {
-        return campaignRepository
-            .findById(promoCode.getCampaignId())
-            .orElseThrow(() -> new EntityNotFoundException("Campaign not found: " + promoCode.getCampaignId().value()));
+    private PromoRedemption requireRedemption(UUID redemptionId) {
+        Objects.requireNonNull(redemptionId, "redemptionId cannot be null");
+
+        return redemptionRepository
+            .findById(new RedemptionId(redemptionId))
+            .orElseThrow(() -> new EntityNotFoundException("Promo redemption not found: " + redemptionId));
     }
 
-    private Campaign requireCampaignOf(RedemptionId redemptionId) {
-        return campaignRepository
-            .findByRedemptionId(redemptionId)
-            .orElseThrow(() -> new EntityNotFoundException("Promo redemption not found: " + redemptionId.value()));
-    }
-
-    private static RedemptionId toRedemptionId(UUID redemptionId) {
-        return new RedemptionId(Objects.requireNonNull(redemptionId, "redemptionId cannot be null"));
+    private static EntityNotFoundException campaignNotFound(PromoCode promoCode) {
+        return new EntityNotFoundException("Campaign not found: " + promoCode.getCampaignId().value());
     }
 
     private static List<CheckoutLine> toCheckoutLines(List<PromotionLine> lines) {

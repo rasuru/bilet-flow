@@ -9,6 +9,7 @@ import com.biletflow.biletflow.promotions.domain.promocode.PromoCodeRepository;
 import com.biletflow.biletflow.promotions.persistence.promocode.entity.PromoCodeJpaEntity;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -51,8 +52,19 @@ public class JpaPromoCodeRepository implements PromoCodeRepository {
     @Override
     public List<PromoCode> findByCampaignId(CampaignId campaignId) {
         Objects.requireNonNull(campaignId, "CampaignId cannot be null");
+        return jpaRepository.findByCampaignIdOrderByCreatedAtAsc(campaignId.value()).stream().map(mapper::toDomain).toList();
+    }
+
+    @Override
+    public List<PromoCode> findByCampaignIds(Collection<CampaignId> campaignIds) {
+        Objects.requireNonNull(campaignIds, "campaignIds cannot be null");
+
+        if (campaignIds.isEmpty()) {
+            return List.of();
+        }
+
         return jpaRepository
-            .findByCampaignIdOrderByCreatedAtAsc(campaignId.value())
+            .findByCampaignIdInOrderByCreatedAtAsc(campaignIds.stream().map(CampaignId::value).toList())
             .stream()
             .map(mapper::toDomain)
             .toList();

@@ -5,19 +5,22 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.promotions.domain.campaign.Campaign;
 import com.biletflow.biletflow.promotions.domain.campaign.CampaignStatus;
-import com.biletflow.biletflow.promotions.domain.campaign.CheckoutLine;
 import com.biletflow.biletflow.promotions.domain.campaign.Discount;
+import com.biletflow.biletflow.promotions.domain.campaign.DiscountQuote;
 import com.biletflow.biletflow.promotions.domain.campaign.RedemptionLimit;
 import com.biletflow.biletflow.promotions.domain.campaign.ValidityPeriod;
 import com.biletflow.biletflow.promotions.domain.promocode.PromoCode;
 import com.biletflow.biletflow.promotions.domain.redemption.PromoRedemption;
+import com.biletflow.biletflow.promotions.domain.redemption.RedemptionSource;
+import com.biletflow.biletflow.promotions.domain.redemption.ReservationLifetime;
 import com.biletflow.biletflow.promotions.persistence.campaign.CampaignPersistenceMapper;
 import com.biletflow.biletflow.promotions.persistence.campaign.entity.CampaignJpaEntity;
 import com.biletflow.biletflow.promotions.persistence.promocode.PromoCodePersistenceMapper;
 import com.biletflow.biletflow.promotions.persistence.promocode.entity.PromoCodeJpaEntity;
+import com.biletflow.biletflow.promotions.persistence.redemption.PromoRedemptionPersistenceMapper;
+import com.biletflow.biletflow.promotions.persistence.redemption.entity.PromoRedemptionJpaEntity;
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -28,10 +31,11 @@ class CampaignPersistenceMapperTest {
 
     private final CampaignPersistenceMapper campaignMapper = new CampaignPersistenceMapper();
     private final PromoCodePersistenceMapper promoCodeMapper = new PromoCodePersistenceMapper();
+    private final PromoRedemptionPersistenceMapper redemptionMapper = new PromoRedemptionPersistenceMapper();
     private final UUID vip = UUID.randomUUID();
 
-    private Campaign campaignWithRedemptions() {
-        Campaign campaign = Campaign.create(
+    private Campaign campaign() {
+        return Campaign.create(
             UUID.randomUUID(),
             "Student week",
             Discount.percentage(new BigDecimal("12.5")),
@@ -40,17 +44,11 @@ class CampaignPersistenceMapperTest {
             RedemptionLimit.of(10),
             NOW
         );
-        List<CheckoutLine> lines = List.of(new CheckoutLine(vip, Money.kzt(10_000), 1));
-
-        PromoRedemption confirmed = campaign.reserveRedemption(UUID.randomUUID(), lines, NOW, NOW.plusSeconds(600));
-        campaign.confirmRedemption(confirmed.getId(), UUID.randomUUID(), NOW.plusSeconds(60));
-        campaign.reserveRedemption(UUID.randomUUID(), lines, NOW, NOW.plusSeconds(600));
-        return campaign;
     }
 
     @Test
     void campaignSurvivesARoundTrip() {
-        Campaign original = campaignWithRedemptions();
+        Campaign original = campaign();
 
         Campaign restored = campaignMapper.toDomain(campaignMapper.toNewEntity(original));
 
@@ -63,35 +61,11 @@ class CampaignPersistenceMapperTest {
         assertEquals(original.getRedemptionLimit(), restored.getRedemptionLimit());
         assertEquals(CampaignStatus.ACTIVE, restored.getStatus());
         assertEquals(NOW, restored.getCreatedAt());
-        assertEquals(2, restored.getRedemptions().size());
-        assertEquals(1, restored.confirmedRedemptionCount());
-        assertEquals(8, restored.remainingRedemptionsAt(NOW));
-    }
-
-    @Test
-    void redemptionDetailsSurviveARoundTrip() {
-        Campaign original = campaignWithRedemptions();
-
-        Campaign restored = campaignMapper.toDomain(campaignMapper.toNewEntity(original));
-
-        for (int i = 0; i < original.getRedemptions().size(); i++) {
-            PromoRedemption expected = original.getRedemptions().get(i);
-            PromoRedemption actual = restored.getRedemptions().get(i);
-
-            assertEquals(expected.getId(), actual.getId());
-            assertEquals(expected.getSessionId(), actual.getSessionId());
-            assertEquals(expected.getDiscountAmount(), actual.getDiscountAmount());
-            assertEquals(expected.getReservedAt(), actual.getReservedAt());
-            assertEquals(expected.getExpiresAt(), actual.getExpiresAt());
-            assertEquals(expected.getOrderId(), actual.getOrderId());
-            assertEquals(expected.getStatus(), actual.getStatus());
-            assertEquals(expected.getConfirmedAt(), actual.getConfirmedAt());
-        }
     }
 
     @Test
     void updatingAnEntityCopiesTheChangedState() {
-        Campaign campaign = campaignWithRedemptions();
+        Campaign campaign = campaign();
         CampaignJpaEntity entity = campaignMapper.toNewEntity(campaign);
 
         campaign.end(NOW.plusSeconds(120));
@@ -99,14 +73,13 @@ class CampaignPersistenceMapperTest {
 
         assertEquals(CampaignStatus.ENDED, entity.getStatus());
         assertEquals(NOW.plusSeconds(120), entity.getEndedAt());
-        assertEquals(2, entity.getRedemptions().size());
     }
 
     @Test
     void entityCannotBeUpdatedFromADifferentCampaign() {
-        CampaignJpaEntity entity = campaignMapper.toNewEntity(campaignWithRedemptions());
+        CampaignJpaEntity entity = campaignMapper.toNewEntity(campaign());
 
-        assertThrows(IllegalArgumentException.class, () -> campaignMapper.updateEntity(campaignWithRedemptions(), entity));
+        assertThrows(IllegalArgumentException.class, () -> campaignMapper.updateEntity(campaign(), entity));
     }
 
     @Test
@@ -130,7 +103,7 @@ class CampaignPersistenceMapperTest {
 
     @Test
     void promoCodeSurvivesARoundTripIncludingDisabledState() {
-        PromoCode promoCode = PromoCode.generateFor(campaignWithRedemptions().getId(), NOW);
+        PromoCode promoCode = PromoCode.generateFor(campaign().getId(), NOW);
         promoCode.disable(NOW.plusSeconds(5));
 
         PromoCodeJpaEntity entity = promoCodeMapper.toNewEntity(promoCode);
@@ -142,5 +115,38 @@ class CampaignPersistenceMapperTest {
         assertEquals(promoCode.getToken(), restored.getToken());
         assertFalse(restored.isEnabled());
         assertEquals(NOW.plusSeconds(5), restored.getDisabledAt());
+    }
+
+    @Test
+    void redemptionSurvivesARoundTripIncludingConfirmation() {
+        Campaign campaign = campaign();
+        PromoCode promoCode = PromoCode.generateFor(campaign.getId(), NOW);
+        PromoRedemption redemption = PromoRedemption.reserve(
+            campaign.getId(),
+            promoCode.getId(),
+            UUID.randomUUID(),
+            RedemptionSource.CAMPAIGN_LINK,
+            new DiscountQuote(Money.kzt(20_000), 2, Money.kzt(2_500)),
+            NOW,
+            ReservationLifetime.defaultLifetime()
+        );
+        PromoRedemptionJpaEntity entity = redemptionMapper.toNewEntity(redemption);
+
+        UUID order = UUID.randomUUID();
+        redemption.confirm(order, NOW.plusSeconds(30));
+        redemptionMapper.updateEntity(redemption, entity);
+        PromoRedemption restored = redemptionMapper.toDomain(entity);
+
+        assertEquals(redemption.getId(), restored.getId());
+        assertEquals(campaign.getId(), restored.getCampaignId());
+        assertEquals(promoCode.getId(), restored.getPromoCodeId());
+        assertEquals(redemption.getSessionId(), restored.getSessionId());
+        assertEquals(RedemptionSource.CAMPAIGN_LINK, restored.getSource());
+        assertEquals(2, restored.getTicketQuantity());
+        assertEquals(Money.kzt(20_000), restored.getGrossAmount());
+        assertEquals(Money.kzt(2_500), restored.getDiscountAmount());
+        assertEquals(redemption.getExpiresAt(), restored.getExpiresAt());
+        assertEquals(order, restored.getOrderId());
+        assertEquals(NOW.plusSeconds(30), restored.getConfirmedAt());
     }
 }

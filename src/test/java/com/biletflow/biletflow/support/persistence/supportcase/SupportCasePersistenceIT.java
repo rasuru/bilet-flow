@@ -107,14 +107,29 @@ class SupportCasePersistenceIT {
 
         tx().executeWithoutResult(status -> supportCases.save(supportCase));
 
-        assertEquals(1L, tx().execute(status -> supportCases.findByRequesterUserId(303L).stream()
-            .filter(candidate -> candidate.getId().equals(supportCase.getId()))
-            .count()));
-        assertEquals(1L, tx().execute(status -> supportCases.findByAssignedSupportUserId(404L).stream()
-            .filter(candidate -> candidate.getId().equals(supportCase.getId()))
-            .count()));
-        assertEquals(1L, tx().execute(status -> supportCases.findByStatus(CaseStatus.IN_PROGRESS).stream()
-            .filter(candidate -> candidate.getId().equals(supportCase.getId()))
-            .count()));
+        Long byRequester = tx().execute(status ->
+            supportCases
+                .findByRequesterUserId(303L)
+                .stream()
+                .filter(candidate -> candidate.getId().equals(supportCase.getId()))
+                .count()
+        );
+        assertEquals(1L, byRequester);
+        Long byAssignee = tx().execute(status ->
+            supportCases
+                .findByAssignedSupportUserId(404L)
+                .stream()
+                .filter(candidate -> candidate.getId().equals(supportCase.getId()))
+                .count()
+        );
+        assertEquals(1L, byAssignee);
+        Long byStatus = tx().execute(status ->
+            supportCases
+                .findByStatus(CaseStatus.IN_PROGRESS)
+                .stream()
+                .filter(candidate -> candidate.getId().equals(supportCase.getId()))
+                .count()
+        );
+        assertEquals(1L, byStatus);
     }
 }

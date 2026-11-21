@@ -6,6 +6,11 @@ import java.util.List;
 import java.util.UUID;
 
 public interface PromotionsOhs {
+    enum Source {
+        CODE,
+        CAMPAIGN_LINK,
+    }
+
     record Line(UUID ticketTypeId, Money unitPrice, int quantity) {}
 
     record Quote(UUID campaignId, String code, Money eligibleSubtotal, Money discountAmount) {}
@@ -14,7 +19,7 @@ public interface PromotionsOhs {
 
     Quote quote(UUID eventId, UUID checkoutId, String code, List<Line> lines);
 
-    Reservation reserve(UUID eventId, UUID checkoutId, String code, List<Line> lines, Instant expiresAt);
+    Reservation reserve(UUID eventId, UUID checkoutId, String code, List<Line> lines, Source source);
 
     void confirm(UUID redemptionId, UUID orderId);
 
