@@ -9,4 +9,5 @@ public interface PaymentLedger {
     void charge(PaymentWork work);
     void refund(PaymentWork work, UUID refundId);
     Map<String, BigDecimal> summary(long organizerId);
+    Map<String, BigDecimal> eventSummary(UUID eventId);
 }

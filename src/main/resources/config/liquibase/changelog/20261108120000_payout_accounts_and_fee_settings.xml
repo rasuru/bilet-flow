@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="20261108120000-1" author="biletflow">
+        <createTable tableName="pm_payout_account">
+            <column name="organizer_id" type="bigint"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="holder_name" type="varchar(100)"><constraints nullable="false"/></column>
+            <column name="bank_code" type="varchar(3)"><constraints nullable="false"/></column>
+            <column name="iban_last_four" type="varchar(4)"><constraints nullable="false"/></column>
+            <column name="registered_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="updated_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+    </changeSet>
+    <changeSet id="20261108120000-2" author="biletflow">
+        <addColumn tableName="pm_setting">
+            <column name="rate" type="decimal(7,4)"/>
+        </addColumn>
+        <dropNotNullConstraint tableName="pm_setting" columnName="amount_kzt" columnDataType="decimal(19,2)"/>
+    </changeSet>
+</databaseChangeLog>
