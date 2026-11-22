@@ -2,6 +2,7 @@ package com.biletflow.biletflow.support.integration.notifications;
 
 import com.biletflow.biletflow.common.events.EventBus;
 import com.biletflow.biletflow.support.application.event.SupportCaseAssignedEvent;
+import com.biletflow.biletflow.support.application.event.SupportCaseEscalatedEvent;
 import com.biletflow.biletflow.support.application.event.SupportCaseOpenedEvent;
 import com.biletflow.biletflow.support.application.event.SupportCaseStatusChangedEvent;
 import com.biletflow.biletflow.support.application.event.SupportMessageAddedEvent;
@@ -37,6 +38,11 @@ public class SupportNotificationOutboxPublisher {
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
     public void onMessageAdded(SupportMessageAddedEvent event) {
         publish(SupportNotificationEvent.messageAdded(event), event.occurredAt());
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+    public void onEscalated(SupportCaseEscalatedEvent event) {
+        publish(SupportNotificationEvent.escalated(event), event.occurredAt());
     }
 
     private void publish(SupportNotificationEvent event, java.time.Instant occurredAt) {
