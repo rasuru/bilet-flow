@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="20261121120000-1" author="biletflow">
+        <createTable tableName="promotions_redemption">
+            <column name="id" type="uuid"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="campaign_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="promo_code_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="session_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="source" type="varchar(16)"><constraints nullable="false"/></column>
+            <column name="ticket_quantity" type="int"><constraints nullable="false"/></column>
+            <column name="gross_amount" type="numeric(19,2)"><constraints nullable="false"/></column>
+            <column name="discount_amount" type="numeric(19,2)"><constraints nullable="false"/></column>
+            <column name="currency" type="varchar(3)"><constraints nullable="false"/></column>
+            <column name="reserved_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="expires_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="order_id" type="uuid"/>
+            <column name="status" type="varchar(16)"><constraints nullable="false"/></column>
+            <column name="confirmed_at" type="timestamp with time zone"/>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="promotions_redemption" baseColumnNames="campaign_id"
+            referencedTableName="promotions_campaign" referencedColumnNames="id"
+            constraintName="fk_promotions_redemption_campaign"/>
+        <addForeignKeyConstraint baseTableName="promotions_redemption" baseColumnNames="promo_code_id"
+            referencedTableName="promotions_promo_code" referencedColumnNames="id"
+            constraintName="fk_promotions_redemption_promo_code"/>
+        <createIndex tableName="promotions_redemption" indexName="idx_promotions_redemption_campaign_status">
+            <column name="campaign_id"/>
+            <column name="status"/>
+        </createIndex>
+        <createIndex tableName="promotions_redemption" indexName="idx_promotions_redemption_campaign_session">
+            <column name="campaign_id"/>
+            <column name="session_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20261121120000-2" author="biletflow">
+        <dropTable tableName="promotions_campaign_redemption"/>
+    </changeSet>
+</databaseChangeLog>

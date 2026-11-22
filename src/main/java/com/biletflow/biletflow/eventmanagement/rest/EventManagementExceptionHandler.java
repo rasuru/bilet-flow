@@ -1,6 +1,7 @@
 package com.biletflow.biletflow.eventmanagement.rest;
 
 import com.biletflow.biletflow.common.application.AuthorizationException;
+import com.biletflow.biletflow.common.application.EntityNotFoundException;
 import com.biletflow.biletflow.common.rest.ApiProblems;
 import com.biletflow.biletflow.common.security.UnauthenticatedActorException;
 import com.biletflow.biletflow.eventmanagement.domain.exceptions.InvalidEventStateException;
@@ -18,7 +19,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice(basePackages = "com.biletflow.biletflow.eventmanagement.rest")
 public class EventManagementExceptionHandler {
 
-    @ExceptionHandler({ SocialEventNotFoundException.class, VenueLayoutNotFoundException.class })
+    @ExceptionHandler({ SocialEventNotFoundException.class, VenueLayoutNotFoundException.class, EntityNotFoundException.class })
     public ResponseEntity<ProblemDetail> handleNotFound(RuntimeException exception) {
         return problem(HttpStatus.NOT_FOUND, "Resource not found", exception.getMessage());
     }

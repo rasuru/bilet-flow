@@ -14,12 +14,14 @@ import com.biletflow.biletflow.ticketinventory.domain.ticket.*;
 import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeId;
 import java.time.Instant;
 import java.util.*;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class CancelledEventAdmissionTest {
 
-    @Test
-    void internalCheckInOhsCannotBypassCancellationAndValidationReportsNoAdmission() {
+    @ParameterizedTest
+    @CsvSource({ "true, false", "false, true" })
+    void checkInAndValidationRejectCancelledOrSuspendedEvents(boolean cancelled, boolean suspended) {
         var events = mock(EventManagementPort.class);
         var repository = mock(TicketRepository.class);
         var locks = mock(TransactionLocks.class);
@@ -43,7 +45,7 @@ class CancelledEventAdmissionTest {
             now
         );
         when(events.ticketDetails(event, null)).thenReturn(
-            new TicketEventDetails("Cancelled event", now, now.plusSeconds(3600), "Venue", "Address", "General admission", true)
+            new TicketEventDetails("Event", now, now.plusSeconds(3600), "Venue", "Address", "General admission", cancelled, suspended)
         );
         when(repository.findByTicketCode(ticket.getTicketCode())).thenReturn(Optional.of(ticket));
         assertFalse(service.validate(ticket.getTicketCode().value(), event).validForEntry());

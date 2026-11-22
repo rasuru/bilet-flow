@@ -25,6 +25,13 @@ public record PaymentTerms(BigDecimal activationFee, BigDecimal processingFeeRat
         return new PaymentTerms(fee, processingFeeRate);
     }
 
+    public PaymentTerms withProcessingFeeRate(BigDecimal rate) {
+        if (rate != null && rate.stripTrailingZeros().scale() > 4) throw new IllegalArgumentException(
+            "Processing fee rate allows at most two decimal places as a percentage"
+        );
+        return new PaymentTerms(activationFee, rate);
+    }
+
     public void requireTicketRequest(long payer, BigDecimal amount, Instant deadline, Instant now) {
         if (payer <= 0 || amount == null || amount.signum() <= 0 || amount.scale() > 2) throw new IllegalArgumentException(
             "Invalid ticket payment request"

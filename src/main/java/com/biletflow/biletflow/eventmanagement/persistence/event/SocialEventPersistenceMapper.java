@@ -32,6 +32,7 @@ public class SocialEventPersistenceMapper {
             entity.getCategory(),
             entity.getImageUrl(),
             entity.getStatus(),
+            entity.getStatusBeforeSuspension(),
             entity.getVisibility(),
             new EventDateRange(entity.getEventStartAt(), entity.getEventEndAt()),
             registrationWindow,
@@ -67,6 +68,7 @@ public class SocialEventPersistenceMapper {
             domain.getCategory(),
             domain.getImageUrl(),
             domain.getStatus(),
+            domain.getStatusBeforeSuspension(),
             domain.getVisibility(),
             domain.getDateRange().startAt(),
             domain.getDateRange().endAt()

@@ -177,7 +177,8 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
             venue.getName(),
             venue.getAddress(),
             seatLabel,
-            event.getStatus() == SocialEventStatus.CANCELLED
+            event.getStatus() == SocialEventStatus.CANCELLED,
+            event.getStatus() == SocialEventStatus.SUSPENDED
         );
     }
 

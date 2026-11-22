@@ -5,6 +5,7 @@ import com.biletflow.biletflow.common.application.EntityNotFoundException;
 import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.paymentsmonetization.application.view.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.activation.EventPaidSalesActivationStatus;
+import com.biletflow.biletflow.paymentsmonetization.domain.payoutaccount.PayoutAccountRepository;
 import com.biletflow.biletflow.ticketinventory.ohs.PaidSalesInventoryOhs;
 import java.time.Clock;
 import java.util.List;
@@ -22,8 +23,9 @@ public class PaymentQueryService {
     private final PaymentService payments;
     private final EventManagementOhs events;
     private final PaidSalesInventoryOhs inventory;
-    private final ActivationTermsProvider activationTerms;
+    private final PaymentTermsProvider activationTerms;
     private final Clock clock;
+    private final PayoutAccountRepository payoutAccounts;
 
     public PaymentQueryService(
         ActivationRepository activations,
@@ -31,8 +33,9 @@ public class PaymentQueryService {
         PaymentService payments,
         EventManagementOhs events,
         PaidSalesInventoryOhs inventory,
-        ActivationTermsProvider activationTerms,
-        Clock clock
+        PaymentTermsProvider activationTerms,
+        Clock clock,
+        PayoutAccountRepository payoutAccounts
     ) {
         this.activations = Objects.requireNonNull(activations);
         this.ledger = Objects.requireNonNull(ledger);
@@ -41,6 +44,7 @@ public class PaymentQueryService {
         this.inventory = Objects.requireNonNull(inventory);
         this.activationTerms = Objects.requireNonNull(activationTerms);
         this.clock = Objects.requireNonNull(clock);
+        this.payoutAccounts = Objects.requireNonNull(payoutAccounts);
     }
 
     public ActivationView activation(UUID eventId, long actorId) {
@@ -63,6 +67,8 @@ public class PaymentQueryService {
         boolean paidTicketType = inventory.hasPaidTicketType(eventId);
         boolean requested = activation.isPresent();
         boolean verified = activation.map(ActivationRepository.Activation::verificationSimulated).orElse(false);
+        long accountOwner = activation.map(a -> a.aggregate().getOrganizerId()).orElse(actorId);
+        boolean payoutAccount = payoutAccounts.findByOrganizerId(accountOwner).isPresent();
         var status = activation.map(a -> a.aggregate().getStatus()).orElse(null);
         boolean feePaid = status == EventPaidSalesActivationStatus.ACTIVE || status == EventPaidSalesActivationStatus.SUSPENDED;
         var items = List.of(
@@ -79,10 +85,16 @@ public class PaymentQueryService {
                 "The event has at least one ticket type with a price above zero."
             ),
             new ActivationChecklistView.Item(
-                "IDENTITY_AND_PAYOUT_VERIFICATION",
+                "IDENTITY_VERIFICATION",
                 verified,
                 true,
-                "Identity, payout account and payout verification. Simulated for the sandbox; confirmed in the activation request."
+                "Identity and payout verification. Simulated for the sandbox; confirmed in the activation request."
+            ),
+            new ActivationChecklistView.Item(
+                "PAYOUT_ACCOUNT_REGISTERED",
+                payoutAccount,
+                true,
+                "A payout account is registered. The IBAN is format-checked only; no bank verifies it."
             ),
             new ActivationChecklistView.Item(
                 "PAID_EVENT_TERMS_ACCEPTED",
@@ -101,7 +113,7 @@ public class PaymentQueryService {
             eventId,
             status == null ? "NOT_REQUESTED" : status.name(),
             items,
-            eventEligible && paidTicketType && !feePaid,
+            eventEligible && paidTicketType && payoutAccount && !feePaid,
             status == EventPaidSalesActivationStatus.ACTIVE,
             activationTerms.current().activationFee(),
             true
@@ -110,6 +122,11 @@ public class PaymentQueryService {
 
     public RevenueView revenue(long organizerId) {
         return new RevenueView(true, true, "KZT", ledger.summary(organizerId));
+    }
+
+    public RevenueView eventRevenue(UUID eventId, long actorId) {
+        requireOrganizer(eventId, actorId);
+        return new RevenueView(true, true, "KZT", ledger.eventSummary(eventId));
     }
 
     private void requireOrganizer(UUID eventId, long actorId) {

@@ -155,6 +155,12 @@ PY
   printf 'Waiting for backend confirmation (up to %ss)…\n' "$TIMEOUT_SECONDS"
 }
 
+if [[ "$ACTIVATE" = 1 || "${PAYOUT:-0}" = 1 ]]; then
+  printf '%s\n' '{"holderName":"E2E Organizer","iban":"KZ86 125K ZT50 0410 0100","acceptSimulation":true}' > "$WORK/payout-account-request.json"
+  api organizer PUT /api/payments/payout-account "$WORK/payout-account.json" 200 "$WORK/payout-account-request.json"
+  [[ "$(jq -r '.maskedIban' "$WORK/payout-account.json")" = 'KZ** **** **** **** 0100' ]] || fail 'Payout account IBAN must be returned masked'
+fi
+
 if [[ "$ACTIVATE" = 1 ]]; then
   printf '%s\n' '{"acceptSandboxTerms":true,"simulateIdentityAndPayoutVerification":true}' > "$WORK/activation-request.json"
   api organizer POST "/api/payments/events/$EVENT_ID/activation" "$WORK/activation.json" 200 "$WORK/activation-request.json"
