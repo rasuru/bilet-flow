@@ -11,6 +11,9 @@ import com.biletflow.biletflow.ticketinventory.domain.common.OrderId;
 import com.biletflow.biletflow.ticketinventory.domain.eventinventory.EventInventoryRepository;
 import com.biletflow.biletflow.ticketinventory.domain.eventinventory.InventoryUnavailableException;
 import com.biletflow.biletflow.ticketinventory.domain.ticket.*;
+import com.biletflow.biletflow.ticketinventory.domain.tickettype.SalesWindow;
+import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeStatus;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.*;
 import org.springframework.stereotype.Service;
@@ -25,19 +28,46 @@ public class DefaultCheckoutInventoryOhs implements CheckoutInventoryOhs {
     private final TicketTypeService types;
     private final TicketRepository tickets;
     private final EventInventoryRepository inventories;
+    private final Clock clock;
 
     public DefaultCheckoutInventoryOhs(
         EventInventoryService inventory,
         TicketSaleService sales,
         TicketTypeService types,
         TicketRepository tickets,
-        EventInventoryRepository inventories
+        EventInventoryRepository inventories,
+        Clock clock
     ) {
         this.inventory = inventory;
         this.sales = sales;
         this.types = types;
         this.tickets = tickets;
         this.inventories = inventories;
+        this.clock = clock;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<QuotedLine> quote(UUID eventId, List<QuoteSelection> selections) {
+        Set<UUID> selectedTypes = new HashSet<>();
+        List<QuotedLine> lines = new ArrayList<>();
+        int total = 0;
+        Instant now = clock.instant();
+        for (QuoteSelection selection : selections) {
+            if (!selectedTypes.add(selection.ticketTypeId())) throw new IllegalArgumentException("Combine selections for each ticket type");
+            var type = types.get(selection.ticketTypeId());
+            if (!type.eventId().equals(eventId)) throw new IllegalArgumentException("Ticket type belongs to a different event");
+            if (type.status() != TicketTypeStatus.ACTIVE || !new SalesWindow(type.salesStartAt(), type.salesEndAt()).isOpenAt(now)) {
+                throw new IllegalStateException("Ticket type is not currently purchasable");
+            }
+            if (selection.quantity() < 1 || selection.quantity() > type.maxPerOrder()) {
+                throw new IllegalArgumentException("Requested quantity exceeds ticket type per-order limit");
+            }
+            total += selection.quantity();
+            lines.add(new QuotedLine(type.id(), type.price(), selection.quantity()));
+        }
+        if (total < 1 || total > 100) throw new IllegalArgumentException("Checkout requires 1 to 100 tickets");
+        return List.copyOf(lines);
     }
 
     @Override

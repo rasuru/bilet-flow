@@ -110,7 +110,8 @@ class RefundNoticePersistenceIT {
             audit,
             mock(CheckoutFingerprint.class),
             Clock.fixed(now, ZoneOffset.UTC),
-            notices
+            notices,
+            mock(com.biletflow.biletflow.promotions.ohs.PromotionsOhs.class)
         );
         var outcome = new PaymentOutcome(paymentId, orderId, "REFUNDED", refundId);
         doThrow(new IllegalStateException("Rollback after receipt enqueue"))

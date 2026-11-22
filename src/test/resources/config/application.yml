@@ -61,7 +61,7 @@ server:
 jhipster:
   mail:
     from: biletFlow@localhost.com
-    base-url: http://127.0.0.1:8080
+    base-url: ${biletflow.frontend}
   logging:
     # To test json console appender
     use-json-format: false
@@ -96,6 +96,7 @@ management:
 
 # Persistence and saga tests drive reconciliation explicitly; no background bank calls or lease races.
 biletflow:
+  frontend: https://tickets.example.test
   payments:
     poll-enabled: false
     payout-enabled: false

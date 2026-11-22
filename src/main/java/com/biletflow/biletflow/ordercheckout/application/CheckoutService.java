@@ -4,6 +4,7 @@ import com.biletflow.biletflow.common.application.AuthorizationException;
 import com.biletflow.biletflow.common.application.EntityNotFoundException;
 import com.biletflow.biletflow.common.application.FinancialAudit;
 import com.biletflow.biletflow.common.application.TransactionLocks;
+import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.ordercheckout.application.command.CreateCheckoutCommand;
 import com.biletflow.biletflow.ordercheckout.application.refund.RefundNotice;
@@ -14,8 +15,11 @@ import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
 import com.biletflow.biletflow.ordercheckout.domain.order.*;
 import com.biletflow.biletflow.paymentsmonetization.ohs.*;
 import com.biletflow.biletflow.paymentsmonetization.ohs.dto.StartPaymentCommand;
+import com.biletflow.biletflow.promotions.ohs.PromotionsOhs;
 import com.biletflow.biletflow.ticketinventory.ohs.CheckoutInventoryOhs;
+import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +40,7 @@ public class CheckoutService {
     private final CheckoutFingerprint fingerprints;
     private final Clock clock;
     private final RefundNoticeStore refundNotices;
+    private final PromotionsOhs promotions;
 
     public CheckoutService(
         CheckoutSessionRepository checkouts,
@@ -48,7 +53,8 @@ public class CheckoutService {
         FinancialAudit audit,
         CheckoutFingerprint fingerprints,
         Clock clock,
-        RefundNoticeStore refundNotices
+        RefundNoticeStore refundNotices,
+        PromotionsOhs promotions
     ) {
         this.checkouts = Objects.requireNonNull(checkouts, "checkouts cannot be null");
         this.orders = Objects.requireNonNull(orders, "orders cannot be null");
@@ -61,6 +67,24 @@ public class CheckoutService {
         this.fingerprints = Objects.requireNonNull(fingerprints, "fingerprints cannot be null");
         this.clock = Objects.requireNonNull(clock, "clock cannot be null");
         this.refundNotices = Objects.requireNonNull(refundNotices);
+        this.promotions = Objects.requireNonNull(promotions);
+    }
+
+    public record PromoQuote(UUID promotionId, String promoCode, BigDecimal subtotalKzt, BigDecimal discountKzt, BigDecimal amountKzt) {}
+
+    public PromoQuote quote(UUID eventId, String promoCode, List<CheckoutInventoryOhs.QuoteSelection> selections) {
+        var scope = events.salesScope(eventId, clock.instant());
+        if (!scope.publiclyReadable()) throw new EntityNotFoundException("Event not found");
+        requireRegistrationOpen(scope);
+        var lines = inventory.quote(eventId, selections);
+        var basket = lines.stream().map(line -> new PromotionsOhs.Line(line.ticketTypeId(), line.unitPrice(), line.quantity())).toList();
+        var quote = promotions.quote(eventId, UUID.randomUUID(), promoCode, basket);
+        Money subtotal = lines.stream().map(line -> line.unitPrice().multiply(line.quantity())).reduce(Money.zeroKzt(), Money::add);
+        requirePaidSalesIfPriced(eventId, subtotal);
+        return new PromoQuote(
+            quote.campaignId(), quote.code(), subtotal.amount(), quote.discountAmount().amount(),
+            subtotal.subtract(quote.discountAmount()).amount()
+        );
     }
 
     @Transactional
@@ -82,10 +106,8 @@ public class CheckoutService {
             return view(p, requireCheckout(id));
         }
         var scope = events.salesScope(request.eventId(), clock.instant());
-        if (!scope.registrationOpen()) throw new CheckoutConflict(
-            CheckoutConflict.Reason.REGISTRATION_CLOSED,
-            "Event is not accepting registrations"
-        );
+        if (request.promoCode() != null && !scope.publiclyReadable()) throw new EntityNotFoundException("Event not found");
+        requireRegistrationOpen(scope);
         var held = inventory.reserve(request.eventId(), id, request.selections());
         var checkout = new CheckoutSession(
             new CheckoutSessionId(id),
@@ -99,6 +121,12 @@ public class CheckoutService {
                     ? new GeneralAdmissionCheckoutItem(line.ticketTypeId(), line.price())
                     : new AssignedSeatingCheckoutItem(line.ticketTypeId(), line.seatId(), line.price())
             );
+        PromotionsOhs.Reservation promo = null;
+        if (request.promoCode() != null) {
+            var basket = held.lines().stream().map(line -> new PromotionsOhs.Line(line.ticketTypeId(), line.price(), 1)).toList();
+            promo = promotions.reserve(request.eventId(), id, request.promoCode(), basket, PromotionsOhs.Source.CODE, held.expiresAt());
+            checkout.applyPromotion(promo.campaignId(), promo.discountAmount());
+        }
         var process = new CheckoutProcess(
             id,
             owner,
@@ -109,9 +137,15 @@ public class CheckoutService {
             held.holds(),
             null,
             null,
-            null
+            null,
+            promo == null ? null : promo.redemptionId(),
+            promo == null ? null : promo.code()
         );
         if (checkout.getFinalPrice().isZero()) {
+            if (promo != null && !checkout.getTotalPrice().isZero() && !payments.permitsPaidSalesForCheckout(process.eventId())) {
+                throw paidSalesInactive();
+            }
+            confirmPromotion(process, clock.instant());
             inventory.issue(process.eventId(), id, owner, process.lines(), process.holds());
             checkout.completeFreeCheckout();
             orders.save(Order.createFromCheckout(checkout));
@@ -230,10 +264,11 @@ public class CheckoutService {
                     return;
                 }
                 if (c.getStatus() == CheckoutSessionStatus.COMPLETED || p.refundState() == CheckoutRefundStatus.REFUNDED) return;
+                Instant acceptedAt = clock.instant();
                 if (
                     c.getStatus() != CheckoutSessionStatus.AWAITING_PAYMENT ||
-                    !clock.instant().isBefore(p.deadline()) ||
-                    !events.salesScope(p.eventId(), clock.instant()).registrationOpen()
+                    !acceptedAt.isBefore(p.deadline()) ||
+                    !events.salesScope(p.eventId(), acceptedAt).registrationOpen()
                 ) {
                     if (c.getStatus() == CheckoutSessionStatus.AWAITING_PAYMENT) {
                         c.expire();
@@ -246,6 +281,7 @@ public class CheckoutService {
                     return;
                 }
                 // Failures roll back event handling and are retried by the durable bus. They cannot lose a paid purchase.
+                confirmPromotion(p, acceptedAt);
                 inventory.issue(p.eventId(), p.id(), p.ownerId(), p.lines(), p.holds());
                 c.confirmPayment(outcome.paymentId());
                 if (orders.findById(new OrderId(p.id())).isEmpty()) orders.save(Order.createFromCheckout(c));
@@ -317,6 +353,26 @@ public class CheckoutService {
 
     private void release(CheckoutProcess p) {
         inventory.release(p.eventId(), p.id(), p.holds());
+        if (p.redemptionId() != null) promotions.release(p.redemptionId(), p.id());
+    }
+
+    private void confirmPromotion(CheckoutProcess process, Instant acceptedAt) {
+        // The order ID is the checkout ID. Both writes are part of the fulfillment transaction.
+        if (process.redemptionId() != null) promotions.confirm(process.redemptionId(), process.id(), acceptedAt);
+    }
+
+    private void requirePaidSalesIfPriced(UUID eventId, Money subtotal) {
+        if (!subtotal.isZero() && !payments.permitsPaidSales(eventId)) throw paidSalesInactive();
+    }
+
+    private static CheckoutConflict paidSalesInactive() {
+        return new CheckoutConflict(CheckoutConflict.Reason.PAID_SALES_INACTIVE, "Paid sales are not active for this event");
+    }
+
+    private static void requireRegistrationOpen(EventManagementOhs.SalesScope scope) {
+        if (!scope.registrationOpen()) throw new CheckoutConflict(
+            CheckoutConflict.Reason.REGISTRATION_CLOSED, "Event is not accepting registrations"
+        );
     }
 
     private CheckoutProcess requireProcess(UUID id) {
@@ -350,7 +406,10 @@ public class CheckoutService {
             p.refundState() == null ? null : p.refundState().name(),
             p.refundId(),
             inventory.tickets(p.id()),
-            true
+            true,
+            c.getTotalPrice().amount(),
+            c.getDiscountAmount().amount(),
+            p.promoCode()
         );
     }
 }

@@ -35,6 +35,12 @@ public class CheckoutProcessJpaEntity {
     @Column(name = "refund_id")
     private UUID refundId;
 
+    @Column(name = "redemption_id")
+    private UUID redemptionId;
+
+    @Column(name = "promo_code", length = 20)
+    private String promoCode;
+
     @Version
     @Column(name = "version", nullable = false)
     private long version;
@@ -61,7 +67,9 @@ public class CheckoutProcessJpaEntity {
         CheckoutRefundStatus refundState,
         UUID refundId,
         List<CheckoutLineJpaEmbeddable> lines,
-        List<CheckoutHoldJpaEmbeddable> holds
+        List<CheckoutHoldJpaEmbeddable> holds,
+        UUID redemptionId,
+        String promoCode
     ) {
         this.id = id;
         this.eventId = eventId;
@@ -73,6 +81,8 @@ public class CheckoutProcessJpaEntity {
         this.refundId = refundId;
         this.lines.addAll(lines);
         this.holds.addAll(holds);
+        this.redemptionId = redemptionId;
+        this.promoCode = promoCode;
     }
 
     public void updateMutableState(UUID paymentId, CheckoutRefundStatus refundState, UUID refundId) {
@@ -111,6 +121,14 @@ public class CheckoutProcessJpaEntity {
 
     public UUID getRefundId() {
         return refundId;
+    }
+
+    public UUID getRedemptionId() {
+        return redemptionId;
+    }
+
+    public String getPromoCode() {
+        return promoCode;
     }
 
     public long getVersion() {

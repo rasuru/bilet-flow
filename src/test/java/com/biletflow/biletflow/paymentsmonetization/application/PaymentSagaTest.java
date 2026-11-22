@@ -1,5 +1,8 @@
 package com.biletflow.biletflow.paymentsmonetization.application;
 
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
 import com.biletflow.biletflow.common.application.*;
 import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.common.events.*;
@@ -27,6 +30,7 @@ import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWor
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.*;
 import com.biletflow.biletflow.paymentsmonetization.infrastructure.halyk.HalykGateway;
 import com.biletflow.biletflow.paymentsmonetization.ohs.*;
+import com.biletflow.biletflow.promotions.ohs.PromotionsOhs;
 import com.biletflow.biletflow.ticketinventory.domain.ticket.AttendeeEmail;
 import com.biletflow.biletflow.ticketinventory.domain.ticket.Ticket;
 import com.biletflow.biletflow.ticketinventory.domain.ticket.TicketStatus;
@@ -375,6 +379,49 @@ public class PaymentSagaTest {
                 )
             )
         );
+    }
+
+    @Test
+    void discountedPaymentConfirmsTheRedemptionExactlyOnce() {
+        var fixture = new Fixture();
+        UUID checkoutId = UUID.randomUUID();
+        UUID redemptionId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        Instant deadline = fixture.clock.instant().plusSeconds(600);
+        when(fixture.promotions.reserve(
+            eq(fixture.event), eq(checkoutId), eq("PROMO123"), anyList(), eq(PromotionsOhs.Source.CODE), eq(deadline)
+        )).thenReturn(new PromotionsOhs.Reservation(redemptionId, campaignId, "PROMO123", Money.kzt(250), deadline));
+        var request = new CreateCheckoutCommand(fixture.event, fixture.request().selections(), "PROMO123");
+        var checkout = fixture.checkout.create(checkoutId, 1, request);
+        check(checkout.amountKzt().compareTo(new BigDecimal("750")) == 0, "Discount is applied to the payable total");
+        check(fixture.work(checkout).getAmount().compareTo(checkout.amountKzt()) == 0, "Payment uses the discounted total");
+        verify(fixture.promotions, never()).confirm(any(), any(), any());
+
+        var payment = fixture.work(checkout);
+        fixture.observe(payment, "CHARGE");
+        fixture.deliver();
+        fixture.checkout.onOutcome(new PaymentOutcome(payment.getId(), checkoutId, "SUCCEEDED", null));
+        verify(fixture.promotions).confirm(eq(redemptionId), eq(checkoutId), any());
+        check(campaignId.equals(fixture.orders.rows.values().iterator().next().getPromotionId()), "Issued order retains attribution");
+    }
+
+    @Test
+    void failedDiscountedPaymentReleasesTheRedemption() {
+        var fixture = new Fixture();
+        UUID checkoutId = UUID.randomUUID();
+        UUID redemptionId = UUID.randomUUID();
+        Instant deadline = fixture.clock.instant().plusSeconds(600);
+        when(fixture.promotions.reserve(
+            eq(fixture.event), eq(checkoutId), eq("PROMO123"), anyList(), eq(PromotionsOhs.Source.CODE), eq(deadline)
+        )).thenReturn(new PromotionsOhs.Reservation(redemptionId, UUID.randomUUID(), "PROMO123", Money.kzt(250), deadline));
+
+        var request = new CreateCheckoutCommand(fixture.event, fixture.request().selections(), "PROMO123");
+        var checkout = fixture.checkout.create(checkoutId, 1, request);
+        fixture.observe(fixture.work(checkout), "FAILED");
+        fixture.deliver();
+
+        verify(fixture.promotions).release(redemptionId, checkoutId);
+        verify(fixture.promotions, never()).confirm(any(), any(), any());
     }
 
     @Test
@@ -1152,6 +1199,11 @@ public class PaymentSagaTest {
 
     static final class Stock implements CheckoutInventoryOhs {
 
+        @Override
+        public List<QuotedLine> quote(UUID eventId, List<QuoteSelection> selections) {
+            return selections.stream().map(selection -> new QuotedLine(selection.ticketTypeId(), price, selection.quantity())).toList();
+        }
+
         final Clock clock;
         Money price = Money.kzt(1000);
         boolean failIssuance, refundPending;
@@ -1277,6 +1329,7 @@ public class PaymentSagaTest {
         PaidSalesAdministrationService administration = new PaidSalesAdministrationService(activations, locks, audit, admin, clock);
         PaymentAccessService access = new PaymentAccessService(works, bank, secrets, transitions, audit, clock, locks);
         PaymentReconciler reconciler = new PaymentReconciler(works, bank, transitions, locks, clock, new LocalTransactions());
+        PromotionsOhs promotions = mock(PromotionsOhs.class);
         CheckoutService checkout = new CheckoutService(
             sessions,
             orders,
@@ -1288,7 +1341,8 @@ public class PaymentSagaTest {
             audit,
             Object::toString,
             clock,
-            notices
+            notices,
+            promotions
         );
 
         Fixture() {
