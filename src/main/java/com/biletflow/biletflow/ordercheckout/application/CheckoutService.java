@@ -105,7 +105,8 @@ public class CheckoutService {
             );
             return view(p, requireCheckout(id));
         }
-        var scope = events.salesScope(request.eventId(), clock.instant());
+        Instant createdAt = clock.instant();
+        var scope = events.salesScope(request.eventId(), createdAt);
         if (request.promoCode() != null && !scope.publiclyReadable()) throw new EntityNotFoundException("Event not found");
         requireRegistrationOpen(scope);
         var held = inventory.reserve(request.eventId(), id, request.selections());
@@ -139,7 +140,8 @@ public class CheckoutService {
             null,
             null,
             promo == null ? null : promo.redemptionId(),
-            promo == null ? null : promo.code()
+            promo == null ? null : promo.code(),
+            createdAt
         );
         if (checkout.getFinalPrice().isZero()) {
             if (promo != null && !checkout.getTotalPrice().isZero() && !payments.permitsPaidSalesForCheckout(process.eventId())) {
@@ -409,7 +411,8 @@ public class CheckoutService {
             true,
             c.getTotalPrice().amount(),
             c.getDiscountAmount().amount(),
-            p.promoCode()
+            p.promoCode(),
+            p.createdAt()
         );
     }
 }
