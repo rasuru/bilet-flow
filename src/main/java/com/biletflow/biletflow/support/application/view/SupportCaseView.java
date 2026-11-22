@@ -23,6 +23,7 @@ public record SupportCaseView(
     Instant createdAt,
     Instant updatedAt,
     Instant resolvedAt,
+    Instant escalatedAt,
     List<SupportMessageView> messages
 ) {
     public SupportCaseView {
@@ -45,6 +46,7 @@ public record SupportCaseView(
             supportCase.getCreatedAt(),
             supportCase.getUpdatedAt(),
             supportCase.getResolvedAt(),
+            supportCase.getEscalatedAt(),
             supportCase.getMessages().stream().map(SupportMessageView::from).toList()
         );
     }

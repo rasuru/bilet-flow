@@ -28,7 +28,7 @@ class DefaultSupportOhsTest {
         Instant now = Instant.parse("2026-11-20T10:00:00Z");
         return new SupportCaseView(id, SupportCaseType.ATTENDEE_SUPPORT, 10L,
             "Subject", IssueCategory.OTHER, null, null, null, CaseStatus.OPEN,
-            null, null, now, now, null, List.of());
+            null, null, now, now, null, null, List.of());
     }
 
     @Test
