@@ -29,7 +29,13 @@ public interface EventManagementOhs {
     void recordSupportCaseStatusChanged(UUID eventId, UUID caseId, Long actorUserId,
                                         String previousStatus, String newStatus, Instant occurredAt);
 
-    record SalesScope(UUID eventId, long organizerId, boolean registrationOpen, boolean cancelled, Instant eventStartsAt) {}
+    record SalesScope(
+        UUID eventId, long organizerId, boolean registrationOpen, boolean cancelled, Instant eventStartsAt, boolean publiclyReadable
+    ) {
+        public SalesScope(UUID eventId, long organizerId, boolean registrationOpen, boolean cancelled, Instant eventStartsAt) {
+            this(eventId, organizerId, registrationOpen, cancelled, eventStartsAt, true);
+        }
+    }
 
     record SupportRouting(UUID eventId, Long organizerUserId, List<Long> supportStaffUserIds) {
         public SupportRouting {

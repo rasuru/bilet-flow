@@ -75,7 +75,7 @@ curl -sS -X POST "$API/api/checkouts" \
   -d '{"eventId":"'"$EVENT_ID"'","selections":[{"ticketTypeId":"'"$TICKET_TYPE_ID"'","seats":[],"attendeeEmails":["attendee@example.com"]}]}'
 ```
 
-For assigned seating, provide one seat UUID per email in matching array order. Group a ticket type into one selection. The entire request is limited to 100 tickets and 30 ticket types. The returned `amountKzt` is the frozen commercial snapshot; later ticket-type price changes do not change this purchase. Checkout does not currently integrate with Promotions or accept client-supplied discounts.
+For assigned seating, provide one seat UUID per email in matching array order. Group a ticket type into one selection. The entire request is limited to 100 tickets and 30 ticket types. The returned `amountKzt` is the frozen commercial snapshot; later ticket-type price changes do not change this purchase. Checkout accepts an optional promo code and calculates the discount server-side. See [Promotional campaigns](campaigns.md).
 
 A zero-price checkout returns `COMPLETED` immediately with tickets. A paid checkout returns `AWAITING_PAYMENT` and `paymentId`. Holds retain TI's existing ten-minute deadline.
 
@@ -180,7 +180,7 @@ Provider reference documentation:
 
 ## Current scope
 
-Purchase and refund states are available through authenticated status endpoints. Ticket delivery is asynchronous. Confirmed ticket-order refunds also enqueue a durable purchaser receipt as described below, and declined payments send the emails described in [Payment-failure emails](#payment-failure-emails). Promotions integration, real organizer payouts, and real identity or payout-account verification are not implemented by the sandbox payment workflow; verification remains an explicitly simulated checklist item. Organizers do register a payout account (see [Payout account](#payout-account)), but its IBAN is only format-checked.
+Purchase and refund states are available through authenticated status endpoints. Ticket delivery is asynchronous. Confirmed ticket-order refunds also enqueue a durable purchaser receipt as described below, and declined payments send the emails described in [Payment-failure emails](#payment-failure-emails). Real organizer payouts and real identity or payout-account verification are not implemented by the sandbox payment workflow; verification remains an explicitly simulated checklist item. Organizers do register a payout account (see [Payout account](#payout-account)), but its IBAN is only format-checked.
 
 ## Refund confirmations
 

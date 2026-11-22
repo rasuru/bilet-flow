@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.biletflow.biletflow.promotions.application.PromotionsTestFixture;
 import com.biletflow.biletflow.promotions.application.campaign.view.CampaignView;
 import com.biletflow.biletflow.promotions.application.promocode.view.PromoCodeView;
+import com.biletflow.biletflow.promotions.infrastructure.CampaignShare;
+import java.net.URI;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -16,7 +18,7 @@ class PromotionsResourceTest {
 
     private final PromotionsTestFixture fixture = new PromotionsTestFixture();
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(
-        new CampaignResource(fixture.campaignService),
+        new CampaignResource(fixture.campaignService, new CampaignShare(URI.create("https://tickets.example.test"))),
         new PromoCodeResource(fixture.promoCodeService)
     )
         .setControllerAdvice(new PromotionsExceptionHandler())
@@ -95,6 +97,15 @@ class PromotionsResourceTest {
         mvc.perform(post("/api/promo-codes/{promoCodeId}/enable", promoCode.id()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.enabled").value(true));
+    }
+
+    @Test
+    void organizerCanDownloadTheCampaignQr() throws Exception {
+        var campaign = fixture.createTenPercentOnVip(10);
+        var code = campaign.promoCodes().getFirst();
+        mvc.perform(get("/api/campaigns/{campaignId}/promo-codes/{promoCodeId}/qr", campaign.id(), code.id()))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType(MediaType.IMAGE_PNG));
     }
 
     @Test

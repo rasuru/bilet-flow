@@ -67,14 +67,36 @@ public class CheckoutResource {
 
     public record CheckoutRequest(
         @NotNull UUID eventId,
-        @NotNull @Size(min = 1, max = 30) List<@NotNull @Valid SelectionRequest> selections
+        @NotNull @Size(min = 1, max = 30) List<@NotNull @Valid SelectionRequest> selections,
+        @Pattern(regexp = "[A-Za-z0-9]{6,20}") String promoCode
     ) {
+        public CheckoutRequest(UUID eventId, List<SelectionRequest> selections) {
+            this(eventId, selections, null);
+        }
+
         CreateCheckoutCommand toCommand() {
-            return new CreateCheckoutCommand(eventId, selections.stream().map(SelectionRequest::toSelection).toList());
+            return new CreateCheckoutCommand(eventId, selections.stream().map(SelectionRequest::toSelection).toList(), promoCode);
         }
     }
 
     public record RefundRequest(@NotBlank @Size(max = 200) String reason) {}
+
+    public record QuoteSelectionRequest(@NotNull UUID ticketTypeId, @Min(1) @Max(100) int quantity) {}
+
+    public record QuoteRequest(
+        @NotNull UUID eventId,
+        @NotBlank @Pattern(regexp = "[A-Za-z0-9]{6,20}") String promoCode,
+        @NotNull @Size(min = 1, max = 30) List<@NotNull @Valid QuoteSelectionRequest> selections
+    ) {}
+
+    @PostMapping("/quote")
+    @Operation(summary = "Preview a promo discount without reserving inventory or a redemption")
+    public CheckoutService.PromoQuote quote(@Valid @RequestBody QuoteRequest request) {
+        var selections = request.selections().stream()
+            .map(selection -> new CheckoutInventoryOhs.QuoteSelection(selection.ticketTypeId(), selection.quantity()))
+            .toList();
+        return checkout.quote(request.eventId(), request.promoCode(), selections);
+    }
 
     @PostMapping
     @Operation(

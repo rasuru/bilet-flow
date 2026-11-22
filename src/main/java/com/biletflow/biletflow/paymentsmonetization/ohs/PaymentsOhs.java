@@ -8,6 +8,9 @@ import java.util.UUID;
 public interface PaymentsOhs {
     boolean permitsPaidSales(UUID eventId);
 
+    /** Checks activation under the same transaction lock used by paid checkout and suspension. */
+    boolean permitsPaidSalesForCheckout(UUID eventId);
+
     PaymentView initiate(StartPaymentCommand command);
     PaymentView get(UUID paymentId);
     void abandon(UUID paymentId);
