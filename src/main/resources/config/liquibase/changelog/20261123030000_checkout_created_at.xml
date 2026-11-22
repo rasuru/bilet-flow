@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd"
+>
+    <changeSet id="20261123030000-1" author="biletflow">
+        <addColumn tableName="oc_saga">
+            <column name="created_at" type="timestamp with time zone"/>
+        </addColumn>
+        <sql dbms="postgresql">
+            UPDATE oc_saga AS checkout
+            SET created_at = audit.placed_at
+            FROM (
+                SELECT aggregate_id, MIN(occurred_at) AS placed_at
+                FROM common_financial_audit
+                WHERE context = 'ordercheckout'
+                  AND action IN ('FREE_CHECKOUT_COMPLETED', 'PAID_CHECKOUT_AWAITING_PAYMENT')
+                GROUP BY aggregate_id
+            ) AS audit
+            WHERE checkout.id = audit.aggregate_id
+        </sql>
+    </changeSet>
+</databaseChangeLog>

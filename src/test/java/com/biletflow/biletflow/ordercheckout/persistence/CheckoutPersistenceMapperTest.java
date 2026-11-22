@@ -69,7 +69,8 @@ class CheckoutPersistenceMapperTest {
             CheckoutRefundStatus.PENDING,
             UUID.randomUUID(),
             UUID.randomUUID(),
-            "PROMO123"
+            "PROMO123",
+            Instant.parse("2026-11-23T00:00:00Z")
         );
         var entity = mapper.toNewEntity(process);
         var loaded = mapper.toDomain(entity);

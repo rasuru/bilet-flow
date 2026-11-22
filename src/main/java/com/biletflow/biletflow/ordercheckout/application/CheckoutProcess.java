@@ -20,13 +20,14 @@ public record CheckoutProcess(
     CheckoutRefundStatus refundState,
     UUID refundId,
     UUID redemptionId,
-    String promoCode
+    String promoCode,
+    Instant createdAt
 ) {
     public CheckoutProcess(
         UUID id, long ownerId, UUID eventId, String fingerprint, Instant deadline,
         List<Line> lines, List<Hold> holds, UUID paymentId, CheckoutRefundStatus refundState, UUID refundId
     ) {
-        this(id, ownerId, eventId, fingerprint, deadline, lines, holds, paymentId, refundState, refundId, null, null);
+        this(id, ownerId, eventId, fingerprint, deadline, lines, holds, paymentId, refundState, refundId, null, null, null);
     }
 
     public CheckoutProcess {
@@ -35,10 +36,10 @@ public record CheckoutProcess(
     }
 
     public CheckoutProcess payment(UUID id) {
-        return new CheckoutProcess(this.id, ownerId, eventId, fingerprint, deadline, lines, holds, id, refundState, refundId, redemptionId, promoCode);
+        return new CheckoutProcess(this.id, ownerId, eventId, fingerprint, deadline, lines, holds, id, refundState, refundId, redemptionId, promoCode, createdAt);
     }
 
     public CheckoutProcess refund(CheckoutRefundStatus state, UUID id) {
-        return new CheckoutProcess(this.id, ownerId, eventId, fingerprint, deadline, lines, holds, paymentId, state, id, redemptionId, promoCode);
+        return new CheckoutProcess(this.id, ownerId, eventId, fingerprint, deadline, lines, holds, paymentId, state, id, redemptionId, promoCode, createdAt);
     }
 }

@@ -18,5 +18,6 @@ public record CheckoutView(
     boolean sandbox,
     BigDecimal subtotalKzt,
     BigDecimal discountKzt,
-    String promoCode
+    String promoCode,
+    Instant createdAt
 ) {}
