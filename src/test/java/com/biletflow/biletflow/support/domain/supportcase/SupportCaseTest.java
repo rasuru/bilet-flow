@@ -49,17 +49,24 @@ class SupportCaseTest {
     @Test
     void openingRejectsInvalidRequesterSubjectAndInitialMessage() {
         assertThrows(NullPointerException.class, () ->
-            SupportCase.open(null, 10L, "Subject", IssueCategory.OTHER, "Message", null, null, null, OPENED_AT)
+            SupportCase.open(null, 10L, "Subject", IssueCategory.OTHER, "Message", UUID.randomUUID(), null, null, OPENED_AT)
         );
         assertThrows(NullPointerException.class, () ->
-            SupportCase.open(SupportCaseType.ATTENDEE_SUPPORT, null, "Subject", IssueCategory.OTHER, "Message", null, null, null, OPENED_AT)
+            SupportCase.open(SupportCaseType.ATTENDEE_SUPPORT, null, "Subject", IssueCategory.OTHER, "Message", UUID.randomUUID(), null, null, OPENED_AT)
         );
         assertThrows(IllegalArgumentException.class, () ->
-            SupportCase.open(SupportCaseType.ATTENDEE_SUPPORT, 10L, "  ", IssueCategory.OTHER, "Message", null, null, null, OPENED_AT)
+            SupportCase.open(SupportCaseType.ATTENDEE_SUPPORT, 10L, "  ", IssueCategory.OTHER, "Message", UUID.randomUUID(), null, null, OPENED_AT)
         );
         assertThrows(IllegalArgumentException.class, () ->
-            SupportCase.open(SupportCaseType.ATTENDEE_SUPPORT, 10L, "Subject", IssueCategory.OTHER, "  ", null, null, null, OPENED_AT)
+            SupportCase.open(SupportCaseType.ATTENDEE_SUPPORT, 10L, "Subject", IssueCategory.OTHER, "  ", UUID.randomUUID(), null, null, OPENED_AT)
         );
+    }
+
+    @Test
+    void attendeeSupportCaseRequiresAnEventReference() {
+        assertThrows(IllegalArgumentException.class, () -> SupportCase.open(
+            SupportCaseType.ATTENDEE_SUPPORT, 10L, "Subject", IssueCategory.OTHER,
+            "Message", null, null, null, OPENED_AT));
     }
 
     @Test

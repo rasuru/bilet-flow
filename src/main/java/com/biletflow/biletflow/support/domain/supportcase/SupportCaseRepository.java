@@ -1,6 +1,8 @@
 package com.biletflow.biletflow.support.domain.supportcase;
 
 import java.util.List;
+import java.util.Collection;
+import java.util.UUID;
 import java.util.Optional;
 
 public interface SupportCaseRepository {
@@ -12,6 +14,8 @@ public interface SupportCaseRepository {
     List<SupportCase> findByRequesterUserId(Long requesterUserId);
 
     List<SupportCase> findByAssignedSupportUserId(Long supportUserId);
+
+    List<SupportCase> findByEventIdIn(Collection<UUID> eventIds);
 
     List<SupportCase> findByStatus(CaseStatus status);
 

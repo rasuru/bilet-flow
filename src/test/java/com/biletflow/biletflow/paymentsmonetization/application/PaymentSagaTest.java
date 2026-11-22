@@ -966,6 +966,21 @@ public class PaymentSagaTest {
         public SalesScope salesScope(UUID e, Instant now) {
             return new SalesScope(e, 7, open, !open, now.plusSeconds(86400));
         }
+
+        public boolean canHandleAttendeeSupport(UUID e, Long u) {
+            return u == 7;
+        }
+
+        public List<UUID> findSupportManagedEventIds(Long userId) {
+            return List.of();
+        }
+
+        public java.util.Optional<SupportRouting> supportRouting(UUID eventId) {
+            return java.util.Optional.empty();
+        }
+
+        public void recordSupportCaseStatusChanged(UUID eventId, UUID caseId, Long actorUserId,
+                                                    String previousStatus, String newStatus, Instant occurredAt) {}
     }
 
     static final class Sessions implements CheckoutSessionRepository {

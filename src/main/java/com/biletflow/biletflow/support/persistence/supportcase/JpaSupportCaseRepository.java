@@ -7,6 +7,8 @@ import com.biletflow.biletflow.support.domain.supportcase.SupportCaseRepository;
 import com.biletflow.biletflow.support.persistence.supportcase.entity.SupportCaseJpaEntity;
 import jakarta.persistence.EntityManager;
 import java.util.List;
+import java.util.Collection;
+import java.util.UUID;
 import java.util.Objects;
 import java.util.Optional;
 import org.springframework.stereotype.Repository;
@@ -64,6 +66,13 @@ public class JpaSupportCaseRepository implements SupportCaseRepository {
     public List<SupportCase> findByAssignedSupportUserId(Long supportUserId) {
         Objects.requireNonNull(supportUserId, "supportUserId cannot be null");
         return jpaRepository.findAllByAssignedSupportUserId(supportUserId).stream().map(mapper::toDomain).toList();
+    }
+
+    @Override
+    public List<SupportCase> findByEventIdIn(Collection<UUID> eventIds) {
+        Objects.requireNonNull(eventIds, "eventIds cannot be null");
+        if (eventIds.isEmpty()) return List.of();
+        return jpaRepository.findAllByEventIdIn(eventIds).stream().map(mapper::toDomain).toList();
     }
 
     @Override

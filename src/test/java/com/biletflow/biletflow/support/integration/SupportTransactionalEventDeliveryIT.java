@@ -8,10 +8,16 @@ import static org.mockito.Mockito.when;
 import com.biletflow.biletflow.IntegrationTest;
 import com.biletflow.biletflow.common.events.JdbcEventBus;
 import com.biletflow.biletflow.common.notifications.EmailSender;
+import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.iam.ohs.IamOhs;
 import com.biletflow.biletflow.iam.ohs.dto.VerifiedUserEmailView;
 import com.biletflow.biletflow.support.application.event.SupportCaseOpenedEvent;
+import com.biletflow.biletflow.support.domain.supportcase.IssueCategory;
+import com.biletflow.biletflow.support.domain.supportcase.SupportCase;
+import com.biletflow.biletflow.support.domain.supportcase.SupportCaseRepository;
+import com.biletflow.biletflow.support.domain.supportcase.SupportCaseType;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -25,16 +31,19 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @IntegrationTest
 class SupportTransactionalEventDeliveryIT {
+    private static final UUID EVENT_ID = UUID.fromString("3191d7f0-46e3-4de2-b844-2bc2c3759e86");
 
     @Autowired private ApplicationEventPublisher events;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private JdbcEventBus outbox;
+    @Autowired private SupportCaseRepository supportCases;
 
     @MockitoBean private IamOhs iam;
+    @MockitoBean private EventManagementOhs eventManagement;
     @MockitoBean private EmailSender emailSender;
 
-    private final UUID caseId = UUID.randomUUID();
+    private UUID caseId;
 
     private TransactionTemplate tx() {
         return new TransactionTemplate(transactionManager);
@@ -42,20 +51,32 @@ class SupportTransactionalEventDeliveryIT {
 
     @AfterEach
     void cleanUp() {
-        jdbc.update("delete from common_outbox where id in (select id from common_outbox where payload like ?)",
-            "%" + caseId + "%");
-        jdbc.update("delete from common_financial_audit where aggregate_id = ?", caseId);
+        if (caseId == null) return;
+        jdbc.update("delete from common_outbox where payload like ?", "%" + caseId + "%");
+        jdbc.update("delete from support_case_audit where support_case_id = ?", caseId);
+        jdbc.update("delete from support_case where id = ?", caseId);
+    }
+
+    private SupportCase createCase(Long requesterId, Instant now) {
+        SupportCase supportCase = SupportCase.open(SupportCaseType.ATTENDEE_SUPPORT, requesterId,
+            "Test support case", IssueCategory.OTHER, "Initial request", EVENT_ID, null, null, now);
+        caseId = supportCase.getId().value();
+        tx().executeWithoutResult(status -> supportCases.save(supportCase));
+        return supportCase;
     }
 
     @Test
-    void beforeCommitListenersWriteAuditAndDurableNotificationInSameTransaction() {
-        SupportCaseOpenedEvent event = new SupportCaseOpenedEvent(caseId, 701L, Instant.parse("2026-11-20T10:00:00Z"));
+    void beforeCommitListenersWriteSupportAuditAndDurableNotificationInSameTransaction() {
+        Instant now = Instant.parse("2026-11-20T10:00:00Z");
+        SupportCase supportCase = createCase(701L, now);
+        SupportCaseOpenedEvent event = new SupportCaseOpenedEvent(
+            caseId, 701L, SupportCaseType.ATTENDEE_SUPPORT, EVENT_ID, now);
 
         tx().executeWithoutResult(status -> events.publishEvent(event));
 
         assertThat(jdbc.queryForObject(
-            "select count(*) from common_financial_audit where aggregate_id = ? and action = 'CASE_OPENED'",
-            Integer.class, caseId)).isEqualTo(1);
+            "select count(*) from support_case_audit where support_case_id = ? and action = 'CASE_OPENED' and event_id = ?",
+            Integer.class, caseId, EVENT_ID)).isEqualTo(1);
         assertThat(jdbc.queryForObject(
             "select count(*) from common_outbox where payload like ? and delivered_at is null",
             Integer.class, "%" + caseId + "%")).isEqualTo(1);
@@ -63,7 +84,10 @@ class SupportTransactionalEventDeliveryIT {
 
     @Test
     void rollbackDoesNotPersistAuditOrNotificationOutboxRow() {
-        SupportCaseOpenedEvent event = new SupportCaseOpenedEvent(caseId, 702L, Instant.parse("2026-11-20T10:01:00Z"));
+        Instant now = Instant.parse("2026-11-20T10:01:00Z");
+        SupportCase supportCase = createCase(702L, now);
+        SupportCaseOpenedEvent event = new SupportCaseOpenedEvent(
+            caseId, 702L, SupportCaseType.ATTENDEE_SUPPORT, EVENT_ID, now);
 
         tx().executeWithoutResult(status -> {
             events.publishEvent(event);
@@ -71,15 +95,20 @@ class SupportTransactionalEventDeliveryIT {
         });
 
         assertThat(jdbc.queryForObject(
-            "select count(*) from common_financial_audit where aggregate_id = ?", Integer.class, caseId)).isZero();
+            "select count(*) from support_case_audit where support_case_id = ?", Integer.class, caseId)).isZero();
         assertThat(jdbc.queryForObject(
             "select count(*) from common_outbox where payload like ?", Integer.class, "%" + caseId + "%")).isZero();
     }
 
     @Test
     void pendingNotificationSurvivesUntilDispatcherRunsAndIsThenAcknowledged() {
+        Instant now = Instant.parse("2026-11-20T10:02:00Z");
+        createCase(703L, now);
         when(iam.findVerifiedUserEmail(703L)).thenReturn(Optional.of(new VerifiedUserEmailView(703L, "requester@example.com")));
-        SupportCaseOpenedEvent event = new SupportCaseOpenedEvent(caseId, 703L, Instant.parse("2026-11-20T10:02:00Z"));
+        when(eventManagement.supportRouting(EVENT_ID)).thenReturn(Optional.of(
+            new EventManagementOhs.SupportRouting(EVENT_ID, 704L, List.of(705L))));
+        SupportCaseOpenedEvent event = new SupportCaseOpenedEvent(
+            caseId, 703L, SupportCaseType.ATTENDEE_SUPPORT, EVENT_ID, now);
 
         tx().executeWithoutResult(status -> events.publishEvent(event));
 

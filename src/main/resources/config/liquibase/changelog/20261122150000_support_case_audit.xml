@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet author="support" id="20261122150000-1">
+        <createTable tableName="support_case_audit">
+            <column name="id" type="uuid"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="support_case_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="event_id" type="uuid"/>
+            <column name="occurred_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="actor_user_id" type="bigint"><constraints nullable="false"/></column>
+            <column name="action" type="varchar(64)"><constraints nullable="false"/></column>
+            <column name="details" type="text"><constraints nullable="false"/></column>
+        </createTable>
+        <addForeignKeyConstraint
+            baseTableName="support_case_audit" baseColumnNames="support_case_id"
+            referencedTableName="support_case" referencedColumnNames="id"
+            constraintName="fk_support_case_audit_case"/>
+        <createIndex tableName="support_case_audit" indexName="idx_support_case_audit_event_time">
+            <column name="event_id"/><column name="occurred_at"/>
+        </createIndex>
+        <createIndex tableName="support_case_audit" indexName="idx_support_case_audit_case_time">
+            <column name="support_case_id"/><column name="occurred_at"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

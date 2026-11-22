@@ -2,48 +2,79 @@ package com.biletflow.biletflow.support.integration.audit;
 
 import static org.mockito.Mockito.*;
 
-import com.biletflow.biletflow.common.application.FinancialAudit;
-import com.biletflow.biletflow.support.application.event.*;
-import com.biletflow.biletflow.support.domain.supportcase.*;
+import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
+import com.biletflow.biletflow.support.application.audit.SupportAuditRepository;
+import com.biletflow.biletflow.support.application.event.SupportCaseAssignedEvent;
+import com.biletflow.biletflow.support.application.event.SupportCaseOpenedEvent;
+import com.biletflow.biletflow.support.application.event.SupportCaseStatusChangedEvent;
+import com.biletflow.biletflow.support.application.event.SupportMessageAddedEvent;
+import com.biletflow.biletflow.support.domain.supportcase.CaseStatus;
+import com.biletflow.biletflow.support.domain.supportcase.MessageAuthorType;
+import com.biletflow.biletflow.support.domain.supportcase.SupportCaseType;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class SupportAuditEventHandlerTest {
-    private FinancialAudit audit;
+    private static final Instant NOW = Instant.parse("2026-11-20T10:00:00Z");
+    private static final UUID CASE_ID = UUID.randomUUID();
+    private static final UUID EVENT_ID = UUID.randomUUID();
+    private SupportAuditRepository audit;
+    private EventManagementOhs eventManagement;
     private SupportAuditEventHandler handler;
-    private final UUID caseId = UUID.randomUUID();
-    private final Instant now = Instant.parse("2026-11-20T10:00:00Z");
 
     @BeforeEach
     void setUp() {
-        audit = mock(FinancialAudit.class);
-        handler = new SupportAuditEventHandler(audit);
+        audit = mock(SupportAuditRepository.class);
+        eventManagement = mock(EventManagementOhs.class);
+        handler = new SupportAuditEventHandler(audit, eventManagement);
     }
 
     @Test
-    void recordsCaseOpened() {
-        handler.onOpened(new SupportCaseOpenedEvent(caseId, 10L, now));
-        verify(audit).record("SUPPORT", caseId, 10L, "CASE_OPENED");
+    void recordsCaseOpenedWithEventContext() {
+        handler.onOpened(new SupportCaseOpenedEvent(CASE_ID, 10L, SupportCaseType.ATTENDEE_SUPPORT, EVENT_ID, NOW));
+        verify(audit).append(argThat(record -> record.caseId().equals(CASE_ID)
+            && EVENT_ID.equals(record.eventId()) && record.actorUserId().equals(10L)
+            && record.action().equals("CASE_OPENED")));
+        verifyNoInteractions(eventManagement);
     }
 
     @Test
-    void recordsMessageAddedWithAuthorType() {
-        handler.onMessage(new SupportMessageAddedEvent(caseId, 20L, MessageAuthorType.SUPPORT_AGENT, now));
-        verify(audit).record("SUPPORT", caseId, 20L, "MESSAGE_ADDED:SUPPORT_AGENT");
+    void recordsMessagesWithEventContext() {
+        handler.onMessage(new SupportMessageAddedEvent(CASE_ID, 20L, MessageAuthorType.SUPPORT_AGENT,
+            SupportCaseType.ATTENDEE_SUPPORT, EVENT_ID, 10L, 20L, NOW));
+        verify(audit).append(argThat(record -> EVENT_ID.equals(record.eventId())
+            && record.actorUserId().equals(20L) && record.action().equals("MESSAGE_ADDED")));
     }
 
     @Test
-    void recordsStatusTransition() {
+    void recordsStatusAndProjectsItIntoEventActivityTimeline() {
         handler.onStatusChanged(new SupportCaseStatusChangedEvent(
-            caseId, CaseStatus.OPEN, CaseStatus.IN_PROGRESS, 20L, now));
-        verify(audit).recordDetails("SUPPORT", caseId, 20L, "CASE_STATUS_CHANGED", "OPEN -> IN_PROGRESS");
+            CASE_ID, CaseStatus.OPEN, CaseStatus.IN_PROGRESS, 20L, SupportCaseType.ATTENDEE_SUPPORT,
+            EVENT_ID, 10L, NOW));
+
+        verify(audit).append(argThat(record -> EVENT_ID.equals(record.eventId())
+            && record.action().equals("CASE_STATUS_CHANGED") && record.details().contains("OPEN -> IN_PROGRESS")));
+        verify(eventManagement).recordSupportCaseStatusChanged(
+            EVENT_ID, CASE_ID, 20L, "OPEN", "IN_PROGRESS", NOW);
     }
 
     @Test
-    void recordsAssignment() {
-        handler.onAssigned(new SupportCaseAssignedEvent(caseId, 30L, 20L, now));
-        verify(audit).recordDetails("SUPPORT", caseId, 20L, "CASE_ASSIGNED", "assignedSupportUserId=30");
+    void platformStatusChangeIsNotProjectedToEventTimeline() {
+        handler.onStatusChanged(new SupportCaseStatusChangedEvent(
+            CASE_ID, CaseStatus.OPEN, CaseStatus.IN_PROGRESS, 20L, SupportCaseType.PLATFORM_SUPPORT,
+            null, 10L, NOW));
+
+        verify(audit).append(any(SupportAuditRepository.SupportAuditRecord.class));
+        verifyNoInteractions(eventManagement);
+    }
+
+    @Test
+    void recordsAssignments() {
+        handler.onAssigned(new SupportCaseAssignedEvent(CASE_ID, 30L, 20L,
+            SupportCaseType.ATTENDEE_SUPPORT, EVENT_ID, 10L, NOW));
+        verify(audit).append(argThat(record -> EVENT_ID.equals(record.eventId())
+            && record.actorUserId().equals(20L) && record.details().contains("assignedSupportUserId=30")));
     }
 }

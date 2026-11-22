@@ -3,6 +3,7 @@ package com.biletflow.biletflow.support.rest;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import com.biletflow.biletflow.common.application.AuthorizationException;
 import com.biletflow.biletflow.support.application.SupportCaseApplicationService;
 import com.biletflow.biletflow.support.application.command.*;
 import com.biletflow.biletflow.support.application.view.SupportCaseView;
@@ -13,6 +14,11 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.test.web.servlet.MockMvc;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
 
 class SupportCaseResourceTest {
     private SupportCaseApplicationService application;
@@ -78,6 +84,21 @@ class SupportCaseResourceTest {
         resource.changeStatus(id, new SupportCaseResource.ChangeStatusRequest(CaseStatus.IN_PROGRESS));
 
         verify(application).changeStatus(new ChangeSupportCaseStatusCommand(id, CaseStatus.IN_PROGRESS));
+    }
+
+
+    @Test
+    void strangerReplyIsReturnedAsForbidden() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(application.reply(any())).thenThrow(new AuthorizationException("You are not allowed to reply to this support case"));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(resource)
+            .setControllerAdvice(new SupportCaseExceptionHandler())
+            .build();
+
+        mvc.perform(post("/api/support/cases/{caseId}/messages", id)
+                .contentType("application/json")
+                .content("{\"content\":\"I should not be able to reply\"}"))
+            .andExpect(status().isForbidden());
     }
 
     @Test

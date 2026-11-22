@@ -92,7 +92,7 @@ public class SupportCaseResource {
     }
 
     @PatchMapping("/{caseId}/status")
-    @Operation(summary = "Change a support case status (administrator only)")
+    @Operation(summary = "Change a support case status (authorized support staff)")
     public SupportCaseView changeStatus(
         @PathVariable UUID caseId,
         @Valid @RequestBody ChangeStatusRequest request
@@ -101,7 +101,7 @@ public class SupportCaseResource {
     }
 
     @PatchMapping("/{caseId}/assignment")
-    @Operation(summary = "Assign a support case to a support agent (administrator only)")
+    @Operation(summary = "Assign a support case to an authorized support agent")
     public SupportCaseView assign(@PathVariable UUID caseId, @Valid @RequestBody AssignRequest request) {
         return supportCases.assign(new AssignSupportCaseCommand(caseId, request.supportUserId()));
     }

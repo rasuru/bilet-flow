@@ -32,5 +32,6 @@
     <include file="config/liquibase/changelog/20261020190000_organizer_payouts.xml" relativeToChangelogFile="false"/>
     <include file="config/liquibase/changelog/20261028120000_payment_notices_and_settings.xml" relativeToChangelogFile="false"/>
     <include file="config/liquibase/changelog/20261115212236_create_support_case_tables.xml" relativeToChangelogFile="false"/>
+    <include file="config/liquibase/changelog/20261122150000_support_case_audit.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>
 

@@ -2,8 +2,10 @@ package com.biletflow.biletflow.iam.ohs;
 
 import com.biletflow.biletflow.iam.ohs.dto.VerifiedUserEmailView;
 import com.biletflow.biletflow.iam.persistence.UserRepository;
+import com.biletflow.biletflow.iam.security.AuthoritiesConstants;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,5 +29,23 @@ public class DefaultIamOhs implements IamOhs {
             .filter(user -> user.getEmail() != null)
             .filter(user -> !user.getEmail().isBlank())
             .map(user -> new VerifiedUserEmailView(user.getId(), user.getEmail()));
+    }
+
+    @Override
+    public List<VerifiedUserEmailView> findVerifiedAdministratorEmails() {
+        return userRepository.findActivatedUsersWithAuthority(AuthoritiesConstants.ADMIN).stream()
+            .filter(user -> user.getEmail() != null && !user.getEmail().isBlank())
+            .map(user -> new VerifiedUserEmailView(user.getId(), user.getEmail()))
+            .toList();
+    }
+
+    @Override
+    public boolean isPlatformAdministrator(Long userId) {
+        Objects.requireNonNull(userId, "userId cannot be null");
+        return userRepository.findById(userId)
+            .filter(user -> user.isActivated())
+            .map(user -> user.getAuthorities().stream()
+                .anyMatch(authority -> AuthoritiesConstants.ADMIN.equals(authority.getName())))
+            .orElse(false);
     }
 }
