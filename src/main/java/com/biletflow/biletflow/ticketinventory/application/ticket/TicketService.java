@@ -9,11 +9,13 @@ import com.biletflow.biletflow.ticketinventory.application.ticket.command.*;
 import com.biletflow.biletflow.ticketinventory.application.ticket.port.VerifiedUserEmailPort;
 import com.biletflow.biletflow.ticketinventory.application.ticket.view.TicketValidationResult;
 import com.biletflow.biletflow.ticketinventory.application.ticket.view.TicketView;
+import com.biletflow.biletflow.ticketinventory.application.ticket.view.TicketSupportReferenceView;
 import com.biletflow.biletflow.ticketinventory.domain.common.OrderId;
 import com.biletflow.biletflow.ticketinventory.domain.eventinventory.EventInventory;
 import com.biletflow.biletflow.ticketinventory.domain.eventinventory.EventInventoryRepository;
 import com.biletflow.biletflow.ticketinventory.domain.ticket.*;
 import java.util.List;
+import java.util.Optional;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -152,6 +154,14 @@ public class TicketService {
 
     public TicketView get(UUID ticketId) {
         return toView(requireTicket(ticketId));
+    }
+
+    /** Minimal ownership/context query for another bounded context's support workflow. */
+    public Optional<TicketSupportReferenceView> findSupportReference(UUID ticketId) {
+        Objects.requireNonNull(ticketId, "ticketId cannot be null");
+        return ticketRepository.findById(new TicketId(ticketId)).map(ticket -> new TicketSupportReferenceView(
+            ticket.getId().value(), ticket.getOrderId().value(), ticket.getEventId(), ticket.getOwnerUserId()
+        ));
     }
 
     public List<TicketView> getByOrder(UUID orderId) {

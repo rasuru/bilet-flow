@@ -40,6 +40,7 @@ class SupportCasePersistenceIT {
     @AfterEach
     void cleanup() {
         if (caseId != null) {
+            jdbc.update("delete from support_case_audit where support_case_id = ?", caseId);
             jdbc.update("delete from support_case where id = ?", caseId);
         }
     }
@@ -80,6 +81,8 @@ class SupportCasePersistenceIT {
         assertEquals(eventId, reloaded.getEventId());
         assertEquals(orderId, reloaded.getOrderId());
         assertEquals(ticketId, reloaded.getTicketId());
+        assertEquals(1, supportCases.findByEventIdIn(java.util.List.of(eventId)).stream()
+            .filter(candidate -> candidate.getId().equals(supportCase.getId())).count());
         assertEquals(2, reloaded.getMessages().size());
         assertEquals("I cannot find my ticket.", reloaded.getMessages().getFirst().content());
         assertEquals("I am checking the delivery status.", reloaded.getMessages().getLast().content());
@@ -107,29 +110,24 @@ class SupportCasePersistenceIT {
 
         tx().executeWithoutResult(status -> supportCases.save(supportCase));
 
-        Long byRequester = tx().execute(status ->
-            supportCases
-                .findByRequesterUserId(303L)
-                .stream()
+        long requesterMatches = tx().execute(status ->
+            supportCases.findByRequesterUserId(303L).stream()
                 .filter(candidate -> candidate.getId().equals(supportCase.getId()))
                 .count()
         );
-        assertEquals(1L, byRequester);
-        Long byAssignee = tx().execute(status ->
-            supportCases
-                .findByAssignedSupportUserId(404L)
-                .stream()
+        long assignedMatches = tx().execute(status ->
+            supportCases.findByAssignedSupportUserId(404L).stream()
                 .filter(candidate -> candidate.getId().equals(supportCase.getId()))
                 .count()
         );
-        assertEquals(1L, byAssignee);
-        Long byStatus = tx().execute(status ->
-            supportCases
-                .findByStatus(CaseStatus.IN_PROGRESS)
-                .stream()
+        long statusMatches = tx().execute(status ->
+            supportCases.findByStatus(CaseStatus.IN_PROGRESS).stream()
                 .filter(candidate -> candidate.getId().equals(supportCase.getId()))
                 .count()
         );
-        assertEquals(1L, byStatus);
+
+        assertEquals(1L, requesterMatches);
+        assertEquals(1L, assignedMatches);
+        assertEquals(1L, statusMatches);
     }
 }

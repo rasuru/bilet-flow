@@ -19,5 +19,6 @@ public interface EventAuditRepository {
         VENUE_ATTACHED,
         STAFF_ASSIGNED,
         STAFF_REMOVED,
+        SUPPORT_CASE_STATUS_CHANGED,
     }
 }

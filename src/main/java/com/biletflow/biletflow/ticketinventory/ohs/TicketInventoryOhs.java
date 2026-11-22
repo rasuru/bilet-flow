@@ -5,8 +5,10 @@ import com.biletflow.biletflow.ticketinventory.application.eventinventory.comman
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.result.HoldInventoryResult;
 import com.biletflow.biletflow.ticketinventory.application.sale.command.CompleteSaleCommand;
 import com.biletflow.biletflow.ticketinventory.application.ticket.view.TicketView;
+import com.biletflow.biletflow.ticketinventory.application.ticket.view.TicketSupportReferenceView;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface TicketInventoryOhs {
@@ -17,4 +19,7 @@ public interface TicketInventoryOhs {
     void releaseHold(ReleaseHoldCommand command);
 
     List<TicketView> completeSale(CompleteSaleCommand command);
+
+    /** Minimal reference used by Support to validate ticket ownership and derive its event/order context. */
+    Optional<TicketSupportReferenceView> findSupportReference(UUID ticketId);
 }

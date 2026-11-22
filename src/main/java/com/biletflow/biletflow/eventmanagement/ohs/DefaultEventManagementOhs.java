@@ -1,6 +1,8 @@
 package com.biletflow.biletflow.eventmanagement.ohs;
 
 import com.biletflow.biletflow.eventmanagement.domain.*;
+import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditRepository;
+import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditService;
 import com.biletflow.biletflow.eventmanagement.domain.exceptions.SocialEventNotFoundException;
 import com.biletflow.biletflow.eventmanagement.domain.exceptions.VenueLayoutNotFoundException;
 import com.biletflow.biletflow.eventmanagement.ohs.dto.*;
@@ -18,10 +20,13 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
 
     private final SocialEventRepository eventRepository;
     private final VenueLayoutRepository layoutRepository;
+    private final EventAuditService auditService;
 
-    public DefaultEventManagementOhs(SocialEventRepository eventRepository, VenueLayoutRepository layoutRepository) {
+    public DefaultEventManagementOhs(SocialEventRepository eventRepository, VenueLayoutRepository layoutRepository,
+                                     EventAuditService auditService) {
         this.eventRepository = Objects.requireNonNull(eventRepository);
         this.layoutRepository = Objects.requireNonNull(layoutRepository);
+        this.auditService = Objects.requireNonNull(auditService);
     }
 
     @Override
@@ -90,6 +95,50 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
     public boolean canCheckIn(UUID eventId, Long userId) {
         SocialEvent event = requireEvent(eventId);
         return event.getStatus() == SocialEventStatus.PUBLISHED && event.canCheckIn(userId);
+    }
+
+    @Override
+    public boolean canHandleAttendeeSupport(UUID eventId, Long userId) {
+        Objects.requireNonNull(userId, "userId cannot be null");
+        return eventRepository.findById(new SocialEventId(Objects.requireNonNull(eventId, "eventId cannot be null")))
+            .map(event -> event.canHandleSupport(userId))
+            .orElse(false);
+    }
+
+    @Override
+    public List<UUID> findSupportManagedEventIds(Long userId) {
+        Objects.requireNonNull(userId, "userId cannot be null");
+        return java.util.stream.Stream.concat(
+                eventRepository.findByOrganizerId(userId).stream(),
+                eventRepository.findByStaffUserId(userId).stream())
+            .filter(event -> event.canHandleSupport(userId))
+            .map(event -> event.getId().value())
+            .distinct()
+            .toList();
+    }
+
+    @Override
+    public java.util.Optional<SupportRouting> supportRouting(UUID eventId) {
+        Objects.requireNonNull(eventId, "eventId cannot be null");
+        return eventRepository.findById(new SocialEventId(eventId)).map(event -> {
+            List<Long> staff = event.getStaffAssignments().stream()
+                .filter(assignment -> assignment.role() == StaffRole.EVENT_ADMIN)
+                .map(StaffAssignment::userId)
+                .distinct()
+                .toList();
+            return new SupportRouting(eventId, event.getOrganizerId(), staff);
+        });
+    }
+
+    @Override
+    @Transactional
+    public void recordSupportCaseStatusChanged(UUID eventId, UUID caseId, Long actorUserId,
+                                                String previousStatus, String newStatus, java.time.Instant occurredAt) {
+        Objects.requireNonNull(caseId, "caseId cannot be null");
+        Objects.requireNonNull(occurredAt, "occurredAt cannot be null");
+        // EventAuditService owns the event activity log; Support supplies only its published audit facts.
+        auditService.recordAt(eventId, actorUserId, EventAuditRepository.EventAuditType.SUPPORT_CASE_STATUS_CHANGED,
+            "Support case " + caseId + " status changed from " + previousStatus + " to " + newStatus, occurredAt);
     }
 
     @Override

@@ -53,6 +53,9 @@ public class SupportCase {
         this.subject = requireSubject(subject);
         this.category = Objects.requireNonNull(category, "category cannot be null");
         this.eventId = eventId;
+        if (type == SupportCaseType.ATTENDEE_SUPPORT && eventId == null) {
+            throw new IllegalArgumentException("Attendee support cases must reference an event");
+        }
         this.orderId = orderId;
         this.ticketId = ticketId;
         this.status = Objects.requireNonNull(status, "status cannot be null");

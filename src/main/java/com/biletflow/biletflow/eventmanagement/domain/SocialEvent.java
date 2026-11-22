@@ -263,6 +263,14 @@ public class SocialEvent {
         return organizerId.equals(userId);
     }
 
+    /** Support access is narrower than general event management: organizer and EVENT_ADMIN staff only. */
+    public boolean canHandleSupport(Long userId) {
+        Objects.requireNonNull(userId, "userId cannot be null");
+        return organizerId.equals(userId) || staffAssignments.stream().anyMatch(
+            assignment -> assignment.userId().equals(userId) && assignment.role() == StaffRole.EVENT_ADMIN
+        );
+    }
+
     public boolean canCheckIn(Long userId) {
         Objects.requireNonNull(userId, "userId cannot be null");
         return (

@@ -20,15 +20,15 @@ public class EventAuditService {
 
     @Transactional
     public void record(UUID eventId, Long actorUserId, EventAuditRepository.EventAuditType type, String description) {
-        EventAuditRepository.EventAuditRecord record = new EventAuditRepository.EventAuditRecord(
-            UUID.randomUUID(),
-            eventId,
-            Instant.now(clock),
-            actorUserId,
-            type,
-            description
-        );
+        recordAt(eventId, actorUserId, type, description, Instant.now(clock));
+    }
 
+    @Transactional
+    public void recordAt(UUID eventId, Long actorUserId, EventAuditRepository.EventAuditType type,
+                         String description, Instant timestamp) {
+        EventAuditRepository.EventAuditRecord record = new EventAuditRepository.EventAuditRecord(
+            UUID.randomUUID(), eventId, Objects.requireNonNull(timestamp), actorUserId, type, description
+        );
         repository.append(record);
     }
 }

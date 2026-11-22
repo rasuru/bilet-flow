@@ -2,6 +2,7 @@ package com.biletflow.biletflow.iam.ohs;
 
 import com.biletflow.biletflow.iam.ohs.dto.VerifiedUserEmailView;
 import java.util.Optional;
+import java.util.List;
 
 /**
  * Open Host Service published by Identity & Access Management.
@@ -17,4 +18,10 @@ public interface IamOhs {
      * the account/email activation flow has completed.
      */
     Optional<VerifiedUserEmailView> findVerifiedUserEmail(Long userId);
+
+    /** Activated platform administrators with deliverable email addresses. */
+    List<VerifiedUserEmailView> findVerifiedAdministratorEmails();
+
+    /** Used to validate support-case assignment targets without depending on IAM entities. */
+    boolean isPlatformAdministrator(Long userId);
 }
