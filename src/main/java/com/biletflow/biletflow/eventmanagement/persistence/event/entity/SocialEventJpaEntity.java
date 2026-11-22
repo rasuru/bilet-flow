@@ -42,6 +42,10 @@ public class SocialEventJpaEntity {
     private SocialEventStatus status;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "status_before_suspension", length = 32)
+    private SocialEventStatus statusBeforeSuspension;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "visibility", nullable = false, length = 32)
     private EventVisibility visibility;
 
@@ -124,6 +128,10 @@ public class SocialEventJpaEntity {
         return status;
     }
 
+    public SocialEventStatus getStatusBeforeSuspension() {
+        return statusBeforeSuspension;
+    }
+
     public EventVisibility getVisibility() {
         return visibility;
     }
@@ -182,6 +190,7 @@ public class SocialEventJpaEntity {
         String category,
         String imageUrl,
         SocialEventStatus status,
+        SocialEventStatus statusBeforeSuspension,
         EventVisibility visibility,
         Instant eventStartAt,
         Instant eventEndAt
@@ -191,6 +200,7 @@ public class SocialEventJpaEntity {
         this.category = category;
         this.imageUrl = imageUrl;
         this.status = status;
+        this.statusBeforeSuspension = statusBeforeSuspension;
         this.visibility = visibility;
         this.eventStartAt = eventStartAt;
         this.eventEndAt = eventEndAt;

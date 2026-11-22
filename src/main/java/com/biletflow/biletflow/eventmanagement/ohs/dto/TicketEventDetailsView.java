@@ -10,5 +10,18 @@ public record TicketEventDetailsView(
     String venue,
     String address,
     String seat,
-    boolean cancelled
-) {}
+    boolean cancelled,
+    boolean suspended
+) {
+    public TicketEventDetailsView(
+        String title,
+        Instant startsAt,
+        Instant endsAt,
+        String venue,
+        String address,
+        String seat,
+        boolean cancelled
+    ) {
+        this(title, startsAt, endsAt, venue, address, seat, cancelled, false);
+    }
+}

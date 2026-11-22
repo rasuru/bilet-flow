@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet author="biletflow" id="20261122023000-1">
+        <addColumn tableName="event_management_event">
+            <column name="status_before_suspension" type="varchar(32)"/>
+        </addColumn>
+        <addColumn tableName="support_case">
+            <column name="escalated_at" type="timestamp with time zone"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet author="biletflow" id="20261122023000-2">
+        <createTable tableName="event_management_report">
+            <column name="id" type="uuid"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="event_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="reporter_id" type="bigint"><constraints nullable="false"/></column>
+            <column name="reason" type="varchar(1000)"><constraints nullable="false"/></column>
+            <column name="submitted_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="status" type="varchar(20)"><constraints nullable="false"/></column>
+            <column name="reviewer_id" type="bigint"/>
+            <column name="reviewed_at" type="timestamp with time zone"/>
+            <column name="review_note" type="varchar(1000)"/>
+            <column name="version" type="bigint"><constraints nullable="false"/></column>
+        </createTable>
+        <addForeignKeyConstraint
+            baseTableName="event_management_report"
+            baseColumnNames="event_id"
+            referencedTableName="event_management_event"
+            referencedColumnNames="id"
+            constraintName="fk_event_management_report_event"/>
+        <addUniqueConstraint
+            tableName="event_management_report"
+            columnNames="event_id, reporter_id"
+            constraintName="uk_event_management_report_reporter"/>
+        <createIndex tableName="event_management_report" indexName="idx_event_management_report_queue">
+            <column name="status"/>
+            <column name="submitted_at"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>
