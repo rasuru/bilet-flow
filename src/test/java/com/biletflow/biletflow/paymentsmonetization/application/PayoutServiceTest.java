@@ -8,6 +8,7 @@ import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.paymentsmonetization.application.command.RequestPayoutCommand;
 import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.payout.*;
+import com.biletflow.biletflow.paymentsmonetization.domain.payoutaccount.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.revenue.*;
 import java.math.BigDecimal;
 import java.time.*;
@@ -23,6 +24,8 @@ class PayoutServiceTest {
     private final FinancialAudit audit = mock(FinancialAudit.class);
     private BigDecimal revenue = new BigDecimal("970.00");
     private boolean blocked;
+    private boolean payoutAccount = true;
+    private final PayoutAccountRepository accounts = mock(PayoutAccountRepository.class);
     private final PayoutService service;
 
     PayoutServiceTest() {
@@ -47,7 +50,23 @@ class PayoutServiceTest {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
             return OrganizerBalance.fromRevenue(call.getArgument(0), revenue, Money.kzt(pending), Money.kzt(paid), blocked);
         });
-        service = new PayoutService(payouts, balances, mock(TransactionLocks.class), audit, Clock.fixed(NOW, ZoneOffset.UTC));
+        when(accounts.findByOrganizerId(anyLong())).thenAnswer(call ->
+            payoutAccount
+                ? Optional.of(PayoutAccount.register(call.getArgument(0), "Organizer", KzIban.parse("KZ86125KZT5004100100"), NOW))
+                : Optional.empty()
+        );
+        service = new PayoutService(payouts, balances, mock(TransactionLocks.class), audit, Clock.fixed(NOW, ZoneOffset.UTC), accounts);
+    }
+
+    @Test
+    void newPayoutRequiresARegisteredPayoutAccountButReplayDoesNot() {
+        UUID id = UUID.randomUUID();
+        service.request(request(id, "500"));
+        payoutAccount = false;
+
+        assertEquals(id, service.request(request(id, "500")).id());
+        assertThrows(PayoutAccountRequiredException.class, () -> service.request(request(UUID.randomUUID(), "100")));
+        verify(payouts, times(1)).save(any());
     }
 
     private RequestPayoutCommand request(UUID id, String amount) {

@@ -4,6 +4,7 @@ import com.biletflow.biletflow.common.application.FinancialAudit;
 import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.common.security.CurrentActor;
 import com.biletflow.biletflow.paymentsmonetization.application.view.ActivationFeeView;
+import com.biletflow.biletflow.paymentsmonetization.application.view.ProcessingFeeRateView;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
@@ -21,8 +22,14 @@ public class PaymentSettingsService {
     /** Stable audit aggregate ID for the platform activation-fee setting. */
     static final UUID ACTIVATION_FEE_SETTING = UUID.nameUUIDFromBytes("payments:activation-fee".getBytes(StandardCharsets.UTF_8));
 
+    static final UUID PROCESSING_FEE_RATE_SETTING = UUID.nameUUIDFromBytes(
+        "payments:processing-fee-rate".getBytes(StandardCharsets.UTF_8)
+    );
+
+    private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
+
     private final PaymentSettingsRepository settings;
-    private final ActivationTermsProvider activationTerms;
+    private final PaymentTermsProvider activationTerms;
     private final PaymentGateway bank;
     private final TransactionLocks locks;
     private final FinancialAudit audit;
@@ -31,7 +38,7 @@ public class PaymentSettingsService {
 
     public PaymentSettingsService(
         PaymentSettingsRepository settings,
-        ActivationTermsProvider activationTerms,
+        PaymentTermsProvider activationTerms,
         PaymentGateway bank,
         TransactionLocks locks,
         FinancialAudit audit,
@@ -76,6 +83,49 @@ public class PaymentSettingsService {
             current.activationFee().toPlainString() + " -> " + validated.toPlainString() + " KZT"
         );
         return view();
+    }
+
+    public ProcessingFeeRateView processingFeeRate() {
+        actor.requireAdministrator();
+        return rateView();
+    }
+
+    @Transactional
+    public ProcessingFeeRateView changeProcessingFeeRate(BigDecimal ratePercent) {
+        Objects.requireNonNull(ratePercent, "ratePercent cannot be null");
+        long admin = actor.requireAdministrator();
+        if (ratePercent.signum() < 0 || ratePercent.compareTo(HUNDRED) >= 0 || ratePercent.stripTrailingZeros().scale() > 2) {
+            throw new IllegalArgumentException("Processing fee must be from 0 to below 100 percent, with at most two decimal places");
+        }
+
+        locks.lock("payment-settings:processing-fee-rate");
+        var current = activationTerms.current();
+        var rate = ratePercent.divide(HUNDRED).setScale(4, RoundingMode.UNNECESSARY);
+        var validated = current.withProcessingFeeRate(rate).processingFeeRate();
+        settings.saveProcessingFeeRate(new PaymentSettingsRepository.ProcessingFeeRateSetting(validated, admin, clock.instant()));
+        audit.recordDetails(
+            "payments",
+            PROCESSING_FEE_RATE_SETTING,
+            admin,
+            "PROCESSING_FEE_RATE_CHANGED",
+            percent(current.processingFeeRate()).toPlainString() + "% -> " + percent(validated).toPlainString() + "%"
+        );
+        return rateView();
+    }
+
+    private ProcessingFeeRateView rateView() {
+        var override = settings.processingFeeRate();
+        return new ProcessingFeeRateView(
+            percent(activationTerms.current().processingFeeRate()),
+            override.isPresent(),
+            override.map(PaymentSettingsRepository.ProcessingFeeRateSetting::updatedBy).orElse(null),
+            override.map(PaymentSettingsRepository.ProcessingFeeRateSetting::updatedAt).orElse(null),
+            true
+        );
+    }
+
+    private static BigDecimal percent(BigDecimal rate) {
+        return rate.multiply(HUNDRED).setScale(2, RoundingMode.HALF_UP);
     }
 
     private ActivationFeeView view() {

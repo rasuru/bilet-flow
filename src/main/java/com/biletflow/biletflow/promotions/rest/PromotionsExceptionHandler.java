@@ -1,0 +1,56 @@
+package com.biletflow.biletflow.promotions.rest;
+
+import com.biletflow.biletflow.common.application.AuthorizationException;
+import com.biletflow.biletflow.common.application.EntityNotFoundException;
+import com.biletflow.biletflow.common.rest.ApiProblems;
+import com.biletflow.biletflow.common.security.UnauthenticatedActorException;
+import com.biletflow.biletflow.promotions.domain.exceptions.PromoCodeRejectedException;
+import com.biletflow.biletflow.promotions.domain.exceptions.PromotionsDomainException;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+@Order(Ordered.HIGHEST_PRECEDENCE)
+@RestControllerAdvice(basePackages = "com.biletflow.biletflow.promotions.rest")
+public class PromotionsExceptionHandler {
+
+    @ExceptionHandler(PromoCodeRejectedException.class)
+    public ResponseEntity<ProblemDetail> handleRejected(PromoCodeRejectedException exception) {
+        ProblemDetail problem = ApiProblems.body(HttpStatus.CONFLICT, "promo-code-rejected", "Promo code rejected", exception.getMessage());
+        problem.setProperty("reason", exception.getReason().name());
+        return ApiProblems.response(problem);
+    }
+
+    @ExceptionHandler(EntityNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleNotFound(EntityNotFoundException exception) {
+        return problem(HttpStatus.NOT_FOUND, "Resource not found", exception.getMessage());
+    }
+
+    @ExceptionHandler(UnauthenticatedActorException.class)
+    public ResponseEntity<ProblemDetail> handleUnauthenticated(UnauthenticatedActorException exception) {
+        return problem(HttpStatus.UNAUTHORIZED, "Authentication required", exception.getMessage());
+    }
+
+    @ExceptionHandler(AuthorizationException.class)
+    public ResponseEntity<ProblemDetail> handleForbidden(AuthorizationException exception) {
+        return problem(HttpStatus.FORBIDDEN, "Forbidden", exception.getMessage());
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ProblemDetail> handleBadRequest(IllegalArgumentException exception) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid request", exception.getMessage());
+    }
+
+    @ExceptionHandler({ IllegalStateException.class, PromotionsDomainException.class })
+    public ResponseEntity<ProblemDetail> handleConflict(RuntimeException exception) {
+        return problem(HttpStatus.CONFLICT, "Operation rejected", exception.getMessage());
+    }
+
+    private ResponseEntity<ProblemDetail> problem(HttpStatus status, String title, String detail) {
+        return ApiProblems.response(ApiProblems.body(status, null, title, detail));
+    }
+}

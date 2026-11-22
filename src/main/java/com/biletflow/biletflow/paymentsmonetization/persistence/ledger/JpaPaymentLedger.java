@@ -60,14 +60,24 @@ public class JpaPaymentLedger implements PaymentLedger {
 
     @Override
     public Map<String, BigDecimal> summary(long organizer) {
+        return totals("l.organizerId = :scope", organizer);
+    }
+
+    @Override
+    public Map<String, BigDecimal> eventSummary(UUID eventId) {
+        return totals("l.eventId = :scope", eventId);
+    }
+
+    private Map<String, BigDecimal> totals(String where, Object scope) {
         Object[] totals = entities
             .createQuery(
-                "select coalesce(sum(case when l.kind = :charge then l.amount else 0 end),0), coalesce(sum(l.fee),0), coalesce(sum(case when l.kind = :refund then l.amount else 0 end),0) from LedgerEntryJpaEntity l where l.organizerId = :organizer",
+                "select coalesce(sum(case when l.kind = :charge then l.amount else 0 end),0), coalesce(sum(l.fee),0), coalesce(sum(case when l.kind = :refund then l.amount else 0 end),0) from LedgerEntryJpaEntity l where " +
+                    where,
                 Object[].class
             )
             .setParameter("charge", LedgerEntryKind.CHARGE)
             .setParameter("refund", LedgerEntryKind.REFUND)
-            .setParameter("organizer", organizer)
+            .setParameter("scope", scope)
             .getSingleResult();
         BigDecimal gross = decimal(totals[0]),
             fees = decimal(totals[1]),

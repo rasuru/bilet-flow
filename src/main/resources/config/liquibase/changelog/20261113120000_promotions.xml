@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="20261113120000-1" author="biletflow">
+        <createTable tableName="promotions_campaign">
+            <column name="id" type="uuid"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="event_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="name" type="varchar(100)"><constraints nullable="false"/></column>
+            <column name="discount_type" type="varchar(16)"><constraints nullable="false"/></column>
+            <column name="discount_value" type="numeric(19,4)"><constraints nullable="false"/></column>
+            <column name="valid_from" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="valid_until" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="max_redemptions" type="int"/>
+            <column name="status" type="varchar(16)"><constraints nullable="false"/></column>
+            <column name="created_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="ended_at" type="timestamp with time zone"/>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+        <createIndex tableName="promotions_campaign" indexName="idx_promotions_campaign_event">
+            <column name="event_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20261113120000-2" author="biletflow">
+        <createTable tableName="promotions_campaign_ticket_type">
+            <column name="campaign_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="ticket_type_id" type="uuid"><constraints nullable="false"/></column>
+        </createTable>
+        <addPrimaryKey tableName="promotions_campaign_ticket_type" columnNames="campaign_id, ticket_type_id"
+            constraintName="pk_promotions_campaign_ticket_type"/>
+        <addForeignKeyConstraint baseTableName="promotions_campaign_ticket_type" baseColumnNames="campaign_id"
+            referencedTableName="promotions_campaign" referencedColumnNames="id"
+            constraintName="fk_promotions_campaign_ticket_type_campaign"/>
+    </changeSet>
+
+    <changeSet id="20261113120000-3" author="biletflow">
+        <createTable tableName="promotions_campaign_redemption">
+            <column name="campaign_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="redemption_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="session_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="discount_amount" type="numeric(19,2)"><constraints nullable="false"/></column>
+            <column name="discount_currency" type="varchar(3)"><constraints nullable="false"/></column>
+            <column name="reserved_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="expires_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="order_id" type="uuid"/>
+            <column name="status" type="varchar(16)"><constraints nullable="false"/></column>
+            <column name="confirmed_at" type="timestamp with time zone"/>
+        </createTable>
+        <addUniqueConstraint tableName="promotions_campaign_redemption" columnNames="redemption_id"
+            constraintName="uk_promotions_campaign_redemption_id"/>
+        <addForeignKeyConstraint baseTableName="promotions_campaign_redemption" baseColumnNames="campaign_id"
+            referencedTableName="promotions_campaign" referencedColumnNames="id"
+            constraintName="fk_promotions_campaign_redemption_campaign"/>
+        <createIndex tableName="promotions_campaign_redemption" indexName="idx_promotions_campaign_redemption_campaign">
+            <column name="campaign_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20261113120000-4" author="biletflow">
+        <createTable tableName="promotions_promo_code">
+            <column name="id" type="uuid"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="campaign_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="code" type="varchar(20)"><constraints nullable="false"/></column>
+            <column name="campaign_token" type="uuid"><constraints nullable="false"/></column>
+            <column name="created_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="enabled" type="boolean"><constraints nullable="false"/></column>
+            <column name="disabled_at" type="timestamp with time zone"/>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+        <addUniqueConstraint tableName="promotions_promo_code" columnNames="code"
+            constraintName="uk_promotions_promo_code_code"/>
+        <addUniqueConstraint tableName="promotions_promo_code" columnNames="campaign_token"
+            constraintName="uk_promotions_promo_code_token"/>
+        <addForeignKeyConstraint baseTableName="promotions_promo_code" baseColumnNames="campaign_id"
+            referencedTableName="promotions_campaign" referencedColumnNames="id"
+            constraintName="fk_promotions_promo_code_campaign"/>
+        <createIndex tableName="promotions_promo_code" indexName="idx_promotions_promo_code_campaign">
+            <column name="campaign_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20261113120000-5" author="biletflow">
+        <createTable tableName="promotions_activity_log">
+            <column name="id" type="uuid"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="event_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="timestamp" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="actor_user_id" type="bigint"><constraints nullable="false"/></column>
+            <column name="type" type="varchar(32)"><constraints nullable="false"/></column>
+            <column name="description" type="varchar(500)"><constraints nullable="false"/></column>
+        </createTable>
+        <createIndex tableName="promotions_activity_log" indexName="idx_promotions_activity_log_event">
+            <column name="event_id"/>
+            <column name="timestamp"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>
