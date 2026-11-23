@@ -91,6 +91,12 @@ public class EventService {
         eventRepository.save(event);
 
         auditService.record(event.getId().value(), currentUserId, EventAuditRepository.EventAuditType.UPDATED, "Event details updated");
+        events.publish(new com.biletflow.biletflow.common.events.IntegrationEvent(
+            java.util.UUID.randomUUID(),
+            com.biletflow.biletflow.eventmanagement.integration.EventUpdatedEmailHandler.TYPE,
+            event.getId().value(),
+            java.util.Map.of("title", event.getTitle())
+        ));
     }
 
     @Transactional

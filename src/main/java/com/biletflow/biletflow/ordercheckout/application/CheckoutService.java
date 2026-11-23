@@ -8,6 +8,7 @@ import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.ordercheckout.application.command.CreateCheckoutCommand;
 import com.biletflow.biletflow.ordercheckout.application.refund.RefundNotice;
 import com.biletflow.biletflow.ordercheckout.application.refund.RefundNoticeStore;
+import com.biletflow.biletflow.ordercheckout.application.refundpolicy.AttendeeRefundPolicy;
 import com.biletflow.biletflow.ordercheckout.application.view.CheckoutView;
 import com.biletflow.biletflow.ordercheckout.domain.checkout.*;
 import com.biletflow.biletflow.ordercheckout.domain.common.InventoryMode;
@@ -17,6 +18,7 @@ import com.biletflow.biletflow.paymentsmonetization.ohs.dto.StartPaymentCommand;
 import com.biletflow.biletflow.ticketinventory.ohs.CheckoutInventoryOhs;
 import java.time.Clock;
 import java.util.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +38,37 @@ public class CheckoutService {
     private final CheckoutFingerprint fingerprints;
     private final Clock clock;
     private final RefundNoticeStore refundNotices;
+    private final AttendeeRefundPolicy attendeeRefundPolicy;
+
+    @Autowired
+    public CheckoutService(
+        CheckoutSessionRepository checkouts,
+        OrderRepository orders,
+        CheckoutProcessRepository processes,
+        CheckoutInventoryOhs inventory,
+        PaymentsOhs payments,
+        EventManagementOhs events,
+        TransactionLocks locks,
+        FinancialAudit audit,
+        CheckoutFingerprint fingerprints,
+        Clock clock,
+        RefundNoticeStore refundNotices,
+        AttendeeRefundPolicy attendeeRefundPolicy
+    ) {
+        this.checkouts = Objects.requireNonNull(checkouts, "checkouts cannot be null");
+        this.orders = Objects.requireNonNull(orders, "orders cannot be null");
+        this.processes = Objects.requireNonNull(processes, "processes cannot be null");
+        this.inventory = Objects.requireNonNull(inventory, "inventory cannot be null");
+        this.payments = Objects.requireNonNull(payments, "payments cannot be null");
+        this.events = Objects.requireNonNull(events, "events cannot be null");
+        this.locks = Objects.requireNonNull(locks, "locks cannot be null");
+        this.audit = Objects.requireNonNull(audit, "audit cannot be null");
+        this.fingerprints = Objects.requireNonNull(fingerprints, "fingerprints cannot be null");
+        this.clock = Objects.requireNonNull(clock, "clock cannot be null");
+        this.refundNotices = Objects.requireNonNull(refundNotices);
+        this.attendeeRefundPolicy = Objects.requireNonNull(attendeeRefundPolicy);
+    }
+
 
     public CheckoutService(
         CheckoutSessionRepository checkouts,
@@ -50,17 +83,8 @@ public class CheckoutService {
         Clock clock,
         RefundNoticeStore refundNotices
     ) {
-        this.checkouts = Objects.requireNonNull(checkouts, "checkouts cannot be null");
-        this.orders = Objects.requireNonNull(orders, "orders cannot be null");
-        this.processes = Objects.requireNonNull(processes, "processes cannot be null");
-        this.inventory = Objects.requireNonNull(inventory, "inventory cannot be null");
-        this.payments = Objects.requireNonNull(payments, "payments cannot be null");
-        this.events = Objects.requireNonNull(events, "events cannot be null");
-        this.locks = Objects.requireNonNull(locks, "locks cannot be null");
-        this.audit = Objects.requireNonNull(audit, "audit cannot be null");
-        this.fingerprints = Objects.requireNonNull(fingerprints, "fingerprints cannot be null");
-        this.clock = Objects.requireNonNull(clock, "clock cannot be null");
-        this.refundNotices = Objects.requireNonNull(refundNotices);
+        this(checkouts, orders, processes, inventory, payments, events, locks, audit, fingerprints, clock, refundNotices,
+            AttendeeRefundPolicy.DISABLED);
     }
 
     @Transactional
@@ -165,7 +189,7 @@ public class CheckoutService {
         return view(p, c);
     }
 
-    /** MVP policy: only organizers initiate full refunds of unused tickets; no partial refund or automatic customer entitlement. */
+    /** Organizer-initiated full refunds remain available independently of attendee refund policy. */
     @Transactional
     public CheckoutView refund(UUID id, long organizer, String reason) {
         locks.lock("checkout:" + id);
@@ -202,6 +226,41 @@ public class CheckoutService {
         processes.save(p);
         audit.record("ordercheckout", id, organizer, "ORDER_REFUND_REQUESTED");
         return view(p, c);
+    }
+
+    /** Full purchaser refund when the organizer has enabled the basic cutoff-based policy. */
+    @Transactional
+    public CheckoutView requestRefund(UUID id, long purchaser) {
+        var initial = requireProcess(id);
+        locks.lock("event-lifecycle:" + initial.eventId());
+        locks.lock("checkout:" + id);
+        var process = requireProcess(id);
+        authorizeOwner(process, purchaser);
+        var checkout = requireCheckout(id);
+        var order = orders.findById(new OrderId(id)).orElseThrow(() -> new IllegalStateException("Only completed orders can be refunded"));
+        if (process.refundState() == CheckoutRefundStatus.PENDING || process.refundState() == CheckoutRefundStatus.REFUNDED) {
+            return view(process, checkout);
+        }
+        if (order.getStatus() != OrderStatus.COMPLETED) throw new IllegalStateException("Only completed orders can be refunded");
+        if (!attendeeRefundPolicy.allowsAttendeeRefund(process.eventId(), clock.instant())) {
+            throw new AuthorizationException("The organizer's refund policy does not allow a refund at this time");
+        }
+        if (order.getFinalPrice().isZero()) {
+            inventory.cancelFreeOrder(process.eventId(), id);
+            order.cancelOrderByCustomer();
+            orders.save(order);
+            process = process.refund(CheckoutRefundStatus.REFUNDED, null);
+            processes.save(process);
+            audit.record("ordercheckout", id, purchaser, "ATTENDEE_FREE_ORDER_CANCELLED_UNDER_POLICY");
+            return view(process, checkout);
+        }
+        if (process.paymentId() == null) throw new IllegalStateException("No payment is associated with this order");
+        inventory.prepareRefund(process.eventId(), id);
+        UUID refundId = payments.refund(process.paymentId(), "Attendee refund requested under organizer refund policy");
+        process = process.refund(CheckoutRefundStatus.PENDING, refundId);
+        processes.save(process);
+        audit.record("ordercheckout", id, purchaser, "ATTENDEE_REFUND_REQUESTED_UNDER_POLICY");
+        return view(process, checkout);
     }
 
     @Transactional

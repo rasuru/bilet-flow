@@ -143,6 +143,12 @@ public class CheckoutResource {
         return response(checkout.refund(id, actor.requireUserId(), request.reason()));
     }
 
+    @PostMapping("/{id}/refund-request")
+    @Operation(summary = "Request a full refund under the organizer's published refund policy")
+    public ResponseEntity<CheckoutView> requestRefund(@PathVariable UUID id) {
+        return response(checkout.requestRefund(id, actor.requireUserId()));
+    }
+
     private <T> ResponseEntity<T> response(T body) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body);
     }
