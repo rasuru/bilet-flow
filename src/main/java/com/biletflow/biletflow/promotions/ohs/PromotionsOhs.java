@@ -19,9 +19,17 @@ public interface PromotionsOhs {
 
     Quote quote(UUID eventId, UUID checkoutId, String code, List<Line> lines);
 
-    Reservation reserve(UUID eventId, UUID checkoutId, String code, List<Line> lines, Source source);
+    default Reservation reserve(UUID eventId, UUID checkoutId, String code, List<Line> lines, Source source) {
+        return reserve(eventId, checkoutId, code, lines, source, null);
+    }
 
-    void confirm(UUID redemptionId, UUID orderId);
+    Reservation reserve(UUID eventId, UUID checkoutId, String code, List<Line> lines, Source source, Instant checkoutDeadline);
+
+    default void confirm(UUID redemptionId, UUID orderId) {
+        confirm(redemptionId, orderId, null);
+    }
+
+    void confirm(UUID redemptionId, UUID orderId, Instant acceptedAt);
 
     void release(UUID redemptionId, UUID checkoutId);
 }

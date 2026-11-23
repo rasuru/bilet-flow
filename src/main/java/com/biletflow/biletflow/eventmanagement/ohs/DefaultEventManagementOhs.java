@@ -149,7 +149,10 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
             event.getStatus() == SocialEventStatus.PUBLISHED &&
             event.getRegistrationWindow().isOpenAt(now) &&
             !event.getDateRange().hasStarted(now);
-        return new SalesScope(eventId, event.getOrganizerId(), open, cancelled, event.getDateRange().startAt());
+        return new SalesScope(
+            eventId, event.getOrganizerId(), open, cancelled, event.getDateRange().startAt(),
+            event.getVisibility() != EventVisibility.PRIVATE
+        );
     }
 
     @Override

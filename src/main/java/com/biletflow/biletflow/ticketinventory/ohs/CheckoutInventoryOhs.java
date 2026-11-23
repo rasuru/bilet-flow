@@ -14,6 +14,10 @@ public interface CheckoutInventoryOhs {
         }
     }
 
+    record QuoteSelection(UUID ticketTypeId, int quantity) {}
+
+    record QuotedLine(UUID ticketTypeId, Money unitPrice, int quantity) {}
+
     record Line(UUID ticketTypeId, UUID seatId, Money price, String email) {}
 
     record Hold(UUID referenceId, boolean assignedSeat) {}
@@ -43,6 +47,7 @@ public interface CheckoutInventoryOhs {
         }
     }
 
+    List<QuotedLine> quote(UUID eventId, List<QuoteSelection> selections);
     Reservation reserve(UUID eventId, UUID checkoutId, List<Selection> selections);
     void release(UUID eventId, UUID checkoutId, List<Hold> holds);
     List<IssuedTicket> issue(UUID eventId, UUID checkoutId, long ownerId, List<Line> lines, List<Hold> holds);

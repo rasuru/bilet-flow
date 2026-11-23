@@ -14,6 +14,17 @@ import tools.jackson.databind.json.JsonMapper;
 class CheckoutFingerprintTest {
 
     @Test
+    void promoCodeIsIncludedInIdempotencyFingerprint() {
+        var fingerprint = new JsonCheckoutFingerprint(new JsonCodec(JsonMapper.builder().build()));
+        UUID eventId = UUID.randomUUID();
+        var selection = List.of(new Selection(UUID.randomUUID(), List.of(), List.of("attendee@example.com")));
+        var plain = new CreateCheckoutCommand(eventId, selection);
+        var promoted = new CreateCheckoutCommand(eventId, selection, "PROMO123");
+        assertNotEquals(fingerprint.of(plain), fingerprint.of(promoted));
+        assertEquals(fingerprint.of(promoted), fingerprint.of(new CreateCheckoutCommand(eventId, selection, "promo123")));
+    }
+
+    @Test
     void extractedCommandRetainsLegacyFingerprintEncoding() throws Exception {
         UUID event = UUID.fromString("00000000-0000-0000-0000-000000000001"),
             type = UUID.fromString("00000000-0000-0000-0000-000000000002");
