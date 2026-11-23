@@ -25,6 +25,7 @@ public class SupportCase {
     private final Instant createdAt;
     private Instant updatedAt;
     private Instant resolvedAt;
+    private Instant escalatedAt;
 
     private final List<SupportMessage> messages;
 
@@ -43,6 +44,7 @@ public class SupportCase {
         Instant createdAt,
         Instant updatedAt,
         Instant resolvedAt,
+        Instant escalatedAt,
         List<SupportMessage> messages
     ) {
         this.id = Objects.requireNonNull(id, "id cannot be null");
@@ -64,6 +66,7 @@ public class SupportCase {
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt cannot be null");
         this.updatedAt = Objects.requireNonNull(updatedAt, "updatedAt cannot be null");
         this.resolvedAt = resolvedAt;
+        this.escalatedAt = escalatedAt;
         this.messages = new ArrayList<>(Objects.requireNonNull(messages, "messages cannot be null"));
 
         validateRehydratedState();
@@ -104,6 +107,7 @@ public class SupportCase {
             openedAt,
             openedAt,
             null,
+            null,
             List.of(firstMessage)
         );
     }
@@ -124,14 +128,26 @@ public class SupportCase {
         Instant createdAt,
         Instant updatedAt,
         Instant resolvedAt,
+        Instant escalatedAt,
         List<SupportMessage> messages
     ) {
         return new SupportCase(
             id, type, requesterUserId, subject, category,
             eventId, orderId, ticketId, status,
             assignedSupportUserId, assignedAt, createdAt,
-            updatedAt, resolvedAt, messages
+            updatedAt, resolvedAt, escalatedAt, messages
         );
+    }
+
+    public boolean escalate(Instant now) {
+        if (escalatedAt != null) return false;
+        ensureNotResolved();
+        if (type != SupportCaseType.ATTENDEE_SUPPORT || eventId == null) {
+            throw new InvalidSupportCaseStateException("Only an attendee case linked to an event can be escalated");
+        }
+        escalatedAt = requireEventTime(now);
+        updatedAt = escalatedAt;
+        return true;
     }
 
     public void assignTo(Long supportUserId, Instant now) {
@@ -235,6 +251,11 @@ public class SupportCase {
     private void validateRehydratedState() {
         if (updatedAt.isBefore(createdAt)) {
             throw new IllegalArgumentException("updatedAt cannot be before createdAt");
+        }
+        if (escalatedAt != null && (type != SupportCaseType.ATTENDEE_SUPPORT || eventId == null
+            || escalatedAt.isBefore(createdAt) || escalatedAt.isAfter(updatedAt)
+            || (resolvedAt != null && escalatedAt.isAfter(resolvedAt)))) {
+            throw new IllegalArgumentException("Invalid support case escalation");
         }
         if (messages.isEmpty()) {
             throw new IllegalArgumentException("A support case must contain its initial message");
@@ -342,6 +363,7 @@ public class SupportCase {
     public Instant getAssignedAt() { return assignedAt; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public Instant getEscalatedAt() { return escalatedAt; }
     public Instant getResolvedAt() { return resolvedAt; }
     public List<SupportMessage> getMessages() { return List.copyOf(messages); }
 

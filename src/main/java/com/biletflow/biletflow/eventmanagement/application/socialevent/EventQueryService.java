@@ -29,16 +29,20 @@ public class EventQueryService {
     public PublicEventView getPublic(SocialEventId eventId) {
         SocialEvent event = requireEvent(eventId);
 
+        if (!isPubliclyReadable(event)) {
+            throw new SocialEventNotFoundException(eventId.value().toString());
+        }
+
+        return toPublicView(event);
+    }
+
+    static boolean isPubliclyReadable(SocialEvent event) {
         boolean publiclyReadableStatus =
             event.getStatus() == SocialEventStatus.PUBLISHED || event.getStatus() == SocialEventStatus.CANCELLED;
         boolean publiclyReadableVisibility =
             event.getVisibility() == EventVisibility.PUBLIC || event.getVisibility() == EventVisibility.UNLISTED;
 
-        if (!publiclyReadableStatus || !publiclyReadableVisibility) {
-            throw new SocialEventNotFoundException(eventId.value().toString());
-        }
-
-        return toPublicView(event);
+        return publiclyReadableStatus && publiclyReadableVisibility;
     }
 
     public List<ManagedEventView> listMine() {
@@ -48,7 +52,7 @@ public class EventQueryService {
             .findByOrganizerId(currentUserId)
             .stream()
             .sorted(Comparator.comparing((SocialEvent event) -> event.getDateRange().startAt()).reversed())
-            .map(this::toManagedView)
+            .map(EventQueryService::toManagedView)
             .toList();
     }
 
@@ -90,11 +94,11 @@ public class EventQueryService {
             event.getDateRange().startAt(),
             event.getDateRange().endAt(),
             toRegistrationWindowView(event.getRegistrationWindow()),
-            event.getVenue().map(this::toVenueView).orElse(null)
+            event.getVenue().map(EventQueryService::toVenueView).orElse(null)
         );
     }
 
-    private ManagedEventView toManagedView(SocialEvent event) {
+    static ManagedEventView toManagedView(SocialEvent event) {
         return new ManagedEventView(
             event.getId().value(),
             event.getTitle(),
@@ -106,7 +110,7 @@ public class EventQueryService {
             event.getDateRange().startAt(),
             event.getDateRange().endAt(),
             toRegistrationWindowView(event.getRegistrationWindow()),
-            event.getVenue().map(this::toVenueView).orElse(null),
+            event.getVenue().map(EventQueryService::toVenueView).orElse(null),
             event
                 .getStaffAssignments()
                 .stream()
@@ -115,7 +119,7 @@ public class EventQueryService {
         );
     }
 
-    private RegistrationWindowView toRegistrationWindowView(RegistrationWindow window) {
+    private static RegistrationWindowView toRegistrationWindowView(RegistrationWindow window) {
         return switch (window) {
             case RegistrationWindow.AlwaysOpen ignored -> new RegistrationWindowView(RegistrationWindowView.Mode.ALWAYS_OPEN, null, null);
             case RegistrationWindow.OpensAt opensAt -> new RegistrationWindowView(
@@ -131,7 +135,7 @@ public class EventQueryService {
         };
     }
 
-    private EventVenueView toVenueView(Venue venue) {
+    private static EventVenueView toVenueView(Venue venue) {
         return switch (venue.getSeatingConfig()) {
             case Venue.GeneralAdmission ignored -> new EventVenueView(
                 venue.getName(),

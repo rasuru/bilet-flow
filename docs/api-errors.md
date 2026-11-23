@@ -79,6 +79,12 @@ Business problem types can define their own structured properties. Clients shoul
 - **409** The ticket's current state prevents checking it in or reversing its check-in.
 - **`ticketStatus`** The current ticket status, such as `CHECKED_IN`, `CANCELLED`, or `REFUND_PENDING`.
 
+### promo-code-rejected
+
+- **Type** `https://github.com/rasuru/bilet-flow/blob/main/docs/api-errors.md#promo-code-rejected`
+- **409** The promo code or Campaign QR link exists but cannot be used now.
+- **`reason`** One of `NOT_YET_VALID`, `EXPIRED`, `DISABLED`, `CAMPAIGN_ENDED`, `EXHAUSTED`, or `INAPPLICABLE`.
+
 ### concurrent-update
 
 - **Type** `https://github.com/rasuru/bilet-flow/blob/main/docs/api-errors.md#concurrent-update`

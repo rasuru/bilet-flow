@@ -44,7 +44,7 @@ python3 -m http.server 9090 --directory docs
 
 Open `http://localhost:9090/halyk-sandbox-checkout.html`. Port 9090 is already allowed by the repository's development CORS configuration. The tester keeps the JWT only in the page inputs, without local storage or logging.
 
-Configuration defaults: activation fee **1,000 KZT**; estimated processing fee **3%**, retained in the estimate after a refund. Set `biletflow.payments.activation-fee-kzt` and `biletflow.payments.processing-fee-rate` to change those demonstration assumptions. They are not claimed to be Halyk's actual fees. Paid checkout is at least 10 KZT because the documented minimum refund is 10 KZT. Free checkout has no payment or fee.
+Configuration defaults: activation fee **1,000 KZT**; estimated processing fee **3%**, retained in the estimate after a refund. Set `biletflow.payments.activation-fee-kzt` and `biletflow.payments.processing-fee-rate` to change those demonstration defaults; administrators can override both at runtime (see [Paid-sales administration](#paid-sales-administration)). They are not claimed to be Halyk's actual fees. Paid checkout is at least 10 KZT because the documented minimum refund is 10 KZT. Free checkout has no payment or fee.
 
 ## End-to-end test
 
@@ -99,7 +99,7 @@ curl -sS -X POST "$API/api/checkouts/$CHECKOUT_KEY/refund" \
 
 The refund policy allows organizers to refund only unused tickets. It does not grant automatic attendee refunds or partial refunds. A refund initiated outside this application is detected and sent for operator review: Halyk status `REFUND` alone does not prove whether a full or partial refund occurred. After independently confirming the full amount with the bank, the audited operator resolution below invalidates admission, including an already-used ticket if necessary to reflect the financial truth.
 
-Before step 1, organizers can check `GET /api/payments/events/$EVENT_ID/activation/checklist`. It shows whether the event can still sell, whether it has a paid ticket type, the simulated verification, the accepted terms and the paid fee, together with the fee a new request would be charged. An activation request for an event without a paid (non-zero, not closed) ticket type is rejected with 409 before any fee payment is created.
+Before step 1, organizers can check `GET /api/payments/events/$EVENT_ID/activation/checklist`. It shows whether the event can still sell, whether it has a paid ticket type, the simulated identity verification (`IDENTITY_VERIFICATION`), whether a payout account is registered (`PAYOUT_ACCOUNT_REGISTERED`), the accepted terms and the paid fee, together with the fee a new request would be charged. An activation request for an event without a paid (non-zero, not closed) ticket type, or from an organizer without a payout account, is rejected with 409 before any fee payment is created.
 
 5. Check organizer accounting:
 
@@ -180,7 +180,7 @@ Provider reference documentation:
 
 ## Current scope
 
-Purchase and refund states are available through authenticated status endpoints. Ticket delivery is asynchronous. Confirmed ticket-order refunds also enqueue a durable purchaser receipt as described below, and declined payments send the emails described in [Payment-failure emails](#payment-failure-emails). Promotions integration, real organizer payouts, and identity or payout-account verification are not implemented by the sandbox payment workflow; verification remains an explicitly simulated checklist item.
+Purchase and refund states are available through authenticated status endpoints. Ticket delivery is asynchronous. Confirmed ticket-order refunds also enqueue a durable purchaser receipt as described below, and declined payments send the emails described in [Payment-failure emails](#payment-failure-emails). Promotions integration, real organizer payouts, and real identity or payout-account verification are not implemented by the sandbox payment workflow; verification remains an explicitly simulated checklist item. Organizers do register a payout account (see [Payout account](#payout-account)), but its IBAN is only format-checked.
 
 ## Refund confirmations
 
@@ -265,11 +265,23 @@ Administrators (`ROLE_ADMIN`) use `/api/payments/admin`. The application service
 | GET | `/payments?status=&purpose=&eventId=&payerId=&offset=0&limit=50` | Search ticket and activation-fee payments; `status=FAILED` lists payment failures |
 | GET | `/activations?status=&offset=0&limit=50` | Inspect activation records, newest first |
 | POST | `/events/{eventId}/paid-sales/suspend` | Suspend paid sales with `{reason}` |
+| POST | `/events/{eventId}/paid-sales/reinstate` | Lift a suspension with `{reason}`; no new fee is charged |
 | GET / PUT | `/settings/activation-fee` | Read or change the fee for new activation requests with `{amountKzt}` |
+| GET / PUT | `/settings/processing-fee-rate` | Read or change the estimated processing fee for new ticket payments with `{ratePercent}` (for example `2.5`) |
 
-Suspension rejects new paid checkouts immediately; checkout and suspension take the same `activation:{eventId}` lock, so a checkout either finishes before the suspension or sees it. Payments already started still settle, issued tickets stay valid and the activation fee is kept. An organizer cannot lift a suspension by requesting activation again.
+Suspension rejects new paid checkouts immediately; checkout and suspension take the same `activation:{eventId}` lock, so a checkout either finishes before the suspension or sees it. Payments already started still settle, issued tickets stay valid and the activation fee is kept. An organizer cannot lift a suspension by requesting activation again; only an administrator's reinstatement does, and it keeps the original fee.
 
 A fee change applies to activation requests made afterwards. Unpaid attempts already issued keep their amount, and paid fees are unaffected. Until an administrator sets a fee, `biletflow.payments.activation-fee-kzt` applies. The value is stored in `pm_setting`.
+
+A processing-fee rate change works the same way: each ticket payment keeps the fee calculated when it started, so existing payments and revenue figures are unaffected. Until an administrator sets a rate, `biletflow.payments.processing-fee-rate` applies.
+
+Organizers also get one event's figures from `GET /api/payments/events/{eventId}/revenue`, alongside the all-events summary at `/api/payments/revenue/mine`.
+
+## Payout account
+
+An organizer registers one payout account with `PUT /api/payments/payout-account` and `{holderName, iban, acceptSimulation: true}`, and reads it back with `GET`. It is required before requesting paid-sales activation and before requesting a payout. An exact replay of an existing payout request is still answered without one.
+
+The IBAN must be a well-formed Kazakhstan IBAN (`KZ` + 18 characters, valid mod-97 check digits); spaces and lower case are accepted. No bank verifies it. Only the holder name, the bank code and the last four characters are stored in `pm_payout_account`, so responses show it masked (`KZ** **** **** **** 0100`). Registering again replaces the details for future payouts. Registration and replacement are audited.
 
 ## Payment-failure emails
 

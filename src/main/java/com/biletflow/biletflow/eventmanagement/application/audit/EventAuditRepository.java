@@ -14,6 +14,8 @@ public interface EventAuditRepository {
         PUBLISHED,
         UNPUBLISHED,
         CANCELLED,
+        SUSPENDED,
+        REINSTATED,
         VENUE_ATTACHED,
         STAFF_ASSIGNED,
         STAFF_REMOVED,

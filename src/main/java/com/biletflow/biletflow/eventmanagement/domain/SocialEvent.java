@@ -19,6 +19,7 @@ public class SocialEvent {
     private String imageUrl;
 
     private SocialEventStatus status;
+    private SocialEventStatus statusBeforeSuspension;
     private EventVisibility visibility;
     private EventDateRange dateRange;
     private RegistrationWindow registrationWindow;
@@ -87,6 +88,7 @@ public class SocialEvent {
         String category,
         String imageUrl,
         SocialEventStatus status,
+        SocialEventStatus statusBeforeSuspension,
         EventVisibility visibility,
         EventDateRange dateRange,
         RegistrationWindow registrationWindow,
@@ -107,6 +109,11 @@ public class SocialEvent {
 
         event.status = Objects.requireNonNull(status, "SocialEventStatus cannot be null");
 
+        if ((status == SocialEventStatus.SUSPENDED) != (statusBeforeSuspension != null)
+            || statusBeforeSuspension == SocialEventStatus.SUSPENDED || statusBeforeSuspension == SocialEventStatus.CANCELLED) {
+            throw new IllegalArgumentException("Invalid suspension state");
+        }
+        event.statusBeforeSuspension = statusBeforeSuspension;
         event.venue = venue;
 
         event.staffAssignments.clear();
@@ -116,6 +123,10 @@ public class SocialEvent {
     }
 
     public void publish() {
+        if (status == SocialEventStatus.SUSPENDED) {
+            throw new InvalidEventStateException("A platform administrator must reinstate this event before publication");
+        }
+
         if (status == SocialEventStatus.CANCELLED) {
             throw new InvalidEventStateException("Cannot publish a cancelled event");
         }
@@ -135,6 +146,21 @@ public class SocialEvent {
         status = SocialEventStatus.UNPUBLISHED;
     }
 
+    public boolean suspend() {
+        ensureNotCancelled();
+        if (status == SocialEventStatus.SUSPENDED) return false;
+        statusBeforeSuspension = status;
+        status = SocialEventStatus.SUSPENDED;
+        return true;
+    }
+
+    public boolean reinstate() {
+        if (status != SocialEventStatus.SUSPENDED) return false;
+        status = statusBeforeSuspension;
+        statusBeforeSuspension = null;
+        return true;
+    }
+
     public void cancel(Instant now) {
         Objects.requireNonNull(now, "now cannot be null");
 
@@ -144,6 +170,7 @@ public class SocialEvent {
         }
 
         status = SocialEventStatus.CANCELLED;
+        statusBeforeSuspension = null;
     }
 
     public void updateDetails(
@@ -306,6 +333,10 @@ public class SocialEvent {
 
     public SocialEventStatus getStatus() {
         return status;
+    }
+
+    public SocialEventStatus getStatusBeforeSuspension() {
+        return statusBeforeSuspension;
     }
 
     public EventVisibility getVisibility() {

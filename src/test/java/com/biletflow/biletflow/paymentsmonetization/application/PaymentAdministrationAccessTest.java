@@ -10,6 +10,7 @@ import com.biletflow.biletflow.common.application.FinancialAudit;
 import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.common.security.CurrentActor;
 import com.biletflow.biletflow.common.security.UnauthenticatedActorException;
+import com.biletflow.biletflow.paymentsmonetization.application.command.ReinstatePaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.application.command.SuspendPaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentTerms;
 import java.math.BigDecimal;
@@ -28,7 +29,7 @@ class PaymentAdministrationAccessTest {
     private final ActivationRepository activations = mock(ActivationRepository.class);
     private final PaymentSettingsService settingsService = new PaymentSettingsService(
         settings,
-        new ActivationTermsProvider(new PaymentTerms(new BigDecimal("1000"), new BigDecimal("0.03")), settings),
+        new PaymentTermsProvider(new PaymentTerms(new BigDecimal("1000"), new BigDecimal("0.03")), settings),
         mock(PaymentGateway.class),
         locks,
         audit,
@@ -60,6 +61,11 @@ class PaymentAdministrationAccessTest {
         assertThrows(AuthorizationException.class, () -> paidSales.suspend(new SuspendPaidSalesCommand(UUID.randomUUID(), "Fraud")));
         assertThrows(AuthorizationException.class, settingsService::activationFee);
         assertThrows(AuthorizationException.class, () -> settingsService.changeActivationFee(new BigDecimal("1500")));
+        assertThrows(AuthorizationException.class, () ->
+            paidSales.reinstate(new ReinstatePaidSalesCommand(UUID.randomUUID(), "Cleared"))
+        );
+        assertThrows(AuthorizationException.class, settingsService::processingFeeRate);
+        assertThrows(AuthorizationException.class, () -> settingsService.changeProcessingFeeRate(new BigDecimal("2.5")));
 
         verifyNoInteractions(queries, activations, settings, locks, audit);
     }
@@ -83,5 +89,36 @@ class PaymentAdministrationAccessTest {
         order.verify(locks).lock("payment-settings:activation-fee");
         order.verify(settings).activationFee();
         order.verify(settings).saveActivationFee(argThat(s -> s.amountKzt().compareTo(new BigDecimal("1500")) == 0 && s.updatedBy() == 99));
+    }
+
+    @Test
+    void processingFeeRateIsStoredAsAFractionAfterTakingTheSettingsLock() {
+        signedInAs(99, true);
+
+        var view = settingsService.changeProcessingFeeRate(new BigDecimal("2.5"));
+
+        var order = inOrder(locks, settings);
+        order.verify(locks).lock("payment-settings:processing-fee-rate");
+        order.verify(settings).saveProcessingFeeRate(
+            argThat(s -> s.rate().compareTo(new BigDecimal("0.025")) == 0 && s.rate().scale() == 4 && s.updatedBy() == 99)
+        );
+        verify(audit).recordDetails(
+            eq("payments"),
+            eq(PaymentSettingsService.PROCESSING_FEE_RATE_SETTING),
+            eq(99L),
+            eq("PROCESSING_FEE_RATE_CHANGED"),
+            eq("3.00% -> 2.50%")
+        );
+        assertEquals(new BigDecimal("3.00"), view.ratePercent());
+    }
+
+    @Test
+    void processingFeeRateOutsideZeroToHundredPercentOrTooPreciseIsRejected() {
+        signedInAs(99, true);
+
+        assertThrows(IllegalArgumentException.class, () -> settingsService.changeProcessingFeeRate(new BigDecimal("-1")));
+        assertThrows(IllegalArgumentException.class, () -> settingsService.changeProcessingFeeRate(new BigDecimal("100")));
+        assertThrows(IllegalArgumentException.class, () -> settingsService.changeProcessingFeeRate(new BigDecimal("2.555")));
+        verify(settings, never()).saveProcessingFeeRate(any());
     }
 }
