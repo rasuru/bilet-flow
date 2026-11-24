@@ -60,6 +60,27 @@ public class PublicUserResource {
         return new ResponseEntity<>(page.getContent(), headers, HttpStatus.OK);
     }
 
+    @GetMapping("/users/directory")
+    public List<UserDTO> findPublicUsers(
+        @RequestParam(name = "login", required = false) String login,
+        @RequestParam(name = "ids", required = false) List<Long> ids
+    ) {
+        if ((login == null) == (ids == null)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Supply a username or a list of user IDs");
+        }
+        if (login != null) {
+            String username = login.strip();
+            if (username.isEmpty() || username.length() > 50) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid username");
+            }
+            return userService.findPublicUsers(username);
+        }
+        if (ids.isEmpty() || ids.size() > 100 || ids.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Supply between 1 and 100 valid user IDs");
+        }
+        return userService.findPublicUsers(ids);
+    }
+
     private boolean onlyContainsAllowedProperties(Pageable pageable) {
         return pageable.getSort().stream().map(Sort.Order::getProperty).allMatch(ALLOWED_ORDERED_PROPERTIES::contains);
     }
