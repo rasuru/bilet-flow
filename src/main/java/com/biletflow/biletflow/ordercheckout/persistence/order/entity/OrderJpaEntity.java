@@ -6,7 +6,9 @@ import com.biletflow.biletflow.ordercheckout.domain.order.OrderStatus;
 import com.biletflow.biletflow.ordercheckout.persistence.common.entity.PurchaseItemJpaEmbeddable;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.*;
+import org.hibernate.annotations.CreationTimestamp;
 
 @Entity
 @Table(name = "oc_order")
@@ -54,6 +56,10 @@ public class OrderJpaEntity {
 
     @Column(name = "refund_id")
     private UUID refundId;
+
+    @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
+    private Instant createdAt;
 
     @Version
     @Column(name = "version", nullable = false)

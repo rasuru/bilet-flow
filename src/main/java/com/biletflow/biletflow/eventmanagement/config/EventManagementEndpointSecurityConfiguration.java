@@ -13,7 +13,14 @@ public class EventManagementEndpointSecurityConfiguration {
         return authz ->
             authz
                 // Organizer reads must come before /api/events/*
-                .requestMatchers(HttpMethod.GET, "/api/events/mine", "/api/events/assigned-for-check-in", "/api/events/*/manage")
+                .requestMatchers(
+                    HttpMethod.GET,
+                    "/api/events/mine",
+                    "/api/events/mine/analytics",
+                    "/api/events/assigned-for-check-in",
+                    "/api/events/*/manage",
+                    "/api/events/*/analytics"
+                )
                 .authenticated()
 
                 // Public Event Management reads
