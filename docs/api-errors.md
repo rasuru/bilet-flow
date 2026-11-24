@@ -83,7 +83,7 @@ Business problem types can define their own structured properties. Clients shoul
 
 - **Type** `https://github.com/rasuru/bilet-flow/blob/main/docs/api-errors.md#promo-code-rejected`
 - **409** The promo code or Campaign QR link exists but cannot be used now.
-- **`reason`** One of `NOT_YET_VALID`, `EXPIRED`, `DISABLED`, `CAMPAIGN_ENDED`, `EXHAUSTED`, or `INAPPLICABLE`.
+- **`reason`** One of `NOT_YET_VALID`, `EXPIRED`, `DISABLED`, `CAMPAIGN_ENDED`, `EXHAUSTED`, `INAPPLICABLE`, or `NOT_FOUND` (checkout only).
 
 ### concurrent-update
 
