@@ -7,7 +7,7 @@ public interface TicketAnalyticsOhs {
     Inventory inventory(UUID eventId, UUID ticketTypeId);
     List<Attendance> attendance(UUID eventId, UUID ticketTypeId);
 
-    record TicketType(UUID id, String name) {}
+    record TicketType(UUID id, String name, boolean free) {}
 
     record Inventory(List<TicketType> ticketTypes, long capacity, long sold, long remaining, long held, boolean sharedCapacity) {}
 

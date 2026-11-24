@@ -1,5 +1,7 @@
 package com.biletflow.biletflow.eventmanagement.application.analytics;
 
+import com.biletflow.biletflow.eventmanagement.application.analytics.OrganizerAnalyticsOverview.EventSales;
+import com.biletflow.biletflow.eventmanagement.application.analytics.OrganizerAnalyticsOverview.TicketPricing;
 import com.biletflow.biletflow.eventmanagement.application.analytics.OrganizerAnalyticsView.*;
 import com.biletflow.biletflow.eventmanagement.application.socialevent.EventQueryService;
 import com.biletflow.biletflow.eventmanagement.application.socialevent.view.ManagedEventView;
@@ -59,6 +61,7 @@ public class OrganizerAnalyticsService {
     public OrganizerAnalyticsOverview overview() {
         var sales = new SalesTotal();
         var campaignSales = new SalesTotal();
+        var eventSales = new ArrayList<EventSales>();
         long capacity = 0;
         long sold = 0;
         long remaining = 0;
@@ -76,6 +79,7 @@ public class OrganizerAnalyticsService {
             remaining += inventory.remaining();
             held += inventory.held();
             sales.add(report.sales());
+            eventSales.add(new EventSales(event.id(), report.sales(), ticketPricing(inventory.ticketTypes())));
 
             if (report.attendance() != null) {
                 eligibleEvents++;
@@ -92,8 +96,17 @@ public class OrganizerAnalyticsService {
             new OrganizerAnalyticsOverview.Inventory(capacity, sold, remaining, held),
             sales.view(),
             eligibleEvents == 0 ? null : new Attendance(registered, checkedIn, registered - checkedIn),
-            new OrganizerAnalyticsOverview.Campaigns(redemptions, campaignSales.view())
+            new OrganizerAnalyticsOverview.Campaigns(redemptions, campaignSales.view()),
+            List.copyOf(eventSales)
         );
+    }
+
+    private static TicketPricing ticketPricing(List<TicketAnalyticsOhs.TicketType> types) {
+        if (types.isEmpty()) return TicketPricing.UNCONFIGURED;
+        long freeTypes = types.stream().filter(TicketAnalyticsOhs.TicketType::free).count();
+        if (freeTypes == 0) return TicketPricing.PAID;
+        if (freeTypes == types.size()) return TicketPricing.FREE;
+        return TicketPricing.MIXED;
     }
 
     private OrganizerAnalyticsView report(ManagedEventView event, LocalDate from, LocalDate through, UUID ticketTypeId) {

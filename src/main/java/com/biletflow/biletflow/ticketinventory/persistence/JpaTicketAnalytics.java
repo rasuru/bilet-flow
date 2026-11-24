@@ -42,7 +42,7 @@ public class JpaTicketAnalytics implements TicketAnalyticsOhs {
         }
         var names = eventTypes
             .stream()
-            .map(type -> new TicketType(type.getId().value(), type.getName()))
+            .map(type -> new TicketType(type.getId().value(), type.getName(), type.isFree()))
             .sorted(Comparator.comparing(TicketType::name).thenComparing(TicketType::id))
             .toList();
 
