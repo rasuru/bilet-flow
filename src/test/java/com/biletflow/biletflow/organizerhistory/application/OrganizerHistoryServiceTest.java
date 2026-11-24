@@ -1,0 +1,213 @@
+package com.biletflow.biletflow.organizerhistory.application;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import com.biletflow.biletflow.common.application.AuthorizationException;
+import com.biletflow.biletflow.common.application.EntityNotFoundException;
+import com.biletflow.biletflow.common.security.CurrentActor;
+import com.biletflow.biletflow.common.security.UnauthenticatedActorException;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+
+class OrganizerHistoryServiceTest {
+
+    private static final long ORGANIZER = 7L;
+    private static final long STRANGER = 8L;
+    private static final Instant T0 = Instant.parse("2026-11-01T10:00:00Z");
+
+    private final UUID eventId = UUID.randomUUID();
+    private final FakeSource eventSource = new FakeSource("event");
+    private final FakeSource inventorySource = new FakeSource("inventory");
+    private Long user = ORGANIZER;
+    private boolean admin;
+
+    private final CurrentActor actor = new CurrentActor() {
+        public Optional<Long> userId() {
+            return Optional.ofNullable(user);
+        }
+
+        public boolean isAdministrator() {
+            return admin;
+        }
+    };
+
+    private final EventAccessPort access = (event, userId) -> {
+        if (!event.equals(eventId)) throw new EntityNotFoundException("Event not found");
+        return userId == ORGANIZER;
+    };
+
+    private final OrganizerHistoryService service = new OrganizerHistoryService(List.of(inventorySource, eventSource), access, actor);
+
+    private final class FakeSource implements HistorySource {
+
+        private final String name;
+        private final List<HistoryEntry> rows = new ArrayList<>();
+        private final List<Integer> limits = new ArrayList<>();
+        private int calls;
+
+        FakeSource(String name) {
+            this.name = name;
+        }
+
+        public String name() {
+            return name;
+        }
+
+        public long count(HistoryQuery query) {
+            calls++;
+            return matching(query).size();
+        }
+
+        public List<HistoryEntry> newest(HistoryQuery query, int limit) {
+            calls++;
+            limits.add(limit);
+            return matching(query).stream().limit(limit).toList();
+        }
+
+        private List<HistoryEntry> matching(HistoryQuery query) {
+            return rows
+                .stream()
+                .filter(e -> !e.timestamp().isBefore(query.from()) && e.timestamp().isBefore(query.to()))
+                .filter(e -> query.accepts(e.category(), e.action()))
+                .sorted(Comparator.comparing(HistoryEntry::timestamp).reversed())
+                .toList();
+        }
+    }
+
+    private HistoryEntry entry(int hours, HistoryCategory category, String action) {
+        return new HistoryEntry(UUID.randomUUID(), T0.plusSeconds(hours * 3600L), ORGANIZER, category, action, "EVENT", eventId, action);
+    }
+
+    private List<String> actions(HistoryPage page) {
+        return page.entries().stream().map(HistoryEntry::action).toList();
+    }
+
+    private void sample() {
+        eventSource.rows.add(entry(1, HistoryCategory.EVENT, "PUBLISHED"));
+        eventSource.rows.add(entry(5, HistoryCategory.EVENT, "CANCELLED"));
+        inventorySource.rows.add(entry(2, HistoryCategory.TICKETING, "TICKET_PRICE_CHANGED"));
+        inventorySource.rows.add(entry(3, HistoryCategory.CHECK_IN, "TICKET_CHECKED_IN"));
+        inventorySource.rows.add(entry(4, HistoryCategory.CHECK_IN, "CHECK_IN_REVERSED"));
+    }
+
+    @Test
+    void sourcesAreMergedNewestFirst() {
+        sample();
+        HistoryPage page = service.history(HistoryQuery.all(eventId));
+        assertEquals(List.of("CANCELLED", "CHECK_IN_REVERSED", "TICKET_CHECKED_IN", "TICKET_PRICE_CHANGED", "PUBLISHED"), actions(page));
+        assertEquals(5, page.total());
+    }
+
+    @Test
+    void equalTimestampsAreOrderedBySourceNameSoPagesAreStable() {
+        eventSource.rows.add(entry(1, HistoryCategory.EVENT, "PUBLISHED"));
+        inventorySource.rows.add(entry(1, HistoryCategory.TICKETING, "TICKET_TYPE_CREATED"));
+        for (int i = 0; i < 3; i++) {
+            assertEquals(List.of("PUBLISHED", "TICKET_TYPE_CREATED"), actions(service.history(HistoryQuery.all(eventId))));
+        }
+    }
+
+    @Test
+    void eachSourceIsAskedOnlyForTheRowsThePageNeeds() {
+        sample();
+        service.history(new HistoryQuery(eventId, null, null, null, null, 2, 2));
+        assertEquals(List.of(6), eventSource.limits);
+        assertEquals(List.of(6), inventorySource.limits);
+    }
+
+    @Test
+    void categoryAndActionFiltersCombine() {
+        sample();
+        assertEquals(
+            List.of("CHECK_IN_REVERSED", "TICKET_CHECKED_IN"),
+            actions(service.history(new HistoryQuery(eventId, null, null, Set.of(HistoryCategory.CHECK_IN), null, 0, 50)))
+        );
+        assertEquals(
+            List.of("CHECK_IN_REVERSED"),
+            actions(
+                service.history(
+                    new HistoryQuery(eventId, null, null, Set.of(HistoryCategory.CHECK_IN), Set.of(" check_in_reversed "), 0, 50)
+                )
+            )
+        );
+        assertEquals(
+            List.of("CANCELLED", "TICKET_PRICE_CHANGED"),
+            actions(service.history(new HistoryQuery(eventId, null, null, null, Set.of("CANCELLED", "TICKET_PRICE_CHANGED"), 0, 50)))
+        );
+    }
+
+    @Test
+    void dateRangeIncludesFromAndExcludesTo() {
+        sample();
+        var page = service.history(new HistoryQuery(eventId, T0.plusSeconds(2 * 3600), T0.plusSeconds(4 * 3600), null, null, 0, 50));
+        assertEquals(List.of("TICKET_CHECKED_IN", "TICKET_PRICE_CHANGED"), actions(page));
+    }
+
+    @Test
+    void pagesSpanSourcesAndReportTheFullTotal() {
+        sample();
+        assertEquals(
+            List.of("CANCELLED", "CHECK_IN_REVERSED"),
+            actions(service.history(new HistoryQuery(eventId, null, null, null, null, 0, 2)))
+        );
+        assertEquals(
+            List.of("TICKET_CHECKED_IN", "TICKET_PRICE_CHANGED"),
+            actions(service.history(new HistoryQuery(eventId, null, null, null, null, 1, 2)))
+        );
+        var last = service.history(new HistoryQuery(eventId, null, null, null, null, 2, 2));
+        assertEquals(List.of("PUBLISHED"), actions(last));
+        assertEquals(5, last.total());
+        assertTrue(
+            service
+                .history(new HistoryQuery(eventId, null, null, null, null, 9, 2))
+                .entries()
+                .isEmpty()
+        );
+    }
+
+    @Test
+    void strangersAreRejectedBeforeAnySourceIsRead() {
+        sample();
+        user = STRANGER;
+        assertThrows(AuthorizationException.class, () -> service.history(HistoryQuery.all(eventId)));
+        assertEquals(0, eventSource.calls + inventorySource.calls);
+    }
+
+    @Test
+    void administratorsCanReadAnyEvent() {
+        sample();
+        user = STRANGER;
+        admin = true;
+        assertEquals(5, service.history(HistoryQuery.all(eventId)).total());
+    }
+
+    @Test
+    void anonymousCallersAreRejected() {
+        user = null;
+        assertThrows(UnauthenticatedActorException.class, () -> service.history(HistoryQuery.all(eventId)));
+    }
+
+    @Test
+    void unknownEventIsNotFound() {
+        assertThrows(EntityNotFoundException.class, () -> service.history(HistoryQuery.all(UUID.randomUUID())));
+    }
+
+    @Test
+    void invalidQueriesAreRejected() {
+        assertThrows(IllegalArgumentException.class, () -> new HistoryQuery(eventId, T0, T0, null, null, 0, 50));
+        assertThrows(IllegalArgumentException.class, () -> new HistoryQuery(eventId, T0.plusSeconds(1), T0, null, null, 0, 50));
+        assertThrows(IllegalArgumentException.class, () -> new HistoryQuery(eventId, null, null, null, null, -1, 50));
+        assertThrows(IllegalArgumentException.class, () -> new HistoryQuery(eventId, null, null, null, null, 0, 0));
+        assertThrows(IllegalArgumentException.class, () -> new HistoryQuery(eventId, null, null, null, null, 0, HistoryQuery.MAX_SIZE + 1));
+        assertThrows(IllegalArgumentException.class, () ->
+            new HistoryQuery(eventId, null, null, null, null, HistoryQuery.MAX_DEPTH / 50, 50)
+        );
+        assertDoesNotThrow(() -> new HistoryQuery(eventId, null, null, null, null, HistoryQuery.MAX_DEPTH / 50 - 1, 50));
+    }
+}

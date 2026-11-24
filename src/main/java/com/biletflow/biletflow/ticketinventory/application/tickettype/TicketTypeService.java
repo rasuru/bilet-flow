@@ -2,7 +2,10 @@ package com.biletflow.biletflow.ticketinventory.application.tickettype;
 
 import com.biletflow.biletflow.common.application.AuthorizationException;
 import com.biletflow.biletflow.common.application.EntityNotFoundException;
+import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.common.security.CurrentActor;
+import com.biletflow.biletflow.ticketinventory.application.audit.TicketInventoryAuditRepository.TicketInventoryAuditType;
+import com.biletflow.biletflow.ticketinventory.application.audit.TicketInventoryAuditService;
 import com.biletflow.biletflow.ticketinventory.application.eventmanagement.port.EventManagementPort;
 import com.biletflow.biletflow.ticketinventory.application.eventmanagement.port.EventTicketingConfiguration;
 import com.biletflow.biletflow.ticketinventory.application.tickettype.command.*;
@@ -24,17 +27,20 @@ public class TicketTypeService {
     private final EventInventoryRepository inventoryRepository;
     private final EventManagementPort eventManagementPort;
     private final CurrentActor currentActor;
+    private final TicketInventoryAuditService audit;
 
     public TicketTypeService(
         TicketTypeRepository ticketTypeRepository,
         EventInventoryRepository inventoryRepository,
         EventManagementPort eventManagementPort,
-        CurrentActor currentActor
+        CurrentActor currentActor,
+        TicketInventoryAuditService audit
     ) {
         this.ticketTypeRepository = Objects.requireNonNull(ticketTypeRepository);
         this.inventoryRepository = Objects.requireNonNull(inventoryRepository);
         this.eventManagementPort = Objects.requireNonNull(eventManagementPort);
         this.currentActor = Objects.requireNonNull(currentActor);
+        this.audit = Objects.requireNonNull(audit);
     }
 
     @Transactional
@@ -67,6 +73,7 @@ public class TicketTypeService {
         inventory.configureTicketType(saved.getId(), command.capacity());
         inventoryRepository.save(inventory);
 
+        recordCreated(saved, " with capacity " + command.capacity());
         return saved.getId().value();
     }
 
@@ -100,7 +107,9 @@ public class TicketTypeService {
             command.priceCategory()
         );
 
-        return ticketTypeRepository.save(ticketType).getId().value();
+        TicketType saved = ticketTypeRepository.save(ticketType);
+        recordCreated(saved, " for price category " + command.priceCategory());
+        return saved.getId().value();
     }
 
     @Transactional
@@ -125,6 +134,9 @@ public class TicketTypeService {
             throw new IllegalArgumentException("maxPerOrder cannot exceed ticket-type capacity");
         }
 
+        int previousCapacity = ((GeneralAdmissionInventory) inventory.getMode()).getCounters().get(ticketType.getId()).totalCapacity();
+        Money previousPrice = ticketType.getPrice();
+
         inventory.changeTicketTypeCapacity(ticketType.getId(), command.capacity());
 
         ticketType.updateDetails(
@@ -137,6 +149,17 @@ public class TicketTypeService {
 
         inventoryRepository.save(inventory);
         ticketTypeRepository.save(ticketType);
+
+        recordPriceChange(ticketType, previousPrice);
+        if (previousCapacity != command.capacity()) {
+            audit.record(
+                ticketType.getEventId(),
+                currentActor.requireUserId(),
+                TicketInventoryAuditType.TICKET_CAPACITY_CHANGED,
+                ticketType.getId().value(),
+                "Capacity of \"" + ticketType.getName() + "\" changed from " + previousCapacity + " to " + command.capacity()
+            );
+        }
     }
 
     @Transactional
@@ -168,6 +191,8 @@ public class TicketTypeService {
             throw new IllegalArgumentException("maxPerOrder cannot exceed seats available in the ticket type price category");
         }
 
+        Money previousPrice = ticketType.getPrice();
+
         ticketType.updateDetails(
             command.name(),
             command.description(),
@@ -177,6 +202,7 @@ public class TicketTypeService {
         );
 
         ticketTypeRepository.save(ticketType);
+        recordPriceChange(ticketType, previousPrice);
     }
 
     @Transactional
@@ -239,6 +265,35 @@ public class TicketTypeService {
         Objects.requireNonNull(eventId, "eventId cannot be null");
         authorizeTicketingManagement(eventId);
         return listForEvent(eventId);
+    }
+
+    private void recordCreated(TicketType ticketType, String detail) {
+        audit.record(
+            ticketType.getEventId(),
+            currentActor.requireUserId(),
+            TicketInventoryAuditType.TICKET_TYPE_CREATED,
+            ticketType.getId().value(),
+            "Ticket type \"" + ticketType.getName() + "\" created at " + TicketInventoryAuditService.format(ticketType.getPrice()) + detail
+        );
+    }
+
+    private void recordPriceChange(TicketType ticketType, Money previousPrice) {
+        if (previousPrice.equals(ticketType.getPrice())) {
+            return;
+        }
+
+        audit.record(
+            ticketType.getEventId(),
+            currentActor.requireUserId(),
+            TicketInventoryAuditType.TICKET_PRICE_CHANGED,
+            ticketType.getId().value(),
+            "Price of \"" +
+                ticketType.getName() +
+                "\" changed from " +
+                TicketInventoryAuditService.format(previousPrice) +
+                " to " +
+                TicketInventoryAuditService.format(ticketType.getPrice())
+        );
     }
 
     private void authorizeTicketingManagement(UUID eventId) {

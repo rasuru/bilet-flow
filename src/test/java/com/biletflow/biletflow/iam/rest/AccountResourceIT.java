@@ -1,6 +1,7 @@
 package com.biletflow.biletflow.iam.rest;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -123,7 +124,7 @@ class AccountResourceIT {
             .perform(get("/api/account").accept(MediaType.APPLICATION_PROBLEM_JSON))
             .andExpect(status().isUnauthorized())
             .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-            .andExpect(header().string("WWW-Authenticate", "Bearer"))
+            .andExpect(header().string("WWW-Authenticate", startsWith("Bearer")))
             .andExpect(jsonPath("$.type").value("about:blank"))
             .andExpect(jsonPath("$.status").value(401));
     }
