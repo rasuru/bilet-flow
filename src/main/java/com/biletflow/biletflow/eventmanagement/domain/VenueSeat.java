@@ -6,9 +6,9 @@ import java.util.Objects;
  * Reference-data seat owned by Event Management.
  *
  * Ticket Inventory may reference SeatId but does not own location,
- * accessibility, or layout-category metadata.
+ * or layout-category metadata.
  */
-public record VenueSeat(SeatId id, SeatLocation location, boolean accessible, String priceCategory) {
+public record VenueSeat(SeatId id, SeatLocation location, String priceCategory, SeatPosition position) {
     public VenueSeat {
         Objects.requireNonNull(id, "SeatId cannot be null");
         Objects.requireNonNull(location, "SeatLocation cannot be null");
@@ -21,7 +21,12 @@ public record VenueSeat(SeatId id, SeatLocation location, boolean accessible, St
         }
     }
 
-    public static VenueSeat create(SeatLocation location, boolean accessible, String priceCategory) {
-        return new VenueSeat(SeatId.generate(), location, accessible, priceCategory);
+    public VenueSeat(SeatId id, SeatLocation location, String priceCategory) {
+        this(id, location, priceCategory, null);
+    }
+
+    public static VenueSeat create(SeatLocation location, String priceCategory) {
+        return new VenueSeat(SeatId.generate(), location, priceCategory);
     }
 }
+
