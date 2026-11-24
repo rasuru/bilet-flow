@@ -23,7 +23,9 @@ public class EventManagementEndpointSecurityConfiguration {
                 )
                 .authenticated()
 
-                // Public Event Management reads
+                // Public event read models and organizer-published refund terms
+                .requestMatchers(HttpMethod.GET, "/api/events/*/refund-policy")
+                .permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/events", "/api/events/*", "/api/venue-layouts", "/api/venue-layouts/*")
                 .permitAll()
 

@@ -25,6 +25,10 @@ public class IamEndpointSecurityConfiguration {
                 .permitAll()
                 .requestMatchers("/api/account/reset-password/finish")
                 .permitAll()
+                .requestMatchers("/api/organizer-profile/me")
+                .authenticated()
+                .requestMatchers(HttpMethod.GET, "/api/organizer-profile/public/*")
+                .permitAll()
                 .requestMatchers("/api/admin/**")
                 .hasAuthority(AuthoritiesConstants.ADMIN);
     }

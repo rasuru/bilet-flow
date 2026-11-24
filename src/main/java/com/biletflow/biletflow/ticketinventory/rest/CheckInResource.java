@@ -1,6 +1,8 @@
 package com.biletflow.biletflow.ticketinventory.rest;
 
 import com.biletflow.biletflow.ticketinventory.application.ticket.CheckInService;
+import com.biletflow.biletflow.ticketinventory.application.ticket.TicketAdmissionCountsService;
+import com.biletflow.biletflow.ticketinventory.application.ticket.view.TicketTypeAdmissionCountsView;
 import com.biletflow.biletflow.ticketinventory.application.ticket.view.TicketValidationResult;
 import com.biletflow.biletflow.ticketinventory.application.ticket.view.TicketView;
 import io.swagger.v3.oas.annotations.Operation;
@@ -21,9 +23,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class CheckInResource {
 
     private final CheckInService service;
+    private final TicketAdmissionCountsService admissionCounts;
 
-    public CheckInResource(CheckInService service) {
+    public CheckInResource(CheckInService service, TicketAdmissionCountsService admissionCounts) {
         this.service = Objects.requireNonNull(service);
+        this.admissionCounts = Objects.requireNonNull(admissionCounts);
     }
 
     @GetMapping("/tickets/{ticketCode}/validation")
@@ -54,5 +58,11 @@ public class CheckInResource {
     @Operation(summary = "Get active registration and check-in counts")
     public CheckInService.CheckInCounts counts(@PathVariable UUID eventId) {
         return service.counts(eventId);
+    }
+
+    @GetMapping("/counts/by-ticket-type")
+    @Operation(summary = "Get refunded and checked-in ticket counts grouped by ticket type")
+    public List<TicketTypeAdmissionCountsView> countsByTicketType(@PathVariable UUID eventId) {
+        return admissionCounts.counts(eventId);
     }
 }

@@ -1,12 +1,26 @@
 package com.biletflow.biletflow.ordercheckout.ohs;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+/** Read-only analytics contract published by Order & Checkout for the organizer dashboard. */
 public interface OrderAnalyticsOhs {
-    List<SaleLine> issuedSaleLines(UUID eventId, Instant from, Instant until);
+    List<OrderSnapshot> findEventOrders(UUID eventId);
 
-    record SaleLine(UUID orderId, Instant orderedAt, UUID ticketTypeId, long quantity, BigDecimal grossKzt, BigDecimal orderDiscountKzt) {}
+    record OrderSnapshot(
+        UUID orderId,
+        String status,
+        UUID promotionId,
+        BigDecimal totalAmount,
+        BigDecimal discountAmount,
+        String currency,
+        List<OrderLine> lines
+    ) {
+        public OrderSnapshot {
+            lines = List.copyOf(lines);
+        }
+    }
+
+    record OrderLine(UUID ticketTypeId, BigDecimal priceAmount, String currency) {}
 }
