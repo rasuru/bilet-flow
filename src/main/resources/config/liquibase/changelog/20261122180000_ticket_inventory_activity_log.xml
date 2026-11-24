@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="20261122180000-1" author="biletflow">
+        <createTable tableName="ticket_inventory_activity_log">
+            <column name="id" type="uuid"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="event_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="timestamp" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="actor_user_id" type="bigint"><constraints nullable="false"/></column>
+            <column name="type" type="varchar(32)"><constraints nullable="false"/></column>
+            <column name="entity_id" type="uuid"><constraints nullable="false"/></column>
+            <column name="description" type="varchar(500)"><constraints nullable="false"/></column>
+        </createTable>
+        <createIndex tableName="ticket_inventory_activity_log" indexName="idx_ticket_inventory_activity_log_event">
+            <column name="event_id"/>
+            <column name="timestamp"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

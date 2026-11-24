@@ -20,6 +20,8 @@ import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 public class JwtAuthenticationTestUtils {
 
@@ -28,6 +30,11 @@ public class JwtAuthenticationTestUtils {
     @Bean
     private MeterRegistry meterRegistry() {
         return new SimpleMeterRegistry();
+    }
+
+    @Bean
+    ObjectMapper objectMapper() {
+        return JsonMapper.builder().build();
     }
 
     public static String createValidToken(String jwtKey) {
