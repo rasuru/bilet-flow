@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="20261124150000-organizer-analytics" author="biletflow">
+        <addColumn tableName="oc_order">
+            <column name="created_at" type="timestamp with time zone"/>
+        </addColumn>
+        <!-- Older orders were stored in the same transaction that issued their tickets. -->
+        <sql>
+            UPDATE oc_order o SET created_at = tickets.first_issued_at
+            FROM (
+                SELECT order_id, min(issued_at) AS first_issued_at
+                FROM ticket_inventory_ticket GROUP BY order_id
+            ) tickets WHERE o.id = tickets.order_id
+        </sql>
+        <createIndex tableName="oc_order" indexName="idx_oc_order_event_created_at">
+            <column name="event_id"/>
+            <column name="created_at"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>
