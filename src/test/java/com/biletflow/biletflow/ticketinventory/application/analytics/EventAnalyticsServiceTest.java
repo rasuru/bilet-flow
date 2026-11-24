@@ -1,4 +1,4 @@
-package com.biletflow.biletflow.ticketinventory.application.analytics;
+package com.biletflow.biletflow.analytics.application;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;

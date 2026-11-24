@@ -30,6 +30,7 @@ public class EventUpdatedEmailHandler implements IntegrationEventHandler {
     public void handle(IntegrationEvent event) {
         UUID eventId = event.aggregateId();
         String title = event.attributes().getOrDefault("title", "An event you registered for");
+        String changedFields = event.attributes().getOrDefault("changedFields", "Event details");
         for (String recipient : recipients.findRecipients(eventId)) {
             String stableKey = event.id() + ":" + recipient.toLowerCase(java.util.Locale.ROOT);
             UUID emailId = UUID.nameUUIDFromBytes(stableKey.getBytes(StandardCharsets.UTF_8));
@@ -37,7 +38,8 @@ public class EventUpdatedEmailHandler implements IntegrationEventHandler {
                 emailId,
                 recipient,
                 "Event updated: " + title,
-                "The organizer has updated the event '" + title + "'. Sign in to BiletFlow to review the latest event details."
+                "The organizer has updated the event '" + title + "'. Changes: " + changedFields
+                    + ". Sign in to BiletFlow to review the latest event details."
             ));
         }
     }

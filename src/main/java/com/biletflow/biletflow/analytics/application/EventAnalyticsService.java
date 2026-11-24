@@ -1,4 +1,4 @@
-package com.biletflow.biletflow.ticketinventory.application.analytics;
+package com.biletflow.biletflow.analytics.application;
 
 import com.biletflow.biletflow.common.application.AuthorizationException;
 import com.biletflow.biletflow.common.application.EntityNotFoundException;
@@ -6,7 +6,6 @@ import com.biletflow.biletflow.common.security.CurrentActor;
 import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.ordercheckout.ohs.OrderAnalyticsOhs;
 import com.biletflow.biletflow.ticketinventory.domain.eventinventory.*;
-import com.biletflow.biletflow.ticketinventory.domain.eventinventory.ga.InventoryCounters;
 import com.biletflow.biletflow.ticketinventory.domain.ticket.Ticket;
 import com.biletflow.biletflow.ticketinventory.domain.ticket.TicketRepository;
 import com.biletflow.biletflow.ticketinventory.domain.ticket.TicketStatus;
@@ -15,7 +14,7 @@ import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeRepos
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -46,17 +45,26 @@ public class EventAnalyticsService {
     }
 
     public EventAnalyticsView get(UUID eventId, LocalDate from, LocalDate to) {
+        return get(eventId, from, to, null);
+    }
+
+    public EventAnalyticsView get(UUID eventId, LocalDate from, LocalDate to, UUID ticketTypeFilter) {
         Objects.requireNonNull(eventId, "eventId cannot be null");
         Long userId = actor.requireUserId();
-        if (!events.canManageTicketing(eventId, userId)) throw new AuthorizationException("Only the event organizer can view analytics");
+        if (!actor.isAdministrator() && !events.canManageTicketing(eventId, userId))
+            throw new AuthorizationException("Only the event organizer or platform administrator can view analytics");
         if (from != null && to != null && from.isAfter(to)) throw new IllegalArgumentException("from must be on or before to");
 
         List<Ticket> allEventTickets = tickets.findAllByEventId(eventId);
         List<Ticket> eventTickets = allEventTickets.stream().filter(ticket -> {
-            LocalDate issuedDate = ticket.getIssuedAt().atZone(ZoneOffset.UTC).toLocalDate();
-            return (from == null || !issuedDate.isBefore(from)) && (to == null || !issuedDate.isAfter(to));
+            LocalDate issuedDate = ticket.getIssuedAt().atZone(ZoneId.of("Asia/Almaty")).toLocalDate();
+            boolean inRange = (from == null || !issuedDate.isBefore(from)) && (to == null || !issuedDate.isAfter(to));
+            boolean matchingType = ticketTypeFilter == null || ticket.getTicketTypeId().value().equals(ticketTypeFilter);
+            return inRange && matchingType;
         }).toList();
-        List<TicketType> types = ticketTypes.findAllByEventId(eventId);
+        List<TicketType> types = ticketTypes.findAllByEventId(eventId).stream()
+            .filter(type -> ticketTypeFilter == null || type.getId().value().equals(ticketTypeFilter))
+            .toList();
         EventInventory inventory = inventories.findByEventId(eventId)
             .orElseThrow(() -> new EntityNotFoundException("Event inventory not found: " + eventId));
 
@@ -71,19 +79,41 @@ public class EventAnalyticsService {
         Map<LocalDate, BigDecimal> dailyRevenue = new TreeMap<>();
 
         BigDecimal totalRevenue = BigDecimal.ZERO;
+        BigDecimal grossSales = BigDecimal.ZERO;
+        BigDecimal discountTotal = BigDecimal.ZERO;
+        BigDecimal refundAmount = BigDecimal.ZERO;
         long totalSold = 0;
         long totalRefunded = 0;
         long totalCheckedIn = 0;
 
+        Set<UUID> includedOrderIds = eventTickets.stream().map(t -> t.getOrderId().value()).collect(Collectors.toSet());
+        for (UUID includedOrderId : includedOrderIds) {
+            OrderAnalyticsOhs.OrderSnapshot order = orderById.get(includedOrderId);
+            if (order == null || !"COMPLETED".equals(order.status())) continue;
+            BigDecimal selectedGross = order.lines().stream()
+                .filter(line -> ticketTypeFilter == null || line.ticketTypeId().equals(ticketTypeFilter))
+                .map(OrderAnalyticsOhs.OrderLine::priceAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal orderGross = order.lines().stream().map(OrderAnalyticsOhs.OrderLine::priceAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+            grossSales = grossSales.add(selectedGross);
+            if (orderGross.signum() > 0) {
+                discountTotal = discountTotal.add(order.discountAmount()
+                    .multiply(selectedGross).divide(orderGross, 2, RoundingMode.HALF_UP));
+            }
+        }
+
         for (Ticket ticket : eventTickets) {
+            OrderAnalyticsOhs.OrderSnapshot order = orderById.get(ticket.getOrderId().value());
             TicketStatus status = ticket.getStatus();
             boolean active = status == TicketStatus.VALID || status == TicketStatus.CHECKED_IN || status == TicketStatus.REFUND_PENDING;
             if (active) totalSold++;
-            if (status == TicketStatus.REFUNDED) totalRefunded++;
+            if (status == TicketStatus.REFUNDED) {
+                totalRefunded++;
+                if (order != null) refundAmount = refundAmount.add(refundValueForTicket(ticket, order));
+            }
             if (status == TicketStatus.CHECKED_IN) totalCheckedIn++;
 
-            LocalDate issuedDate = ticket.getIssuedAt().atZone(ZoneOffset.UTC).toLocalDate();
-            OrderAnalyticsOhs.OrderSnapshot order = orderById.get(ticket.getOrderId().value());
+            LocalDate issuedDate = ticket.getIssuedAt().atZone(ZoneId.of("Asia/Almaty")).toLocalDate();
             if (active) dailyTicketCounts.merge(issuedDate, 1L, Long::sum);
             if (active && order != null && order.promotionId() != null) {
                 campaignTicketCounts.merge(order.promotionId(), 1L, Long::sum);
@@ -121,8 +151,21 @@ public class EventAnalyticsService {
             ? BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP)
             : BigDecimal.valueOf(totalCheckedIn).multiply(BigDecimal.valueOf(100))
                 .divide(BigDecimal.valueOf(totalSold), 2, RoundingMode.HALF_UP);
-        return new EventAnalyticsView(eventId, capacity, totalSold, totalRefunded, totalCheckedIn, attendanceRate,
-            totalRevenue.setScale(2, RoundingMode.HALF_UP), CURRENCY, daily, typeViews, campaignViews);
+        return new EventAnalyticsView(eventId, capacity, Math.max(0, capacity - totalSold), totalSold, totalRefunded, totalCheckedIn, attendanceRate,
+            grossSales.setScale(2, RoundingMode.HALF_UP), discountTotal.setScale(2, RoundingMode.HALF_UP),
+            totalRevenue.setScale(2, RoundingMode.HALF_UP), refundAmount.setScale(2, RoundingMode.HALF_UP),
+            CURRENCY, daily, typeViews, campaignViews,
+            eventTickets.stream().collect(Collectors.groupingBy(t -> t.getAttendeeEmail().value()))
+                .entrySet().stream().map(entry -> new EventAnalyticsView.AttendeeSales(entry.getKey(), entry.getValue().size(),
+                    entry.getValue().stream().filter(t -> t.getStatus() == TicketStatus.CHECKED_IN).count(),
+                    entry.getValue().stream().filter(t -> t.getStatus() == TicketStatus.REFUNDED).count()))
+                .sorted(Comparator.comparing(EventAnalyticsView.AttendeeSales::attendeeEmail)).toList());
+    }
+
+    private BigDecimal refundValueForTicket(Ticket ticket, OrderAnalyticsOhs.OrderSnapshot order) {
+        return revenueForTicket(new Ticket(ticket.getId(), ticket.getTicketTypeId(), ticket.getEventId(), ticket.getOrderId(),
+            ticket.getAttendeeEmail(), ticket.getOwnerUserId(), ticket.getSeatId(), ticket.getTicketCode(),
+            TicketStatus.VALID, ticket.getIssuedAt()), order);
     }
 
     private BigDecimal revenueForTicket(Ticket ticket, OrderAnalyticsOhs.OrderSnapshot order) {

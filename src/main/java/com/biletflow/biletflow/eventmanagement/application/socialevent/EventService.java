@@ -13,6 +13,10 @@ import com.biletflow.biletflow.eventmanagement.ohs.EventCancelled;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Map;
+import java.util.UUID;
+import com.biletflow.biletflow.common.events.IntegrationEvent;
+import com.biletflow.biletflow.eventmanagement.integration.EventUpdatedEmailHandler;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
 
@@ -78,8 +82,14 @@ public class EventService {
         SocialEvent event = requireEvent(command.eventId());
         assertCanModifyEvent(event, currentUserId);
 
-        var previousDateRange = event.getDateRange();
-        boolean materialChange = !Objects.equals(previousDateRange, command.dateRange());
+        Map<String, String> changedFields = new java.util.LinkedHashMap<>();
+        if (!Objects.equals(event.getTitle(), command.title() == null ? null : command.title().trim())) changedFields.put("title", "Title");
+        if (!Objects.equals(event.getDescription(), command.description() == null ? "" : command.description().trim())) changedFields.put("description", "Description");
+        if (!Objects.equals(event.getCategory(), command.category() == null ? null : command.category().trim())) changedFields.put("category", "Category");
+        if (!Objects.equals(event.getImageUrl(), command.imageUrl() == null ? "" : command.imageUrl().trim())) changedFields.put("image", "Image");
+        if (!Objects.equals(event.getVisibility(), command.visibility())) changedFields.put("visibility", "Visibility");
+        if (!Objects.equals(event.getDateRange(), command.dateRange())) changedFields.put("date/time", "Date and time");
+        if (!Objects.equals(event.getRegistrationWindow(), command.registrationWindow())) changedFields.put("registration window", "Registration window");
 
         event.updateDetails(
             command.title(),
@@ -94,12 +104,12 @@ public class EventService {
         eventRepository.save(event);
 
         auditService.record(event.getId().value(), currentUserId, EventAuditRepository.EventAuditType.UPDATED, "Event details updated");
-        if (materialChange) {
-            events.publish(new com.biletflow.biletflow.common.events.IntegrationEvent(
-                java.util.UUID.randomUUID(),
-                com.biletflow.biletflow.eventmanagement.integration.EventUpdatedEmailHandler.TYPE,
+        if (!changedFields.isEmpty()) {
+            events.publish(new IntegrationEvent(
+                UUID.randomUUID(),
+                EventUpdatedEmailHandler.TYPE,
                 event.getId().value(),
-                java.util.Map.of("title", event.getTitle(), "changedFields", "date/time")
+                Map.of("title", event.getTitle(), "changedFields", String.join(", ", changedFields.values()))
             ));
         }
     }

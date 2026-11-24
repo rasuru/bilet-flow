@@ -34,8 +34,8 @@ public class TicketAdmissionCountsService {
 
     public List<TicketTypeAdmissionCountsView> counts(UUID eventId) {
         Long userId = actor.requireUserId();
-        if (!events.canManageTicketing(eventId, userId)) {
-            throw new AuthorizationException("Only an authorized event manager can view ticket counts");
+        if (!events.canCheckIn(eventId, userId)) {
+            throw new AuthorizationException("Only assigned event check-in staff can view ticket counts");
         }
 
         Map<UUID, long[]> counts = new HashMap<>();

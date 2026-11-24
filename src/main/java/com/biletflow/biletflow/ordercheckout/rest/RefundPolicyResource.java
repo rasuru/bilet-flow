@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.*;
@@ -20,7 +21,7 @@ public class RefundPolicyResource {
         this.policies = Objects.requireNonNull(policies);
     }
 
-    public record UpdateRequest(@NotNull Boolean refundsAllowed, @Min(0) @Max(720) int cutoffHoursBeforeEvent) {}
+    public record UpdateRequest(@NotNull Boolean refundsAllowed, @Min(0) @Max(720) int cutoffHoursBeforeEvent, @Size(max = 2000) String terms) {}
 
     @GetMapping
     public RefundPolicyView get(@PathVariable UUID eventId) {
@@ -29,6 +30,6 @@ public class RefundPolicyResource {
 
     @PutMapping
     public RefundPolicyView update(@PathVariable UUID eventId, @Valid @RequestBody UpdateRequest request) {
-        return policies.update(eventId, request.refundsAllowed(), request.cutoffHoursBeforeEvent());
+        return policies.update(eventId, request.refundsAllowed(), request.cutoffHoursBeforeEvent(), request.terms());
     }
 }

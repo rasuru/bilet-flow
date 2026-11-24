@@ -2,6 +2,7 @@ package com.biletflow.biletflow.iam.rest.organizer;
 
 import com.biletflow.biletflow.iam.application.organizer.OrganizerProfileService;
 import com.biletflow.biletflow.iam.application.organizer.OrganizerProfileView;
+import com.biletflow.biletflow.iam.application.organizer.OrganizerProfilePublicView;
 import com.biletflow.biletflow.iam.application.organizer.UpdateOrganizerProfileCommand;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
@@ -46,7 +47,7 @@ public class OrganizerProfileResource {
     }
 
     @GetMapping("/public/{organizerId}")
-    public OrganizerProfileView getPublic(@PathVariable Long organizerId) {
+    public OrganizerProfilePublicView getPublic(@PathVariable Long organizerId) {
         return profiles.getPublic(organizerId);
     }
 }

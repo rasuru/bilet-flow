@@ -7,7 +7,6 @@ import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.ordercheckout.persistence.refundpolicy.RefundPolicyJpaEntity;
 import com.biletflow.biletflow.ordercheckout.persistence.refundpolicy.RefundPolicyJpaRepository;
 import java.time.Clock;
-import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -15,7 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Transactional(readOnly = true)
-public class RefundPolicyService implements AttendeeRefundPolicy {
+public class RefundPolicyService  {
 
     private static final int DEFAULT_CUTOFF_HOURS = 24;
     private final RefundPolicyJpaRepository policies;
@@ -40,6 +39,11 @@ public class RefundPolicyService implements AttendeeRefundPolicy {
 
     @Transactional
     public RefundPolicyView update(UUID eventId, boolean refundsAllowed, int cutoffHoursBeforeEvent) {
+        return update(eventId, refundsAllowed, cutoffHoursBeforeEvent, null);
+    }
+
+    @Transactional
+    public RefundPolicyView update(UUID eventId, boolean refundsAllowed, int cutoffHoursBeforeEvent, String terms) {
         Long organizerId = actor.requireUserId();
         if (!events.canManageTicketing(eventId, organizerId)) {
             throw new AuthorizationException("Only the event organizer can update its refund policy");
@@ -50,20 +54,11 @@ public class RefundPolicyService implements AttendeeRefundPolicy {
         var current = policies.findById(eventId).orElseGet(() -> new RefundPolicyJpaEntity(
             eventId, organizerId, refundsAllowed, cutoffHoursBeforeEvent, clock.instant()
         ));
-        current.update(refundsAllowed, cutoffHoursBeforeEvent, clock.instant());
+        current.update(refundsAllowed, cutoffHoursBeforeEvent, terms, clock.instant());
         return view(policies.save(current));
     }
 
-    @Override
-    public boolean allowsAttendeeRefund(UUID eventId, Instant requestedAt) {
-        var policy = policies.findById(eventId).orElse(null);
-        if (policy == null || !policy.isRefundsAllowed()) return false;
-        EventManagementOhs.SalesScope scope = events.salesScope(eventId, requestedAt);
-        Instant deadline = scope.eventStartsAt().minusSeconds(policy.getCutoffHoursBeforeEvent() * 3600L);
-        return !requestedAt.isAfter(deadline);
-    }
-
     private RefundPolicyView view(RefundPolicyJpaEntity entity) {
-        return new RefundPolicyView(entity.getEventId(), entity.isRefundsAllowed(), entity.getCutoffHoursBeforeEvent(), entity.getUpdatedAt());
+        return new RefundPolicyView(entity.getEventId(), entity.isRefundsAllowed(), entity.getCutoffHoursBeforeEvent(), entity.getTerms(), entity.getUpdatedAt());
     }
 }

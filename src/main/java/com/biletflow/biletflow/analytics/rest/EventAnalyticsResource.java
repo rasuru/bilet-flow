@@ -1,7 +1,7 @@
-package com.biletflow.biletflow.ticketinventory.rest;
+package com.biletflow.biletflow.analytics.rest;
 
-import com.biletflow.biletflow.ticketinventory.application.analytics.EventAnalyticsService;
-import com.biletflow.biletflow.ticketinventory.application.analytics.EventAnalyticsView;
+import com.biletflow.biletflow.analytics.application.EventAnalyticsService;
+import com.biletflow.biletflow.analytics.application.EventAnalyticsView;
 import java.time.LocalDate;
 import java.util.Objects;
 import java.util.UUID;
@@ -25,8 +25,9 @@ public class EventAnalyticsResource {
     public EventAnalyticsView get(
         @PathVariable UUID eventId,
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+        @RequestParam(required = false) UUID ticketTypeId
     ) {
-        return analytics.get(eventId, from, to);
+        return analytics.get(eventId, from, to, ticketTypeId);
     }
 }
