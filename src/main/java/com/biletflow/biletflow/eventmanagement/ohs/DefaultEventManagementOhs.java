@@ -76,7 +76,7 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
                     seat.location().section(),
                     seat.location().row(),
                     seat.location().seatNumber(),
-                    seat.accessible(),
+
                     seat.priceCategory()
                 )
             )
@@ -201,3 +201,4 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
         return layoutRepository.findById(layoutId).orElseThrow(() -> new VenueLayoutNotFoundException(layoutId.value().toString()));
     }
 }
+

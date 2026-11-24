@@ -31,6 +31,26 @@ import org.junit.jupiter.api.Test;
 class EventInventoryServiceTest {
 
     @Test
+    void seatMapReleasesExpiredHoldsInReadOnlySnapshot() {
+        UUID eventId = UUID.randomUUID();
+        SeatId seat = new SeatId(UUID.randomUUID());
+        Instant now = Instant.parse("2026-09-03T12:00:00Z");
+        EventInventory inventory = EventInventory.create(
+            eventId, HoldExpiry.defaultExpiry(), AssignedSeatingInventory.create(Map.of(seat, "STANDARD"))
+        );
+        var hold = inventory.holdSeat(new TicketTypeId(UUID.randomUUID()), seat, new SessionId("session-a"), now);
+        EventInventoryRepository repository = mock(EventInventoryRepository.class);
+        TicketTypeRepository types = mock(TicketTypeRepository.class);
+        when(repository.findByEventId(eventId)).thenReturn(Optional.of(inventory));
+
+        var beforeExpiry = new EventInventoryService(repository, types, Clock.fixed(now, ZoneOffset.UTC));
+        var atExpiry = new EventInventoryService(repository, types, Clock.fixed(hold.getExpiresAt(), ZoneOffset.UTC));
+        assertEquals("HELD", beforeExpiry.getSeatMap(eventId).getFirst().status().name());
+        assertEquals("AVAILABLE", atExpiry.getSeatMap(eventId).getFirst().status().name());
+        verify(repository, never()).save(any());
+    }
+
+    @Test
     void wrongPriceCategoryCannotHoldSeat() {
         UUID eventId = UUID.randomUUID();
         UUID rawTicketTypeId = UUID.randomUUID();
@@ -117,3 +137,4 @@ class EventInventoryServiceTest {
         verify(inventoryRepository, never()).save(any());
     }
 }
+

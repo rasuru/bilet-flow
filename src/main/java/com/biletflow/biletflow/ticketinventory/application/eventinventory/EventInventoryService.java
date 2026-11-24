@@ -213,6 +213,8 @@ public class EventInventoryService {
 
     public EventInventoryView getInventory(UUID eventId) {
         EventInventory inventory = requireInventory(eventId);
+        // Read-only domain snapshot; expired reservations must not appear as occupied.
+        inventory.cleanUpExpiredHolds(clock.instant());
 
         if (inventory.getMode() instanceof GeneralAdmissionInventory ga) {
             List<GaAvailabilityView> availability = ga
@@ -328,3 +330,4 @@ public class EventInventoryService {
         );
     }
 }
+

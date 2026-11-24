@@ -34,6 +34,49 @@ public class VenueLayoutJpaEntity {
     @OrderColumn(name = "seat_order")
     private List<VenueSeatJpaEmbeddable> seats = new ArrayList<>();
 
+    @Column(name = "focus_label", length = 100)
+    private String focusLabel;
+
+    @Column(name = "focus_x")
+    private Integer focusX;
+
+    @Column(name = "focus_y")
+    private Integer focusY;
+
+    @Column(name = "focus_width")
+    private Integer focusWidth;
+
+    @Column(name = "focus_height")
+    private Integer focusHeight;
+
+    public String getFocusLabel() {
+        return focusLabel;
+    }
+
+    public Integer getFocusX() {
+        return focusX;
+    }
+
+    public Integer getFocusY() {
+        return focusY;
+    }
+
+    public Integer getFocusWidth() {
+        return focusWidth;
+    }
+
+    public Integer getFocusHeight() {
+        return focusHeight;
+    }
+
+    public void setFocus(String label, Integer x, Integer y, Integer width, Integer height) {
+        this.focusLabel = label;
+        this.focusX = x;
+        this.focusY = y;
+        this.focusWidth = width;
+        this.focusHeight = height;
+    }
+
     @Version
     @Column(name = "version", nullable = false)
     private long version;
@@ -69,3 +112,4 @@ public class VenueLayoutJpaEntity {
         this.seats.addAll(seats);
     }
 }
+

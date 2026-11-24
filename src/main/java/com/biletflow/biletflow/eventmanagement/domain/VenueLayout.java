@@ -13,8 +13,14 @@ public class VenueLayout {
     private final VenueLayoutId id;
     private final String name;
     private final List<VenueSection> sections;
+    private final VenueLayoutFocus focus;
 
     public VenueLayout(VenueLayoutId id, String name, List<VenueSection> sections) {
+        this(id, name, sections, null);
+    }
+
+    public VenueLayout(VenueLayoutId id, String name, List<VenueSection> sections, VenueLayoutFocus focus) {
+        this.focus = focus;
         this.id = Objects.requireNonNull(id, "VenueLayoutId cannot be null");
 
         Objects.requireNonNull(name, "Layout name cannot be null");
@@ -76,7 +82,12 @@ public class VenueLayout {
         return name;
     }
 
+    public VenueLayoutFocus getFocus() {
+        return focus;
+    }
+
     public List<VenueSection> getSections() {
         return sections;
     }
 }
+

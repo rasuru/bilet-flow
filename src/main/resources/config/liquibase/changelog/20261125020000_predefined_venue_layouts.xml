@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd"
+>
+    <changeSet id="20261125020000_predefined_venue_layouts-geometry" author="biletflow">
+        <addColumn tableName="event_management_venue_layout_seat">
+            <column name="position_x" type="integer"/>
+            <column name="position_y" type="integer"/>
+        </addColumn>
+        <addColumn tableName="event_management_venue_layout">
+            <column name="focus_label" type="varchar(100)"/>
+            <column name="focus_x" type="integer"/>
+            <column name="focus_y" type="integer"/>
+            <column name="focus_width" type="integer"/>
+            <column name="focus_height" type="integer"/>
+        </addColumn>
+    </changeSet>
+    <changeSet id="20261125020000_predefined_venue_layouts-seed" author="biletflow">
+        <sqlFile path="20261125020000_predefined_venue_layouts.sql" relativeToChangelogFile="true"/>
+    </changeSet>
+</databaseChangeLog>
+

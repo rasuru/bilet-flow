@@ -18,8 +18,9 @@ public class VenueLayoutPersistenceMapper {
             VenueSeat seat = new VenueSeat(
                 new SeatId(storedSeat.getSeatId()),
                 new SeatLocation(storedSeat.getSection(), storedSeat.getRow(), storedSeat.getSeatNumber()),
-                storedSeat.isAccessible(),
-                storedSeat.getPriceCategory()
+
+                storedSeat.getPriceCategory(),
+                storedSeat.getPositionX() == null ? null : new SeatPosition(storedSeat.getPositionX(), storedSeat.getPositionY())
             );
 
             grouped
@@ -44,7 +45,10 @@ public class VenueLayoutPersistenceMapper {
             )
             .toList();
 
-        return new VenueLayout(new VenueLayoutId(entity.getId()), entity.getName(), sections);
+        VenueLayoutFocus focus = entity.getFocusLabel() == null
+            ? null
+            : new VenueLayoutFocus(entity.getFocusLabel(), entity.getFocusX(), entity.getFocusY(), entity.getFocusWidth(), entity.getFocusHeight());
+        return new VenueLayout(new VenueLayoutId(entity.getId()), entity.getName(), sections, focus);
     }
 
     public VenueLayoutJpaEntity toNewEntity(VenueLayout domain) {
@@ -63,6 +67,12 @@ public class VenueLayoutPersistenceMapper {
         }
 
         entity.setName(domain.getName());
+        VenueLayoutFocus focus = domain.getFocus();
+        if (focus == null) {
+            entity.setFocus(null, null, null, null, null);
+        } else {
+            entity.setFocus(focus.label(), focus.x(), focus.y(), focus.width(), focus.height());
+        }
 
         entity.replaceSeats(
             domain
@@ -74,11 +84,14 @@ public class VenueLayoutPersistenceMapper {
                         seat.location().section(),
                         seat.location().row(),
                         seat.location().seatNumber(),
-                        seat.accessible(),
-                        seat.priceCategory()
+
+                        seat.priceCategory(),
+                        seat.position() == null ? null : seat.position().x(),
+                        seat.position() == null ? null : seat.position().y()
                     )
                 )
                 .toList()
         );
     }
 }
+

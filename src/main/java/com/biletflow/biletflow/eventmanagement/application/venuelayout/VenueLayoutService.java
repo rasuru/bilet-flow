@@ -1,6 +1,7 @@
 package com.biletflow.biletflow.eventmanagement.application.venuelayout;
 
 import com.biletflow.biletflow.eventmanagement.application.venuelayout.view.VenueLayoutView;
+import com.biletflow.biletflow.eventmanagement.application.venuelayout.view.VenueLayoutFocusView;
 import com.biletflow.biletflow.eventmanagement.application.venuelayout.view.VenueSeatView;
 import com.biletflow.biletflow.eventmanagement.domain.VenueLayout;
 import com.biletflow.biletflow.eventmanagement.domain.VenueLayoutId;
@@ -33,7 +34,15 @@ public class VenueLayoutService {
     }
 
     private VenueLayoutView toView(VenueLayout layout) {
-        return new VenueLayoutView(layout.getId().value(), layout.getName(), layout.getSeats().stream().map(this::toView).toList());
+        var focus = layout.getFocus();
+        return new VenueLayoutView(
+            layout.getId().value(),
+            layout.getName(),
+            layout.getSeats().stream().map(this::toView).toList(),
+            800,
+            600,
+            focus == null ? null : new VenueLayoutFocusView(focus.label(), focus.x(), focus.y(), focus.width(), focus.height())
+        );
     }
 
     private VenueSeatView toView(VenueSeat seat) {
@@ -42,8 +51,11 @@ public class VenueLayoutService {
             seat.location().section(),
             seat.location().row(),
             seat.location().seatNumber(),
-            seat.accessible(),
-            seat.priceCategory()
+
+            seat.priceCategory(),
+            seat.position() == null ? null : seat.position().x(),
+            seat.position() == null ? null : seat.position().y()
         );
     }
 }
+

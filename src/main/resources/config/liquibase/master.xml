@@ -43,5 +43,7 @@
     <include file="config/liquibase/changelog/20261124120000_organizer_history_indexes.xml" relativeToChangelogFile="false"/>
     <include file="config/liquibase/changelog/20261124150000_organizer_analytics.xml" relativeToChangelogFile="false"/>
     <include file="config/liquibase/changelog/20261125010000_ticket_manual_codes.xml" relativeToChangelogFile="false"/>
+    <include file="config/liquibase/changelog/20261125020000_predefined_venue_layouts.xml" relativeToChangelogFile="false"/>
+    <include file="config/liquibase/changelog/20261125030000_remove_accessible_seat.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>
 

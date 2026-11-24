@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-public record VenueLayoutView(UUID layoutId, String name, List<VenueSeatView> seats) {
+public record VenueLayoutView(UUID layoutId, String name, List<VenueSeatView> seats, int width, int height, VenueLayoutFocusView focus) {
     public VenueLayoutView {
         Objects.requireNonNull(layoutId, "layoutId cannot be null");
         Objects.requireNonNull(name, "name cannot be null");
@@ -12,3 +12,4 @@ public record VenueLayoutView(UUID layoutId, String name, List<VenueSeatView> se
         seats = List.copyOf(seats);
     }
 }
+

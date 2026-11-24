@@ -18,21 +18,33 @@ public class VenueSeatJpaEmbeddable {
     @Column(name = "seat_number", nullable = false, length = 100)
     private String seatNumber;
 
-    @Column(name = "accessible", nullable = false)
-    private boolean accessible;
-
     @Column(name = "price_category", length = 100)
     private String priceCategory;
 
+    @Column(name = "position_x")
+    private Integer positionX;
+
+    @Column(name = "position_y")
+    private Integer positionY;
+
     protected VenueSeatJpaEmbeddable() {}
 
-    public VenueSeatJpaEmbeddable(UUID seatId, String section, String row, String seatNumber, boolean accessible, String priceCategory) {
+    public VenueSeatJpaEmbeddable(UUID seatId, String section, String row, String seatNumber, String priceCategory, Integer positionX, Integer positionY) {
+        this.positionX = positionX;
+        this.positionY = positionY;
         this.seatId = seatId;
         this.section = section;
         this.row = row;
         this.seatNumber = seatNumber;
-        this.accessible = accessible;
         this.priceCategory = priceCategory;
+    }
+
+    public Integer getPositionX() {
+        return positionX;
+    }
+
+    public Integer getPositionY() {
+        return positionY;
     }
 
     public UUID getSeatId() {
@@ -51,11 +63,8 @@ public class VenueSeatJpaEmbeddable {
         return seatNumber;
     }
 
-    public boolean isAccessible() {
-        return accessible;
-    }
-
     public String getPriceCategory() {
         return priceCategory;
     }
 }
+
