@@ -22,13 +22,17 @@ class TicketDocumentServiceTest {
     private final TicketDocumentRenderer renderer = mock(TicketDocumentRenderer.class);
     private final TicketDeliveryStore deliveries = mock(TicketDeliveryStore.class);
     private final Instant now = Instant.parse("2026-10-19T10:00:00Z");
-    private final Ticket ticket = Ticket.issue(
+    private final Ticket ticket = new Ticket(
+        TicketId.generate(),
         TicketTypeId.generate(),
         UUID.randomUUID(),
         new OrderId(UUID.randomUUID()),
         new AttendeeEmail("recipient@example.com"),
         null,
         null,
+        TicketCode.generate(),
+        "7K9M2Q8R",
+        TicketStatus.VALID,
         now
     );
     private final TicketDocumentService service = new TicketDocumentService(
@@ -57,6 +61,7 @@ class TicketDocumentServiceTest {
         when(emails.findVerifiedEmail(1L)).thenReturn(Optional.of("RECIPIENT@example.com"));
         when(renderer.pdf(any())).thenReturn(new byte[] { 1, 2 });
         assertArrayEquals(new byte[] { 1, 2 }, service.pdf(ticket.getId().value()));
+        assertEquals("7K9M2Q8R", service.admissionCode(ticket.getId().value()));
         service.requestEmail(ticket.getId().value());
         verify(deliveries).request(ticket.getId().value(), now);
     }
@@ -80,6 +85,7 @@ class TicketDocumentServiceTest {
         when(emails.findVerifiedEmail(1L)).thenReturn(Optional.of("someone-else@example.com"));
         assertThrows(AuthorizationException.class, () -> service.pdf(ticket.getId().value()));
         assertThrows(AuthorizationException.class, () -> service.qr(ticket.getId().value()));
+        assertThrows(AuthorizationException.class, () -> service.admissionCode(ticket.getId().value()));
         assertThrows(AuthorizationException.class, () -> service.requestEmail(ticket.getId().value()));
         verifyNoInteractions(renderer, deliveries);
         verify(events, never()).ticketDetails(any(), any());
@@ -89,6 +95,7 @@ class TicketDocumentServiceTest {
     void refundPendingOrCancelledEventCannotTriggerDelivery() {
         ticket.linkOwner(1L);
         ticket.prepareRefund();
+        assertThrows(IllegalStateException.class, () -> service.admissionCode(ticket.getId().value()));
         assertThrows(IllegalStateException.class, () -> service.requestEmail(ticket.getId().value()));
         verifyNoInteractions(deliveries);
     }
@@ -100,6 +107,7 @@ class TicketDocumentServiceTest {
             new TicketEventDetails("Event", now, now.plusSeconds(3600), "Venue", "Address", "General admission", true)
         );
         assertThrows(IllegalStateException.class, () -> service.requestEmail(ticket.getId().value()));
+        assertThrows(IllegalStateException.class, () -> service.admissionCode(ticket.getId().value()));
         verifyNoInteractions(deliveries);
     }
 }

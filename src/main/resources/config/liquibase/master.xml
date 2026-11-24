@@ -42,5 +42,6 @@
     <include file="config/liquibase/changelog/20261122180000_ticket_inventory_activity_log.xml" relativeToChangelogFile="false"/>
     <include file="config/liquibase/changelog/20261124120000_organizer_history_indexes.xml" relativeToChangelogFile="false"/>
     <include file="config/liquibase/changelog/20261124150000_organizer_analytics.xml" relativeToChangelogFile="false"/>
+    <include file="config/liquibase/changelog/20261125010000_ticket_manual_codes.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>
 

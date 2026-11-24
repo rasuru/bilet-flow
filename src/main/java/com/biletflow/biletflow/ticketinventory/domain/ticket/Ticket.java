@@ -16,6 +16,7 @@ public class Ticket {
     private final AttendeeEmail attendeeEmail;
     private final SeatId seatId; // null for GA
     private final TicketCode ticketCode;
+    private final String manualCode;
     private final Instant issuedAt;
 
     private Long ownerUserId;
@@ -30,6 +31,7 @@ public class Ticket {
         Long ownerUserId,
         SeatId seatId,
         TicketCode ticketCode,
+        String manualCode,
         TicketStatus status,
         Instant issuedAt
     ) {
@@ -42,6 +44,7 @@ public class Ticket {
         this.seatId = seatId;
         this.ticketCode = Objects.requireNonNull(ticketCode, "TicketCode cannot be null");
         this.status = Objects.requireNonNull(status, "Status cannot be null");
+        this.manualCode = manualCode;
         this.issuedAt = Objects.requireNonNull(issuedAt, "issuedAt cannot be null");
     }
 
@@ -63,6 +66,7 @@ public class Ticket {
             ownerUserId,
             seatId,
             TicketCode.generate(),
+            null,
             TicketStatus.VALID,
             now
         );
@@ -189,6 +193,10 @@ public class Ticket {
 
     public TicketCode getTicketCode() {
         return ticketCode;
+    }
+
+    public String getManualCode() {
+        return manualCode;
     }
 
     /** Current ticket holders and admitted attendees need event cancellation updates. */

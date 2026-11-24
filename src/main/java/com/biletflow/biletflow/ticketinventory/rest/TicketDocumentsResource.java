@@ -73,6 +73,20 @@ public class TicketDocumentsResource {
         return file(documents.qr(ticketId), MediaType.IMAGE_PNG, "ticket-" + ticketId + ".png");
     }
 
+    @GetMapping(value = "/{ticketId}/admission-code", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(
+        summary = "Get the short check-in code",
+        description = "Returns the manual entry code for a valid ticket using the same access rules as the ticket QR image."
+    )
+    @ApiResponse(responseCode = "200", description = "Short check-in code")
+    public ResponseEntity<AdmissionCode> admissionCode(@PathVariable UUID ticketId) {
+        return ResponseEntity.ok()
+            .cacheControl(CacheControl.noStore().cachePrivate())
+            .body(new AdmissionCode(documents.admissionCode(ticketId)));
+    }
+
+    public record AdmissionCode(String manualCode) {}
+
     @PostMapping("/{ticketId}/delivery")
     @Operation(
         summary = "Request ticket email delivery",

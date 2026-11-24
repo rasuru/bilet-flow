@@ -74,6 +74,24 @@ class TicketDeliveryPersistenceIT {
     }
 
     @Test
+    void savedTicketHasAStableManualCodeThatResolvesOnlyForItsEvent() {
+        var issued = ticket();
+        var saved = tickets.saveAll(List.of(issued)).getFirst();
+
+        assertEquals(issued.getTicketCode(), saved.getTicketCode());
+        assertTrue(saved.getManualCode().matches("[0-9A-HJKMNP-TV-Z]{8}"));
+        assertEquals(
+            Optional.of(saved.getTicketCode()),
+            tickets.findTicketCodeByEventIdAndManualCode(saved.getEventId(), saved.getManualCode())
+        );
+        assertTrue(tickets.findTicketCodeByEventIdAndManualCode(UUID.randomUUID(), saved.getManualCode()).isEmpty());
+
+        saved.checkIn();
+        tickets.save(saved);
+        assertEquals(saved.getManualCode(), tickets.findById(saved.getId()).orElseThrow().getManualCode());
+    }
+
+    @Test
     void ticketAndEmailQueueRollbackTogether() {
         var ticket = ticket();
         assertThrows(IllegalStateException.class, () ->

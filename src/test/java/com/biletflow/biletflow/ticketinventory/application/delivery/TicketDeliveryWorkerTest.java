@@ -29,6 +29,7 @@ class TicketDeliveryWorkerTest {
                 1L,
                 null,
                 UUID.randomUUID(),
+                "7K9M2Q8R",
                 status,
                 now
             ),

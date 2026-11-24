@@ -102,8 +102,8 @@ class CampaignQrAdmissionIT {
             .get(0)
             .campaignToken();
 
-        assertThrows(TicketNotFoundException.class, () -> checkIn.validate(eventId, campaignToken));
-        assertThrows(TicketNotFoundException.class, () -> checkIn.checkIn(eventId, campaignToken));
+        assertThrows(TicketNotFoundException.class, () -> checkIn.validate(eventId, campaignToken.toString()));
+        assertThrows(TicketNotFoundException.class, () -> checkIn.checkIn(eventId, campaignToken.toString()));
 
         assertEquals(0L, checkIn.counts(eventId).checkedIn());
         Integer admissions = jdbc.queryForObject(

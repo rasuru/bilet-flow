@@ -30,25 +30,30 @@ public class JpaTicketRepository implements TicketRepository {
     @Override
     @Transactional
     public Ticket save(Ticket ticket) {
-        Objects.requireNonNull(ticket, "ticket cannot be null");
-
-        TicketJpaEntity managed = entityManager.find(TicketJpaEntity.class, ticket.getId().value());
-
-        if (managed == null) {
-            TicketJpaEntity created = mapper.toNewEntity(ticket);
-            entityManager.persist(created);
-            return ticket;
-        }
-
-        mapper.updateEntity(ticket, managed);
-        return ticket;
+        var entity = saveEntity(ticket);
+        if (entity.getManualCode() == null) entityManager.flush();
+        return mapper.toDomain(entity);
     }
 
     @Override
     @Transactional
     public List<Ticket> saveAll(List<Ticket> tickets) {
         Objects.requireNonNull(tickets, "tickets cannot be null");
-        return tickets.stream().map(this::save).toList();
+        var entities = tickets.stream().map(this::saveEntity).toList();
+        if (entities.stream().anyMatch(entity -> entity.getManualCode() == null)) entityManager.flush();
+        return entities.stream().map(mapper::toDomain).toList();
+    }
+
+    private TicketJpaEntity saveEntity(Ticket ticket) {
+        Objects.requireNonNull(ticket, "ticket cannot be null");
+        var managed = entityManager.find(TicketJpaEntity.class, ticket.getId().value());
+        if (managed == null) {
+            var created = mapper.toNewEntity(ticket);
+            entityManager.persist(created);
+            return created;
+        }
+        mapper.updateEntity(ticket, managed);
+        return managed;
     }
 
     @Override
@@ -61,6 +66,11 @@ public class JpaTicketRepository implements TicketRepository {
     public Optional<Ticket> findByTicketCode(TicketCode ticketCode) {
         Objects.requireNonNull(ticketCode, "TicketCode cannot be null");
         return jpaRepository.findByTicketCode(ticketCode.value()).map(mapper::toDomain);
+    }
+
+    @Override
+    public Optional<TicketCode> findTicketCodeByEventIdAndManualCode(UUID eventId, String manualCode) {
+        return jpaRepository.findTicketCodeByEventIdAndManualCode(eventId, manualCode).map(TicketCode::new);
     }
 
     @Override

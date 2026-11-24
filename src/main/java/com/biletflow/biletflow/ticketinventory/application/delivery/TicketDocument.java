@@ -9,4 +9,10 @@ public record TicketDocument(TicketView ticket, String ticketType, TicketEventDe
     public boolean hasAdmissionCode() {
         return !event.cancelled() && (ticket.status() == TicketStatus.VALID || ticket.status() == TicketStatus.CHECKED_IN);
     }
+
+    public String displayManualCode() {
+        String code = ticket.manualCode();
+        if (!hasAdmissionCode() || code == null) return null;
+        return code.substring(0, 4) + "-" + code.substring(4);
+    }
 }

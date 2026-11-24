@@ -4,11 +4,15 @@ import com.biletflow.biletflow.ticketinventory.domain.ticket.TicketStatus;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
+import org.hibernate.annotations.Generated;
 
 @Entity
 @Table(
     name = "ticket_inventory_ticket",
-    uniqueConstraints = @UniqueConstraint(name = "uk_ticket_inventory_ticket_code", columnNames = "ticket_code"),
+    uniqueConstraints = {
+        @UniqueConstraint(name = "uk_ticket_inventory_ticket_code", columnNames = "ticket_code"),
+        @UniqueConstraint(name = "uk_ticket_inventory_ticket_manual_code", columnNames = { "event_id", "manual_code" }),
+    },
     indexes = {
         @Index(name = "idx_ticket_inventory_ticket_order", columnList = "order_id"),
         @Index(name = "idx_ticket_inventory_ticket_event", columnList = "event_id"),
@@ -41,6 +45,10 @@ public class TicketJpaEntity {
 
     @Column(name = "ticket_code", nullable = false, updatable = false)
     private UUID ticketCode;
+
+    @Generated
+    @Column(name = "manual_code", nullable = false, insertable = false, updatable = false, length = 8)
+    private String manualCode;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 32)
@@ -110,6 +118,10 @@ public class TicketJpaEntity {
 
     public UUID getTicketCode() {
         return ticketCode;
+    }
+
+    public String getManualCode() {
+        return manualCode;
     }
 
     public TicketStatus getStatus() {

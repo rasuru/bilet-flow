@@ -27,20 +27,20 @@ public class CheckInResource {
     }
 
     @GetMapping("/tickets/{ticketCode}/validation")
-    @Operation(summary = "Validate a ticket code for this event")
-    public TicketValidationResult validate(@PathVariable UUID eventId, @PathVariable UUID ticketCode) {
+    @Operation(summary = "Validate a ticket for this event", description = "Accepts a ticket QR UUID or its eight-character check-in code.")
+    public TicketValidationResult validate(@PathVariable UUID eventId, @PathVariable String ticketCode) {
         return service.validate(eventId, ticketCode);
     }
 
     @PostMapping("/tickets/{ticketCode}")
-    @Operation(summary = "Check in a valid ticket")
-    public TicketView checkIn(@PathVariable UUID eventId, @PathVariable UUID ticketCode) {
+    @Operation(summary = "Check in a valid ticket", description = "Accepts a ticket QR UUID or its eight-character check-in code.")
+    public TicketView checkIn(@PathVariable UUID eventId, @PathVariable String ticketCode) {
         return service.checkIn(eventId, ticketCode);
     }
 
     @PostMapping("/tickets/{ticketCode}/reverse")
-    @Operation(summary = "Reverse an accidental check-in")
-    public TicketView reverse(@PathVariable UUID eventId, @PathVariable UUID ticketCode) {
+    @Operation(summary = "Reverse an accidental check-in", description = "Accepts a ticket QR UUID or its eight-character check-in code.")
+    public TicketView reverse(@PathVariable UUID eventId, @PathVariable String ticketCode) {
         return service.reverse(eventId, ticketCode);
     }
 

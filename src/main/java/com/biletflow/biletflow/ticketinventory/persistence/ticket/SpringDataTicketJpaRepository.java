@@ -13,6 +13,9 @@ import org.springframework.data.repository.query.Param;
 public interface SpringDataTicketJpaRepository extends JpaRepository<TicketJpaEntity, UUID> {
     Optional<TicketJpaEntity> findByTicketCode(UUID ticketCode);
 
+    @Query("select t.ticketCode from TicketJpaEntity t where t.eventId = :eventId and t.manualCode = :manualCode")
+    Optional<UUID> findTicketCodeByEventIdAndManualCode(@Param("eventId") UUID eventId, @Param("manualCode") String manualCode);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from TicketJpaEntity t where t.ticketCode = :code")
     Optional<TicketJpaEntity> findByTicketCodeForUpdate(@Param("code") UUID code);

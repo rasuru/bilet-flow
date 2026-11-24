@@ -14,6 +14,7 @@ public record TicketView(
     Long ownerUserId,
     UUID seatId,
     UUID ticketCode,
+    String manualCode,
     TicketStatus status,
     Instant issuedAt
 ) {

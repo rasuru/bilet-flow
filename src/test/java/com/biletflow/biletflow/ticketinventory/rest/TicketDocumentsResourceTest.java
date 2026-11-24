@@ -42,6 +42,18 @@ class TicketDocumentsResourceTest {
     }
 
     @Test
+    void admissionCodeUsesPrivateNonCacheableResponse() throws Exception {
+        var documents = mock(TicketDocumentService.class);
+        var id = UUID.randomUUID();
+        when(documents.admissionCode(id)).thenReturn("7K9M2Q8R");
+        var mvc = MockMvcBuilders.standaloneSetup(new TicketDocumentsResource(documents)).build();
+        mvc.perform(get("/api/tickets/{id}/admission-code", id))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Cache-Control", "no-store, private"))
+            .andExpect(jsonPath("$.manualCode").value("7K9M2Q8R"));
+    }
+
+    @Test
     void resendCooldownReturnsAConflict() throws Exception {
         var documents = mock(TicketDocumentService.class);
         var id = UUID.randomUUID();

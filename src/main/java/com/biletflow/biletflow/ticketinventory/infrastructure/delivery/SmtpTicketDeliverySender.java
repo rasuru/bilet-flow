@@ -21,6 +21,8 @@ public class SmtpTicketDeliverySender implements TicketDeliverySender {
     public void send(TicketDocument document, UUID messageId) {
         var ticket = document.ticket();
         var event = document.event();
+        String manualCode = document.displayManualCode();
+        String manualEntry = manualCode == null ? "" : "If the QR cannot be scanned, give staff this check-in code: " + manualCode + ". ";
         String text =
             "Your registration is confirmed. Your ticket is attached as a printable PDF.\n\n" +
             "Event: " +
@@ -36,7 +38,8 @@ public class SmtpTicketDeliverySender implements TicketDeliverySender {
             "\nOrder reference: " +
             ticket.orderId() +
             "\n\nShow the QR code on your phone or print the PDF. Both copies use the same admission. " +
-            "Keep the QR code private. Admission is checked online; refunded or cancelled tickets cannot be used. " +
+            manualEntry +
+            "Keep your ticket codes private. Admission is checked online; refunded or cancelled tickets cannot be used. " +
             "To claim the ticket in your account, use ticket ID " +
             ticket.id() +
             " with this verified email address.\n";

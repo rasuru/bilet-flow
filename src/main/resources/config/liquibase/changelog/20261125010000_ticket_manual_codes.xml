@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd"
+>
+    <changeSet id="20261125010000-ticket-manual-codes" author="biletflow">
+        <addColumn tableName="ticket_inventory_ticket">
+            <column name="manual_code" type="varchar(8)"/>
+        </addColumn>
+        <addUniqueConstraint
+            tableName="ticket_inventory_ticket"
+            columnNames="event_id, manual_code"
+            constraintName="uk_ticket_inventory_ticket_manual_code"
+        />
+        <sql splitStatements="false"><![CDATA[
+            CREATE FUNCTION allocate_ticket_inventory_manual_code(p_event_id uuid)
+            RETURNS varchar LANGUAGE plpgsql AS $$
+            DECLARE
+                alphabet constant text := '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+                random_bits bigint;
+                candidate varchar(8);
+            BEGIN
+                -- Keep the collision check and subsequent write serialized for this event.
+                PERFORM pg_advisory_xact_lock(hashtextextended('ticket-manual-code:' || p_event_id::text, 0));
+                FOR attempt IN 1..12 LOOP
+                    -- The first 40 bits of a random UUID contain no fixed version or variant bits.
+                    random_bits := ('x' || left(replace(gen_random_uuid()::text, '-', ''), 10))::bit(40)::bigint;
+                    SELECT string_agg(substr(alphabet, (((random_bits >> (5 * digit)) & 31)::int + 1), 1), '' ORDER BY digit DESC)
+                    INTO candidate
+                    FROM generate_series(0, 7) AS digits(digit);
+
+                    IF NOT EXISTS (
+                        SELECT 1 FROM ticket_inventory_ticket
+                        WHERE event_id = p_event_id AND manual_code = candidate
+                    ) THEN
+                        RETURN candidate;
+                    END IF;
+                END LOOP;
+                RAISE EXCEPTION 'Could not allocate a manual ticket code';
+            END;
+            $$;
+        ]]></sql>
+        <sql splitStatements="false"><![CDATA[
+            CREATE FUNCTION assign_ticket_inventory_manual_code()
+            RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+                NEW.manual_code := allocate_ticket_inventory_manual_code(NEW.event_id);
+                RETURN NEW;
+            END;
+            $$;
+        ]]></sql>
+        <sql>
+            CREATE TRIGGER ticket_inventory_assign_manual_code
+            BEFORE INSERT ON ticket_inventory_ticket
+            FOR EACH ROW WHEN (NEW.manual_code IS NULL)
+            EXECUTE FUNCTION assign_ticket_inventory_manual_code();
+        </sql>
+        <sql>
+            UPDATE ticket_inventory_ticket
+            SET manual_code = allocate_ticket_inventory_manual_code(event_id)
+            WHERE manual_code IS NULL;
+        </sql>
+        <addNotNullConstraint tableName="ticket_inventory_ticket" columnName="manual_code" columnDataType="varchar(8)"/>
+        <sql>
+            ALTER TABLE ticket_inventory_ticket ADD CONSTRAINT ck_ticket_inventory_ticket_manual_code
+            CHECK (manual_code ~ '^[0-9A-HJKMNP-TV-Z]{8}$');
+        </sql>
+        <rollback>
+            <sql>
+                DROP TRIGGER ticket_inventory_assign_manual_code ON ticket_inventory_ticket;
+                DROP FUNCTION assign_ticket_inventory_manual_code();
+                DROP FUNCTION allocate_ticket_inventory_manual_code(uuid);
+            </sql>
+            <dropColumn tableName="ticket_inventory_ticket" columnName="manual_code"/>
+        </rollback>
+    </changeSet>
+</databaseChangeLog>

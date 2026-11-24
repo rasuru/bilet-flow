@@ -20,6 +20,7 @@ public class TicketPersistenceMapper {
             entity.getOwnerUserId(),
             entity.getSeatId() == null ? null : new SeatId(entity.getSeatId()),
             new TicketCode(entity.getTicketCode()),
+            entity.getManualCode(),
             entity.getStatus(),
             entity.getIssuedAt()
         );
