@@ -18,18 +18,28 @@ public record CheckoutProcess(
     List<Hold> holds,
     UUID paymentId,
     CheckoutRefundStatus refundState,
-    UUID refundId
+    UUID refundId,
+    UUID redemptionId,
+    String promoCode,
+    Instant createdAt
 ) {
+    public CheckoutProcess(
+        UUID id, long ownerId, UUID eventId, String fingerprint, Instant deadline,
+        List<Line> lines, List<Hold> holds, UUID paymentId, CheckoutRefundStatus refundState, UUID refundId
+    ) {
+        this(id, ownerId, eventId, fingerprint, deadline, lines, holds, paymentId, refundState, refundId, null, null, null);
+    }
+
     public CheckoutProcess {
         lines = List.copyOf(lines);
         holds = List.copyOf(holds);
     }
 
     public CheckoutProcess payment(UUID id) {
-        return new CheckoutProcess(this.id, ownerId, eventId, fingerprint, deadline, lines, holds, id, refundState, refundId);
+        return new CheckoutProcess(this.id, ownerId, eventId, fingerprint, deadline, lines, holds, id, refundState, refundId, redemptionId, promoCode, createdAt);
     }
 
     public CheckoutProcess refund(CheckoutRefundStatus state, UUID id) {
-        return new CheckoutProcess(this.id, ownerId, eventId, fingerprint, deadline, lines, holds, paymentId, state, id);
+        return new CheckoutProcess(this.id, ownerId, eventId, fingerprint, deadline, lines, holds, paymentId, state, id, redemptionId, promoCode, createdAt);
     }
 }

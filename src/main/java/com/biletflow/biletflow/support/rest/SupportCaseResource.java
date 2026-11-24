@@ -45,13 +45,13 @@ public class SupportCaseResource {
         @NotNull SupportCaseType type,
         @NotBlank @Size(max = 255) String subject,
         @NotNull IssueCategory category,
-        @NotBlank String initialMessage,
+        @NotBlank @Size(max = 4000) String initialMessage,
         UUID eventId,
         UUID orderId,
         UUID ticketId
     ) {}
 
-    public record ReplyRequest(@NotBlank String content) {}
+    public record ReplyRequest(@NotBlank @Size(max = 4000) String content) {}
 
     public record ChangeStatusRequest(@NotNull CaseStatus status) {}
 

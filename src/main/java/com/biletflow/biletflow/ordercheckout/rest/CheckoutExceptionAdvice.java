@@ -2,6 +2,7 @@ package com.biletflow.biletflow.ordercheckout.rest;
 
 import com.biletflow.biletflow.common.rest.ApiProblems;
 import com.biletflow.biletflow.ordercheckout.application.CheckoutConflict;
+import com.biletflow.biletflow.promotions.ohs.PromotionRejectedException;
 import com.biletflow.biletflow.ticketinventory.ohs.CheckoutInventoryOhs;
 import java.util.List;
 import org.springframework.core.Ordered;
@@ -25,6 +26,9 @@ public class CheckoutExceptionAdvice {
                 "Checkout idempotency conflict",
                 exception.getMessage()
             );
+            case PAID_SALES_INACTIVE -> ApiProblems.body(
+                HttpStatus.CONFLICT, "paid-sales-inactive", "Paid sales inactive", exception.getMessage()
+            );
             case REGISTRATION_CLOSED -> ApiProblems.body(
                 HttpStatus.CONFLICT,
                 "registration-closed",
@@ -32,6 +36,15 @@ public class CheckoutExceptionAdvice {
                 exception.getMessage()
             );
         };
+        return ApiProblems.response(problem);
+    }
+
+    @ExceptionHandler(PromotionRejectedException.class)
+    public ResponseEntity<ProblemDetail> handlePromotionRejected(PromotionRejectedException exception) {
+        ProblemDetail problem = ApiProblems.body(
+            HttpStatus.CONFLICT, "promo-code-rejected", "Promo code rejected", exception.getMessage()
+        );
+        problem.setProperty("reason", exception.getReason().name());
         return ApiProblems.response(problem);
     }
 

@@ -4,6 +4,7 @@ import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.support.application.audit.SupportAuditRepository;
 import com.biletflow.biletflow.support.application.audit.SupportAuditRepository.SupportAuditRecord;
 import com.biletflow.biletflow.support.application.event.SupportCaseAssignedEvent;
+import com.biletflow.biletflow.support.application.event.SupportCaseEscalatedEvent;
 import com.biletflow.biletflow.support.application.event.SupportCaseOpenedEvent;
 import com.biletflow.biletflow.support.application.event.SupportCaseStatusChangedEvent;
 import com.biletflow.biletflow.support.application.event.SupportMessageAddedEvent;
@@ -52,6 +53,12 @@ public class SupportAuditEventHandler {
     public void onAssigned(SupportCaseAssignedEvent event) {
         append(event.caseId(), event.eventId(), event.occurredAt(), event.actorUserId(),
             "CASE_ASSIGNED", "assignedSupportUserId=" + event.assignedSupportUserId());
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+    public void onEscalated(SupportCaseEscalatedEvent event) {
+        append(event.caseId(), event.eventId(), event.occurredAt(), event.actorUserId(),
+            "CASE_ESCALATED", "Support case escalated to platform administrators");
     }
 
     private void append(UUID caseId, UUID eventId, java.time.Instant occurredAt,

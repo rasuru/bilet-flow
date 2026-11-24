@@ -21,6 +21,7 @@ import com.biletflow.biletflow.ticketinventory.ohs.PaidSalesInventoryOhs;
 import java.time.Clock;
 import java.util.*;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -71,6 +72,13 @@ public class PaymentService implements PaymentsOhs {
     @Override
     public boolean permitsPaidSales(UUID eventId) {
         return activations.find(eventId).map(activation -> activation.aggregate().permitsPaidSales()).orElse(false);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean permitsPaidSalesForCheckout(UUID eventId) {
+        locks.lock("activation:" + eventId);
+        return permitsPaidSales(eventId);
     }
 
     @Override

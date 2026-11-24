@@ -5,6 +5,7 @@ public class CheckoutConflict extends IllegalStateException {
     public enum Reason {
         IDEMPOTENCY_KEY_REUSED,
         REGISTRATION_CLOSED,
+        PAID_SALES_INACTIVE,
     }
 
     private final Reason reason;

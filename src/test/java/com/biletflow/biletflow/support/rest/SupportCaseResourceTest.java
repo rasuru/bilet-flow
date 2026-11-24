@@ -34,7 +34,7 @@ class SupportCaseResourceTest {
     private SupportCaseView view(UUID id) {
         return new SupportCaseView(id, SupportCaseType.ATTENDEE_SUPPORT, 10L, "Subject",
             IssueCategory.OTHER, null, null, null, CaseStatus.OPEN, null, null,
-            now, now, null, List.of());
+            now, now, null, null, List.of());
     }
 
     @Test

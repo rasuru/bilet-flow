@@ -32,6 +32,8 @@ public class RefundPolicyService implements AttendeeRefundPolicy {
 
     public RefundPolicyView get(UUID eventId) {
         Objects.requireNonNull(eventId);
+        // Resolve the event first: unknown event IDs must not receive a synthetic default policy.
+        events.salesScope(eventId, clock.instant());
         return policies.findById(eventId).map(this::view)
             .orElseGet(() -> new RefundPolicyView(eventId, false, DEFAULT_CUTOFF_HOURS, null));
     }

@@ -140,7 +140,7 @@ class MailServiceIT {
         assertThat(message.getSubject()).isEqualTo("test title");
         assertThat(message.getAllRecipients()[0]).hasToString(user.getEmail());
         assertThat(message.getFrom()[0]).hasToString(jHipsterProperties.getMail().getFrom());
-        assertThat(message.getContent().toString()).isEqualToNormalizingNewlines("<html>test title, http://127.0.0.1:8080, john</html>\n");
+        assertThat(message.getContent().toString()).isEqualToNormalizingNewlines("<html>test title, https://tickets.example.test, john</html>\n");
         assertThat(message.getDataHandler().getContentType()).isEqualTo("text/html;charset=UTF-8");
     }
 
@@ -150,12 +150,13 @@ class MailServiceIT {
         user.setLangKey(Constants.DEFAULT_LANGUAGE);
         user.setLogin("john");
         user.setEmail("john.doe@example.com");
+        user.setActivationKey("testkey");
         mailService.sendActivationEmail(user);
         verify(javaMailSender).send(messageCaptor.capture());
         MimeMessage message = messageCaptor.getValue();
         assertThat(message.getAllRecipients()[0]).hasToString(user.getEmail());
         assertThat(message.getFrom()[0]).hasToString(jHipsterProperties.getMail().getFrom());
-        assertThat(message.getContent().toString()).isNotEmpty();
+        assertThat(message.getContent().toString()).contains("https://tickets.example.test/account/activate?key=testkey");
         assertThat(message.getDataHandler().getContentType()).isEqualTo("text/html;charset=UTF-8");
     }
 
@@ -165,12 +166,13 @@ class MailServiceIT {
         user.setLangKey(Constants.DEFAULT_LANGUAGE);
         user.setLogin("john");
         user.setEmail("john.doe@example.com");
+        user.setResetKey("testkey");
         mailService.sendCreationEmail(user);
         verify(javaMailSender).send(messageCaptor.capture());
         MimeMessage message = messageCaptor.getValue();
         assertThat(message.getAllRecipients()[0]).hasToString(user.getEmail());
         assertThat(message.getFrom()[0]).hasToString(jHipsterProperties.getMail().getFrom());
-        assertThat(message.getContent().toString()).isNotEmpty();
+        assertThat(message.getContent().toString()).contains("https://tickets.example.test/account/reset/finish?key=testkey");
         assertThat(message.getDataHandler().getContentType()).isEqualTo("text/html;charset=UTF-8");
     }
 
@@ -180,12 +182,13 @@ class MailServiceIT {
         user.setLangKey(Constants.DEFAULT_LANGUAGE);
         user.setLogin("john");
         user.setEmail("john.doe@example.com");
+        user.setResetKey("testkey");
         mailService.sendPasswordResetMail(user);
         verify(javaMailSender).send(messageCaptor.capture());
         MimeMessage message = messageCaptor.getValue();
         assertThat(message.getAllRecipients()[0]).hasToString(user.getEmail());
         assertThat(message.getFrom()[0]).hasToString(jHipsterProperties.getMail().getFrom());
-        assertThat(message.getContent().toString()).isNotEmpty();
+        assertThat(message.getContent().toString()).contains("https://tickets.example.test/account/reset/finish?key=testkey");
         assertThat(message.getDataHandler().getContentType()).isEqualTo("text/html;charset=UTF-8");
     }
 
@@ -215,7 +218,7 @@ class MailServiceIT {
             String emailTitle = (String) properties.get("email.test.title");
             assertThat(message.getSubject()).isEqualTo(emailTitle);
             assertThat(message.getContent().toString()).isEqualToNormalizingNewlines(
-                "<html>" + emailTitle + ", http://127.0.0.1:8080, john</html>\n"
+                "<html>" + emailTitle + ", https://tickets.example.test, john</html>\n"
             );
         }
     }

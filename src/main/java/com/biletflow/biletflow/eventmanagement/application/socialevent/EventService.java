@@ -78,6 +78,9 @@ public class EventService {
         SocialEvent event = requireEvent(command.eventId());
         assertCanModifyEvent(event, currentUserId);
 
+        var previousDateRange = event.getDateRange();
+        boolean materialChange = !Objects.equals(previousDateRange, command.dateRange());
+
         event.updateDetails(
             command.title(),
             command.description(),
@@ -91,12 +94,14 @@ public class EventService {
         eventRepository.save(event);
 
         auditService.record(event.getId().value(), currentUserId, EventAuditRepository.EventAuditType.UPDATED, "Event details updated");
-        events.publish(new com.biletflow.biletflow.common.events.IntegrationEvent(
-            java.util.UUID.randomUUID(),
-            com.biletflow.biletflow.eventmanagement.integration.EventUpdatedEmailHandler.TYPE,
-            event.getId().value(),
-            java.util.Map.of("title", event.getTitle())
-        ));
+        if (materialChange) {
+            events.publish(new com.biletflow.biletflow.common.events.IntegrationEvent(
+                java.util.UUID.randomUUID(),
+                com.biletflow.biletflow.eventmanagement.integration.EventUpdatedEmailHandler.TYPE,
+                event.getId().value(),
+                java.util.Map.of("title", event.getTitle(), "changedFields", "date/time")
+            ));
+        }
     }
 
     @Transactional

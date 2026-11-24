@@ -12,6 +12,8 @@ public class PromotionsEndpointSecurityConfiguration {
     EndpointSecurityConfigurer configurePromotionsSecurity() {
         return authz ->
             authz
+                .requestMatchers(HttpMethod.POST, "/api/checkouts/quote")
+                .permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/campaign-links/*")
                 .permitAll()
                 .requestMatchers("/api/events/*/campaigns", "/api/campaigns/**", "/api/promo-codes/**")

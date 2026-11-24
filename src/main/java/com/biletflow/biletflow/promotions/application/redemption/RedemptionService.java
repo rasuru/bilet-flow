@@ -20,6 +20,7 @@ import com.biletflow.biletflow.promotions.domain.redemption.PromoRedemptionRepos
 import com.biletflow.biletflow.promotions.domain.redemption.RedemptionId;
 import com.biletflow.biletflow.promotions.domain.redemption.ReservationLifetime;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -77,11 +78,17 @@ public class RedemptionService {
         Objects.requireNonNull(command, "command cannot be null");
         Objects.requireNonNull(command.checkoutId(), "checkoutId cannot be null");
 
-        Instant now = Instant.now(clock);
         PromoCode promoCode = requireRedeemableCode(command.code());
         Campaign campaign = campaignRepository.findByIdForUpdate(promoCode.getCampaignId()).orElseThrow(() -> campaignNotFound(promoCode));
         campaign.ensureAppliesToEvent(command.eventId());
+        Instant now = Instant.now(clock);
 
+        if (command.checkoutDeadline() != null && !now.isBefore(command.checkoutDeadline())) {
+            throw new IllegalStateException("Checkout inventory hold has expired");
+        }
+        var lifetime = command.checkoutDeadline() == null
+            ? reservationLifetime
+            : new ReservationLifetime(Duration.between(now, command.checkoutDeadline()));
         for (PromoRedemption previous : redemptionRepository.findActiveReservations(campaign.getId(), command.checkoutId(), now)) {
             previous.release(command.checkoutId());
             redemptionRepository.save(previous);
@@ -98,7 +105,7 @@ public class RedemptionService {
                 command.source(),
                 quote,
                 now,
-                reservationLifetime
+                lifetime
             )
         );
 
@@ -116,7 +123,8 @@ public class RedemptionService {
         Objects.requireNonNull(command, "command cannot be null");
 
         PromoRedemption redemption = requireRedemption(command.redemptionId());
-        if (redemption.confirm(command.orderId(), Instant.now(clock))) {
+        Instant acceptedAt = command.acceptedAt() == null ? Instant.now(clock) : command.acceptedAt();
+        if (redemption.confirm(command.orderId(), acceptedAt)) {
             redemptionRepository.save(redemption);
         }
     }

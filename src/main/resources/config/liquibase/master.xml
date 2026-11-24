@@ -33,8 +33,12 @@
     <include file="config/liquibase/changelog/20261028120000_payment_notices_and_settings.xml" relativeToChangelogFile="false"/>
     <include file="config/liquibase/changelog/20261108120000_payout_accounts_and_fee_settings.xml" relativeToChangelogFile="false"/>
     <include file="config/liquibase/changelog/20261113120000_promotions.xml" relativeToChangelogFile="false"/>
+    <include file="config/liquibase/changelog/20261121120000_promotions_redemptions.xml" relativeToChangelogFile="false"/>
+    <include file="config/liquibase/changelog/20261123010000_checkout_promotion.xml" relativeToChangelogFile="false"/>
     <include file="config/liquibase/changelog/20261115212236_create_support_case_tables.xml" relativeToChangelogFile="false"/>
+    <include file="config/liquibase/changelog/20261122023000_admin_moderation.xml" relativeToChangelogFile="false"/>
     <include file="config/liquibase/changelog/20261122150000_support_case_audit.xml" relativeToChangelogFile="false"/>
+    <include file="config/liquibase/changelog/20261123030000_checkout_created_at.xml" relativeToChangelogFile="false"/>
     <include file="config/liquibase/changelog/20261124100000_organizer_profiles_and_refund_policies.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>
 

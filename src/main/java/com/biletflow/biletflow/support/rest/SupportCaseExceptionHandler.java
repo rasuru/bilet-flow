@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @Order(Ordered.HIGHEST_PRECEDENCE)
-@RestControllerAdvice(basePackages = "com.biletflow.biletflow.support.rest")
+@RestControllerAdvice(assignableTypes = { SupportCaseResource.class, SupportSocketTicketResource.class })
 public class SupportCaseExceptionHandler {
 
     @ExceptionHandler(EntityNotFoundException.class)

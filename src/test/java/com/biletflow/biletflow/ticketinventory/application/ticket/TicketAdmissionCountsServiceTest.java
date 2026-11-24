@@ -26,7 +26,7 @@ class TicketAdmissionCountsServiceTest {
         TicketRepository tickets = mock(TicketRepository.class);
         TicketTypeRepository types = mock(TicketTypeRepository.class);
         CurrentActor actor = () -> Optional.of(55L);
-        when(events.canCheckIn(eventId, 55L)).thenReturn(true);
+        when(events.canManageTicketing(eventId, 55L)).thenReturn(true);
         when(tickets.findAllByEventId(eventId)).thenReturn(List.of(
             ticket(eventId, firstType, TicketStatus.REFUNDED),
             ticket(eventId, firstType, TicketStatus.CHECKED_IN),
@@ -54,7 +54,7 @@ class TicketAdmissionCountsServiceTest {
         UUID eventId = UUID.randomUUID();
         EventManagementPort events = mock(EventManagementPort.class);
         CurrentActor actor = () -> Optional.of(55L);
-        when(events.canCheckIn(eventId, 55L)).thenReturn(false);
+        when(events.canManageTicketing(eventId, 55L)).thenReturn(false);
 
         assertThrows(AuthorizationException.class, () -> new TicketAdmissionCountsService(
             events, actor, mock(TicketRepository.class), mock(TicketTypeRepository.class)

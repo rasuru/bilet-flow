@@ -47,6 +47,12 @@ public class SupportNotificationEventHandler implements IntegrationEventHandler 
                 notifySupportStaff(notification, "New support case needs attention",
                     "A new support case " + notification.caseId() + " is waiting for review.");
             }
+            case CASE_ESCALATED -> {
+                notifyPlatformAdministrators("Support case escalated",
+                    "Support case " + notification.caseId() + " was escalated for review.", notification.caseId());
+                sendToUser(notification.requesterUserId(), "Support case escalated",
+                    "Your support case " + notification.caseId() + " was forwarded to platform support.", notification.caseId());
+            }
             case CASE_ASSIGNED -> {
                 sendToUser(notification.requesterUserId(), "Support case assigned",
                     "Your support case " + notification.caseId() + " has been assigned to a support agent.", notification.caseId());

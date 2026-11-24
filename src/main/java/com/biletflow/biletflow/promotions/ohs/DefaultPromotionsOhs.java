@@ -12,6 +12,7 @@ import com.biletflow.biletflow.promotions.application.redemption.view.ReservedPr
 import com.biletflow.biletflow.promotions.domain.exceptions.PromoCodeRejectedException;
 import com.biletflow.biletflow.promotions.domain.redemption.RedemptionSource;
 import com.biletflow.biletflow.promotions.ohs.PromotionRejectedException.Reason;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -37,12 +38,14 @@ public class DefaultPromotionsOhs implements PromotionsOhs {
     }
 
     @Override
-    public Reservation reserve(UUID eventId, UUID checkoutId, String code, List<Line> lines, Source source) {
+    public Reservation reserve(UUID eventId, UUID checkoutId, String code, List<Line> lines, Source source, Instant checkoutDeadline) {
         Objects.requireNonNull(source, "source cannot be null");
 
         ReservedPromotionView view = translatingRejections(() ->
             redemptions.reserve(
-                new ReservePromotionCommand(eventId, checkoutId, code, toPromotionLines(lines), RedemptionSource.valueOf(source.name()))
+                new ReservePromotionCommand(
+                    eventId, checkoutId, code, toPromotionLines(lines), RedemptionSource.valueOf(source.name()), checkoutDeadline
+                )
             )
         );
 
@@ -50,8 +53,8 @@ public class DefaultPromotionsOhs implements PromotionsOhs {
     }
 
     @Override
-    public void confirm(UUID redemptionId, UUID orderId) {
-        redemptions.confirm(new ConfirmRedemptionCommand(redemptionId, orderId));
+    public void confirm(UUID redemptionId, UUID orderId, Instant acceptedAt) {
+        redemptions.confirm(new ConfirmRedemptionCommand(redemptionId, orderId, acceptedAt));
     }
 
     @Override

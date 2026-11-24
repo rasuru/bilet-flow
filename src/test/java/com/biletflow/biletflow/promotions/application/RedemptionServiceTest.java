@@ -76,6 +76,21 @@ class RedemptionServiceTest {
     }
 
     @Test
+    void checkoutDeadlineOverridesStandaloneLifetimeAndAcceptsOnTimeFulfillment() {
+        String code = createCode(1);
+        var deadline = NOW.plusSeconds(90);
+        var reserved = fixture.redemptionService.reserve(
+            new ReservePromotionCommand(fixture.eventId, checkoutId, code, vipAndStandard(), RedemptionSource.CODE, deadline)
+        );
+        assertEquals(deadline, reserved.expiresAt());
+
+        UUID orderId = UUID.randomUUID();
+        fixture.redemptionService.confirm(new ConfirmRedemptionCommand(reserved.redemptionId(), orderId, deadline.minusNanos(1)));
+        assertEquals(orderId, stored(reserved).getOrderId());
+        assertEquals(RedemptionStatus.CONFIRMED, stored(reserved).getStatus());
+    }
+
+    @Test
     void quoteIgnoresTheSessionsOwnReservation() {
         String code = createCode(1);
         reserve(code, checkoutId);

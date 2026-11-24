@@ -2,6 +2,7 @@ package com.biletflow.biletflow.support.integration.notifications;
 
 import com.biletflow.biletflow.common.events.IntegrationEvent;
 import com.biletflow.biletflow.support.application.event.SupportCaseAssignedEvent;
+import com.biletflow.biletflow.support.application.event.SupportCaseEscalatedEvent;
 import com.biletflow.biletflow.support.application.event.SupportCaseOpenedEvent;
 import com.biletflow.biletflow.support.application.event.SupportCaseStatusChangedEvent;
 import com.biletflow.biletflow.support.application.event.SupportMessageAddedEvent;
@@ -26,7 +27,7 @@ public record SupportNotificationEvent(
 ) {
     public static final String TYPE = "support.notification.v1";
 
-    public enum Kind { CASE_OPENED, CASE_ASSIGNED, STATUS_CHANGED, MESSAGE_ADDED }
+    public enum Kind { CASE_OPENED, CASE_ASSIGNED, STATUS_CHANGED, MESSAGE_ADDED, CASE_ESCALATED }
 
     public IntegrationEvent toIntegrationEvent(Instant occurredAt) {
         Map<String, String> attributes = new HashMap<>();
@@ -62,6 +63,11 @@ public record SupportNotificationEvent(
     public static SupportNotificationEvent opened(SupportCaseOpenedEvent event) {
         return new SupportNotificationEvent(event.caseId(), Kind.CASE_OPENED, event.caseType(), event.eventId(),
             event.requesterUserId(), null, null, null);
+    }
+
+    public static SupportNotificationEvent escalated(SupportCaseEscalatedEvent event) {
+        return new SupportNotificationEvent(event.caseId(), Kind.CASE_ESCALATED, SupportCaseType.ATTENDEE_SUPPORT,
+            event.eventId(), event.requesterUserId(), null, null, null);
     }
 
     public static SupportNotificationEvent assigned(SupportCaseAssignedEvent event) {

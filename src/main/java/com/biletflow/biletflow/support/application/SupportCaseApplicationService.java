@@ -159,6 +159,13 @@ public class SupportCaseApplicationService {
         return SupportCaseView.from(supportCase);
     }
 
+    /** Uses the same access policy as the REST case read. */
+    public boolean canReadConversation(UUID caseId, long userId, boolean administrator) {
+        return supportCases.findById(new SupportCaseId(caseId))
+            .map(supportCase -> supportCase.isOwnedBy(userId) || canHandle(supportCase, userId, administrator))
+            .orElse(false);
+    }
+
     public List<SupportCaseView> list() {
         Long actorId = currentActor.requireUserId();
         if (currentActor.isAdministrator()) {
@@ -258,10 +265,13 @@ public class SupportCaseApplicationService {
     }
 
     private boolean canHandle(SupportCase supportCase, Long actorId) {
-        if (currentActor.isAdministrator()) return true;
-        return supportCase.getType() == SupportCaseType.ATTENDEE_SUPPORT
+        return canHandle(supportCase, actorId, currentActor.isAdministrator());
+    }
+
+    private boolean canHandle(SupportCase supportCase, Long actorId, boolean administrator) {
+        return administrator || (supportCase.getType() == SupportCaseType.ATTENDEE_SUPPORT
             && supportCase.getEventId() != null
-            && eventManagement.canHandleAttendeeSupport(supportCase.getEventId(), actorId);
+            && eventManagement.canHandleAttendeeSupport(supportCase.getEventId(), actorId));
     }
 
     private void requireCanHandle(SupportCase supportCase, Long actorId) {

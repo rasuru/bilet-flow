@@ -196,6 +196,7 @@ info:
 jhipster:
   mail:
     from: biletFlow@localhost
+    base-url: ${biletflow.frontend}
   api-docs:
     default-include-pattern: /api/**
     management-include-pattern: /management/**
@@ -221,4 +222,5 @@ jhipster:
 # https://www.jhipster.tech/common-application-properties/
 # ===================================================================
 
-# application:
+biletflow:
+  frontend: ${BILETFLOW_FRONTEND:http://localhost:5173}
