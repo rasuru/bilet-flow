@@ -2,6 +2,7 @@ package com.biletflow.biletflow.organizerhistory.persistence;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.biletflow.biletflow.IntegrationTest;
@@ -20,6 +21,7 @@ import com.biletflow.biletflow.organizerhistory.application.OrganizerHistoryServ
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -125,6 +127,7 @@ class OrganizerHistoryIT {
             );
             support(at(5), 5L, "CASE_OPENED", "Support case opened: ATTENDEE_SUPPORT");
             support(at(5), 5L, "MESSAGE_ADDED", "Message added by ATTENDEE");
+            support(at(6), organizer, "CASE_STATUS_CHANGED", "OPEN -> RESOLVED");
         });
     }
 
@@ -179,6 +182,36 @@ class OrganizerHistoryIT {
         HistoryEntry opened = page.entries().get(4);
         assertEquals(caseId, opened.entityId());
         assertEquals(HistoryCategory.SUPPORT, opened.category());
+
+        HistoryEntry statusChange = page.entries().get(3);
+        assertEquals(HistoryCategory.SUPPORT, statusChange.category());
+        assertEquals("SUPPORT_CASE", statusChange.entityType());
+        assertEquals(caseId, statusChange.entityId());
+        assertEquals("Support case status changed: OPEN -> RESOLVED", statusChange.description());
+    }
+
+    @Test
+    void timeBoundariesAreAppliedInEverySource() {
+        var exact = history.history(new HistoryQuery(eventId, at(4).toInstant(), at(5).toInstant(), null, null, 0, 50));
+        assertEquals(List.of("ORDER_REFUND_REQUESTED"), exact.entries().stream().map(HistoryEntry::action).toList());
+        assertEquals(1, exact.total());
+
+        var empty = history.history(
+            new HistoryQuery(eventId, at(4).toInstant(), at(4).toInstant().plusNanos(1000), Set.of(HistoryCategory.CHECK_IN), null, 0, 50)
+        );
+        assertEquals(0, empty.total());
+        assertTrue(empty.entries().isEmpty());
+    }
+
+    @Test
+    void everyPageAcrossSourcesIsDisjointAndOrdered() {
+        List<String> walked = new ArrayList<>();
+        for (int page = 0; page < 5; page++) {
+            var slice = history.history(new HistoryQuery(eventId, null, null, null, null, page, 2));
+            assertEquals(9, slice.total());
+            slice.entries().forEach(entry -> walked.add(entry.action()));
+        }
+        assertEquals(history.history(HistoryQuery.all(eventId)).entries().stream().map(HistoryEntry::action).toList(), walked);
     }
 
     @Test
@@ -210,6 +243,7 @@ class OrganizerHistoryIT {
     void strangersCannotReadTheTimelineButAdministratorsCan() {
         doReturn(Optional.of(stranger)).when(actor).userId();
         assertThrows(AuthorizationException.class, () -> history.history(HistoryQuery.all(eventId)));
+        verify(events).canManageTicketing(eventId, stranger);
 
         doReturn(true).when(actor).isAdministrator();
         assertEquals(9, history.history(HistoryQuery.all(eventId)).total());

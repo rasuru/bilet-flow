@@ -39,7 +39,7 @@ import org.springframework.web.bind.annotation.RestController;
     ),
     @ApiResponse(
         responseCode = "403",
-        description = "Caller does not manage the event and is not an administrator",
+        description = "Caller is not the event's organizer and is not an administrator",
         content = @Content(schema = @Schema(implementation = ProblemDetail.class))
     ),
     @ApiResponse(
@@ -59,7 +59,9 @@ public class OrganizerHistoryResource {
     @GetMapping
     @Operation(
         summary = "Get the event activity timeline",
-        description = "Newest first. Combines event changes, ticket price and capacity changes, check-ins and reversals, promo campaigns and codes, refunds, paid-sales actions and support cases. from is inclusive and to is exclusive (ISO-8601 instants). category and action may be repeated. Organizers and event admins of the event, and platform administrators, may read it. Entries cannot be edited or deleted."
+        description = "Newest first. Combines event changes, ticket price and capacity changes, check-ins and reversals, promo campaigns and codes, refunds, paid-sales actions and support cases. from is inclusive and to is exclusive (ISO-8601 instants). category and action may be repeated. Only the event's organizer and platform administrators may read it; assigned event admins may not. Pages are limited to the newest " +
+            HistoryQuery.MAX_DEPTH +
+            " matching entries. Entries cannot be edited or deleted."
     )
     @ApiResponse(
         responseCode = "200",

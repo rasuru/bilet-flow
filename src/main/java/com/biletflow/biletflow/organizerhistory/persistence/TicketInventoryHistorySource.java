@@ -1,51 +1,40 @@
 package com.biletflow.biletflow.organizerhistory.persistence;
 
-import static com.biletflow.biletflow.organizerhistory.persistence.NativeRows.*;
-
 import com.biletflow.biletflow.organizerhistory.application.HistoryCategory;
-import com.biletflow.biletflow.organizerhistory.application.HistoryEntry;
-import com.biletflow.biletflow.organizerhistory.application.HistorySource;
+import com.biletflow.biletflow.organizerhistory.persistence.HistoryActions.Entity;
+import com.biletflow.biletflow.organizerhistory.persistence.HistoryActions.Mapping;
 import jakarta.persistence.EntityManager;
-import java.time.Instant;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.Set;
 import org.springframework.stereotype.Component;
 
 @Component
-public class TicketInventoryHistorySource implements HistorySource {
+public class TicketInventoryHistorySource extends AuditLogHistorySource {
+
+    static final HistoryActions ACTIONS = new HistoryActions(
+        List.of(
+            Mapping.details("TICKET_TYPE_CREATED", HistoryCategory.TICKETING, "TICKET_TYPE", Entity.ROW),
+            Mapping.details("TICKET_PRICE_CHANGED", HistoryCategory.TICKETING, "TICKET_TYPE", Entity.ROW),
+            Mapping.details("TICKET_CAPACITY_CHANGED", HistoryCategory.TICKETING, "TICKET_TYPE", Entity.ROW),
+            Mapping.details("TICKET_CHECKED_IN", HistoryCategory.CHECK_IN, "TICKET", Entity.ROW),
+            Mapping.details("CHECK_IN_REVERSED", HistoryCategory.CHECK_IN, "TICKET", Entity.ROW)
+        ),
+        Set.of()
+    );
 
     private static final String SQL = """
-    SELECT id, timestamp, actor_user_id, type, entity_id, description
-    FROM ticket_inventory_activity_log
-    WHERE event_id = :eventId AND timestamp >= :from AND timestamp < :to
+    SELECT l.id AS id, l.timestamp AS occurred, l.actor_user_id AS actor, l.type AS raw,
+           l.entity_id AS entity, l.description AS details
+    FROM ticket_inventory_activity_log l
+    WHERE l.event_id = :eventId AND l.timestamp >= :from AND l.timestamp < :to AND l.type IN (:types)
     """;
 
-    private final EntityManager entityManager;
-
     public TicketInventoryHistorySource(EntityManager entityManager) {
-        this.entityManager = Objects.requireNonNull(entityManager);
+        super("ticket-inventory", entityManager, ACTIONS);
     }
 
     @Override
-    public List<HistoryEntry> find(UUID eventId, Instant from, Instant to) {
-        return query(entityManager, SQL, Map.of("eventId", eventId, "from", from, "to", to))
-            .stream()
-            .map(row -> {
-                String type = text(row[3]);
-                boolean checkIn = "TICKET_CHECKED_IN".equals(type) || "CHECK_IN_REVERSED".equals(type);
-                return new HistoryEntry(
-                    uuid(row[0]),
-                    instant(row[1]),
-                    number(row[2]),
-                    checkIn ? HistoryCategory.CHECK_IN : HistoryCategory.TICKETING,
-                    type,
-                    checkIn ? "TICKET" : "TICKET_TYPE",
-                    uuid(row[4]),
-                    text(row[5])
-                );
-            })
-            .toList();
+    protected String select() {
+        return SQL;
     }
 }

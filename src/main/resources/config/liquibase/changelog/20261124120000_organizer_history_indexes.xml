@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="20261124120000-1" author="biletflow">
+        <createIndex tableName="event_activity_log" indexName="idx_event_activity_log_event_time">
+            <column name="event_id"/>
+            <column name="timestamp"/>
+        </createIndex>
+        <createIndex tableName="oc_checkout" indexName="idx_oc_checkout_event">
+            <column name="event_id"/>
+        </createIndex>
+        <createIndex tableName="pm_payment_work" indexName="idx_pm_payment_work_event_purpose">
+            <column name="event_id"/>
+            <column name="purpose"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

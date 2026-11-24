@@ -18,6 +18,7 @@ public record HistoryQuery(
 ) {
     public static final int DEFAULT_SIZE = 50;
     public static final int MAX_SIZE = 200;
+    public static final int MAX_DEPTH = 10_000;
     public static final Instant EARLIEST = Instant.EPOCH;
     public static final Instant LATEST = Instant.parse("9999-12-31T00:00:00Z");
 
@@ -39,13 +40,20 @@ public record HistoryQuery(
                       .collect(Collectors.toUnmodifiableSet());
         if (page < 0) throw new IllegalArgumentException("page cannot be negative");
         if (size < 1 || size > MAX_SIZE) throw new IllegalArgumentException("size must be between 1 and " + MAX_SIZE);
+        if ((long) page * size + size > MAX_DEPTH) throw new IllegalArgumentException(
+            "Only the newest " + MAX_DEPTH + " entries can be paged; narrow the date range or filters"
+        );
     }
 
     public static HistoryQuery all(UUID eventId) {
         return new HistoryQuery(eventId, null, null, null, null, 0, DEFAULT_SIZE);
     }
 
-    boolean matches(HistoryEntry entry) {
-        return (categories.isEmpty() || categories.contains(entry.category())) && (actions.isEmpty() || actions.contains(entry.action()));
+    public boolean accepts(HistoryCategory category, String action) {
+        return (categories.isEmpty() || categories.contains(category)) && (actions.isEmpty() || actions.contains(action));
+    }
+
+    public long offset() {
+        return (long) page * size;
     }
 }

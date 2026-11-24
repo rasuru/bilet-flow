@@ -1,59 +1,72 @@
 package com.biletflow.biletflow.organizerhistory.persistence;
 
-import static com.biletflow.biletflow.organizerhistory.persistence.NativeRows.*;
-
 import com.biletflow.biletflow.organizerhistory.application.HistoryCategory;
-import com.biletflow.biletflow.organizerhistory.application.HistoryEntry;
-import com.biletflow.biletflow.organizerhistory.application.HistorySource;
+import com.biletflow.biletflow.organizerhistory.persistence.HistoryActions.Description;
+import com.biletflow.biletflow.organizerhistory.persistence.HistoryActions.Entity;
+import com.biletflow.biletflow.organizerhistory.persistence.HistoryActions.Mapping;
 import jakarta.persistence.EntityManager;
-import java.time.Instant;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.Set;
 import org.springframework.stereotype.Component;
 
 @Component
-public class SupportHistorySource implements HistorySource {
+public class SupportHistorySource extends AuditLogHistorySource {
+
+    static final HistoryActions ACTIONS = new HistoryActions(
+        List.of(
+            new Mapping(
+                "CASE_OPENED",
+                "SUPPORT_CASE_OPENED",
+                HistoryCategory.SUPPORT,
+                "SUPPORT_CASE",
+                Entity.ROW,
+                Description.DETAILS,
+                null
+            ),
+            new Mapping(
+                "CASE_ASSIGNED",
+                "SUPPORT_CASE_ASSIGNED",
+                HistoryCategory.SUPPORT,
+                "SUPPORT_CASE",
+                Entity.ROW,
+                Description.LABEL,
+                "Support case assigned"
+            ),
+            new Mapping(
+                "CASE_STATUS_CHANGED",
+                "SUPPORT_CASE_STATUS_CHANGED",
+                HistoryCategory.SUPPORT,
+                "SUPPORT_CASE",
+                Entity.ROW,
+                Description.LABEL_WITH_DETAILS,
+                "Support case status changed"
+            ),
+            new Mapping(
+                "CASE_ESCALATED",
+                "SUPPORT_CASE_ESCALATED",
+                HistoryCategory.SUPPORT,
+                "SUPPORT_CASE",
+                Entity.ROW,
+                Description.LABEL,
+                "Support case escalated to platform administrators"
+            )
+        ),
+        Set.of("MESSAGE_ADDED")
+    );
 
     private static final String SQL = """
-    SELECT id, occurred_at, actor_user_id, action, support_case_id, details
-    FROM support_case_audit
-    WHERE event_id = :eventId AND occurred_at >= :from AND occurred_at < :to
-      AND action IN ('CASE_OPENED', 'CASE_ASSIGNED', 'CASE_ESCALATED')
+    SELECT a.id AS id, a.occurred_at AS occurred, a.actor_user_id AS actor, a.action AS raw,
+           a.support_case_id AS entity, a.details AS details
+    FROM support_case_audit a
+    WHERE a.event_id = :eventId AND a.occurred_at >= :from AND a.occurred_at < :to AND a.action IN (:types)
     """;
 
-    private final EntityManager entityManager;
-
     public SupportHistorySource(EntityManager entityManager) {
-        this.entityManager = Objects.requireNonNull(entityManager);
+        super("support", entityManager, ACTIONS);
     }
 
     @Override
-    public List<HistoryEntry> find(UUID eventId, Instant from, Instant to) {
-        return query(entityManager, SQL, Map.of("eventId", eventId, "from", from, "to", to))
-            .stream()
-            .map(row -> {
-                String action = text(row[3]);
-                return new HistoryEntry(
-                    uuid(row[0]),
-                    instant(row[1]),
-                    number(row[2]),
-                    HistoryCategory.SUPPORT,
-                    switch (action) {
-                        case "CASE_OPENED" -> "SUPPORT_CASE_OPENED";
-                        case "CASE_ESCALATED" -> "SUPPORT_CASE_ESCALATED";
-                        default -> "SUPPORT_CASE_ASSIGNED";
-                    },
-                    "SUPPORT_CASE",
-                    uuid(row[4]),
-                    switch (action) {
-                        case "CASE_OPENED" -> text(row[5]);
-                        case "CASE_ESCALATED" -> "Support case escalated to platform administrators";
-                        default -> "Support case assigned";
-                    }
-                );
-            })
-            .toList();
+    protected String select() {
+        return SQL;
     }
 }

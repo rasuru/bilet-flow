@@ -1,56 +1,57 @@
 package com.biletflow.biletflow.organizerhistory.persistence;
 
-import static com.biletflow.biletflow.organizerhistory.persistence.NativeRows.*;
-
 import com.biletflow.biletflow.organizerhistory.application.HistoryCategory;
-import com.biletflow.biletflow.organizerhistory.application.HistoryEntry;
-import com.biletflow.biletflow.organizerhistory.application.HistorySource;
+import com.biletflow.biletflow.organizerhistory.persistence.HistoryActions.Description;
+import com.biletflow.biletflow.organizerhistory.persistence.HistoryActions.Entity;
+import com.biletflow.biletflow.organizerhistory.persistence.HistoryActions.Mapping;
 import jakarta.persistence.EntityManager;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.Set;
 import org.springframework.stereotype.Component;
 
 @Component
-public class FinancialHistorySource implements HistorySource {
+public class FinancialHistorySource extends AuditLogHistorySource {
 
-    static final Map<String, String> REFUND_ACTIONS = Map.of(
+    static final List<String> REFUND_ACTIONS = List.of(
         "ORDER_REFUND_REQUESTED",
-        "Order refund requested",
         "UNFULFILLED_ORDER_REFUND_REQUESTED",
-        "Refund requested for an unfulfilled payment",
         "ORDER_REFUND_COMPLETED",
-        "Order refund completed",
         "ORDER_REFUND_FAILED",
-        "Order refund failed",
-        "FREE_ORDER_CANCELLED",
-        "Free order cancelled by the organizer"
+        "FREE_ORDER_CANCELLED"
     );
 
-    static final Map<String, String> PAID_SALES_ACTIONS = Map.of(
-        "PAID_SALES_SUSPENDED",
-        "Paid sales suspended",
-        "PAID_SALES_REINSTATED",
-        "Paid sales reinstated"
-    );
+    static final List<String> PAID_SALES_ACTIONS = List.of("PAID_SALES_SUSPENDED", "PAID_SALES_REINSTATED");
 
-    static final Map<String, String> ACTIVATION_ACTIONS = Map.of(
+    static final List<String> ACTIVATION_ACTIONS = List.of(
         "ACTIVATION_REQUESTED_SIMULATED_VERIFICATION",
-        "Paid sales activation requested",
         "ACTIVATION_FEE_PAID",
-        "Activation fee paid",
         "ACTIVATION_FEE_REFUNDED",
-        "Activation fee refunded",
-        "ACTIVATION_FEE_COMPENSATING_REFUND_REQUESTED",
-        "Activation fee refund requested"
+        "ACTIVATION_FEE_COMPENSATING_REFUND_REQUESTED"
+    );
+
+    static final HistoryActions ACTIONS = new HistoryActions(
+        List.of(
+            refund("ORDER_REFUND_REQUESTED", "Order refund requested"),
+            refund("UNFULFILLED_ORDER_REFUND_REQUESTED", "Refund requested for an unfulfilled payment"),
+            refund("ORDER_REFUND_COMPLETED", "Order refund completed"),
+            refund("ORDER_REFUND_FAILED", "Order refund failed"),
+            refund("FREE_ORDER_CANCELLED", "Free order cancelled by the organizer"),
+            payment("PAID_SALES_SUSPENDED", "EVENT", Entity.EVENT, "Paid sales suspended"),
+            payment("PAID_SALES_REINSTATED", "EVENT", Entity.EVENT, "Paid sales reinstated"),
+            payment("ACTIVATION_REQUESTED_SIMULATED_VERIFICATION", "PAYMENT", Entity.ROW, "Paid sales activation requested"),
+            payment("ACTIVATION_FEE_PAID", "PAYMENT", Entity.ROW, "Activation fee paid"),
+            payment("ACTIVATION_FEE_REFUNDED", "PAYMENT", Entity.ROW, "Activation fee refunded"),
+            payment("ACTIVATION_FEE_COMPENSATING_REFUND_REQUESTED", "PAYMENT", Entity.ROW, "Activation fee refund requested")
+        ),
+        Set.of()
     );
 
     private static final String SQL = """
-    SELECT a.id, a.occurred_at, a.actor_id, a.action, a.aggregate_id, a.details
+    SELECT a.id AS id, a.occurred_at AS occurred, a.actor_id AS actor, a.action AS raw,
+           a.aggregate_id AS entity, a.details AS details
     FROM common_financial_audit a
-    WHERE a.occurred_at >= :from AND a.occurred_at < :to AND (
+    WHERE a.occurred_at >= :from AND a.occurred_at < :to AND a.action IN (:types) AND (
         (a.context = 'ordercheckout' AND a.action IN (:refundActions)
             AND a.aggregate_id IN (SELECT c.id FROM oc_checkout c WHERE c.event_id = :eventId))
         OR (a.context = 'payments' AND a.action IN (:paidSalesActions) AND a.aggregate_id = :eventId)
@@ -59,56 +60,25 @@ public class FinancialHistorySource implements HistorySource {
     )
     """;
 
-    private final EntityManager entityManager;
-
     public FinancialHistorySource(EntityManager entityManager) {
-        this.entityManager = Objects.requireNonNull(entityManager);
+        super("financial", entityManager, ACTIONS);
     }
 
     @Override
-    public List<HistoryEntry> find(UUID eventId, Instant from, Instant to) {
-        var parameters = Map.<String, Object>of(
-            "eventId",
-            eventId,
-            "from",
-            from,
-            "to",
-            to,
-            "refundActions",
-            List.copyOf(REFUND_ACTIONS.keySet()),
-            "paidSalesActions",
-            List.copyOf(PAID_SALES_ACTIONS.keySet()),
-            "activationActions",
-            List.copyOf(ACTIVATION_ACTIONS.keySet())
-        );
-        return query(entityManager, SQL, parameters)
-            .stream()
-            .map(row -> toEntry(eventId, row))
-            .toList();
+    protected String select() {
+        return SQL;
     }
 
-    private static HistoryEntry toEntry(UUID eventId, Object[] row) {
-        String action = text(row[3]);
-        String details = text(row[5]);
-        if (REFUND_ACTIONS.containsKey(action)) {
-            return entry(row, HistoryCategory.REFUNDS, action, "ORDER", uuid(row[4]), REFUND_ACTIONS.get(action), details);
-        }
-        if (PAID_SALES_ACTIONS.containsKey(action)) {
-            return entry(row, HistoryCategory.PAYMENTS, action, "EVENT", eventId, PAID_SALES_ACTIONS.get(action), details);
-        }
-        return entry(row, HistoryCategory.PAYMENTS, action, "PAYMENT", uuid(row[4]), ACTIVATION_ACTIONS.get(action), details);
+    @Override
+    protected Map<String, Object> extraParameters() {
+        return Map.of("refundActions", REFUND_ACTIONS, "paidSalesActions", PAID_SALES_ACTIONS, "activationActions", ACTIVATION_ACTIONS);
     }
 
-    private static HistoryEntry entry(
-        Object[] row,
-        HistoryCategory category,
-        String action,
-        String entityType,
-        UUID entityId,
-        String label,
-        String details
-    ) {
-        String description = details == null || details.isBlank() ? label : label + ": " + details;
-        return new HistoryEntry(uuid(row[0]), instant(row[1]), number(row[2]), category, action, entityType, entityId, description);
+    private static Mapping refund(String raw, String label) {
+        return new Mapping(raw, raw, HistoryCategory.REFUNDS, "ORDER", Entity.ROW, Description.LABEL_WITH_DETAILS, label);
+    }
+
+    private static Mapping payment(String raw, String entityType, Entity entity, String label) {
+        return new Mapping(raw, raw, HistoryCategory.PAYMENTS, entityType, entity, Description.LABEL_WITH_DETAILS, label);
     }
 }
