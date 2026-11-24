@@ -14,6 +14,8 @@ public interface TicketRepository {
 
     Optional<Ticket> findByTicketCode(TicketCode ticketCode);
 
+    Optional<TicketCode> findTicketCodeByEventIdAndManualCode(UUID eventId, String manualCode);
+
     Optional<Ticket> findByTicketCodeForUpdate(TicketCode ticketCode);
 
     List<Ticket> findAllByOrderId(OrderId orderId);

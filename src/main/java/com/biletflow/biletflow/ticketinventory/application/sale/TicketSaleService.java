@@ -239,6 +239,7 @@ public class TicketSaleService {
             ticket.getOwnerUserId(),
             ticket.getSeatId() == null ? null : ticket.getSeatId().value(),
             ticket.getTicketCode().value(),
+            ticket.getManualCode(),
             ticket.getStatus(),
             ticket.getIssuedAt()
         );

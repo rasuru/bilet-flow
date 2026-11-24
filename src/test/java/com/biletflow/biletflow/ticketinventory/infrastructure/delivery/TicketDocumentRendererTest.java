@@ -40,6 +40,7 @@ class TicketDocumentRendererTest {
             1L,
             UUID.fromString("218dd9b5-dc6a-44a2-8c6f-cef2e672c057"),
             code,
+            "7K9M2Q8R",
             status,
             now
         );
@@ -95,6 +96,7 @@ class TicketDocumentRendererTest {
             assertTrue(text.contains(ticket.event().seat()));
             assertTrue(text.contains("15:00 +05:00"));
             assertTrue(text.contains(ticket.ticket().id().toString()));
+            assertTrue(text.contains("7K9M-2Q8R"));
             for (var name : pdf.getPage(0).getResources().getFontNames())
                 assertTrue(pdf.getPage(0).getResources().getFont(name).isEmbedded());
             for (int dpi : List.of(96, 150, 300)) {
@@ -112,7 +114,7 @@ class TicketDocumentRendererTest {
             try (var pdf = Loader.loadPDF(renderer.pdf(ticket))) {
                 var text = new PDFTextStripper().getText(pdf);
                 assertTrue(text.contains("NOT VALID FOR ADMISSION"));
-                assertFalse(text.contains("Present this QR"));
+                assertFalse(text.contains("7K9M-2Q8R"));
                 assertFalse(text.contains(ticket.ticket().ticketCode().toString()));
             }
         }

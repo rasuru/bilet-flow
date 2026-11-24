@@ -27,6 +27,7 @@ class CancellationAudienceTest {
                     null,
                     null,
                     TicketCode.generate(),
+                    "7K9M2Q8R",
                     status,
                     Instant.now()
                 )

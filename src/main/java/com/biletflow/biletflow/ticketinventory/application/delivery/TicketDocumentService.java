@@ -55,6 +55,19 @@ public class TicketDocumentService {
         return renderer.qr(document(authorize(ticketId)));
     }
 
+    public String admissionCode(UUID ticketId) {
+        var ticket = authorize(ticketId);
+        String code = ticket.getManualCode();
+        if (ticket.getStatus() != TicketStatus.VALID || code == null) {
+            throw new IllegalStateException("This ticket has no usable check-in code");
+        }
+        var event = events.ticketDetails(ticket.getEventId(), null);
+        if (event.cancelled() || event.suspended()) {
+            throw new IllegalStateException("This ticket has no usable check-in code");
+        }
+        return code;
+    }
+
     @Transactional
     public void requestEmail(UUID ticketId) {
         var ticket = authorize(ticketId);
@@ -98,6 +111,7 @@ public class TicketDocumentService {
             ticket.getOwnerUserId(),
             ticket.getSeatId() == null ? null : ticket.getSeatId().value(),
             ticket.getTicketCode().value(),
+            ticket.getManualCode(),
             ticket.getStatus(),
             ticket.getIssuedAt()
         );

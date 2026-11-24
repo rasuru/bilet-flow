@@ -15,12 +15,16 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Transactional(readOnly = true)
 public class CheckInService {
+
+    private static final Pattern QR_CODE = Pattern.compile("[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}");
+    private static final Pattern MANUAL_CODE = Pattern.compile("[0-9A-HJKMNP-TV-Z]{8}");
 
     private final EventManagementPort events;
     private final CurrentActor actor;
@@ -42,23 +46,23 @@ public class CheckInService {
         this.audit = Objects.requireNonNull(audit);
     }
 
-    public TicketValidationResult validate(UUID eventId, UUID ticketCode) {
+    public TicketValidationResult validate(UUID eventId, String ticketCode) {
         authorize(eventId);
-        return tickets.validate(ticketCode, eventId);
+        return tickets.validate(resolveTicketCode(eventId, ticketCode), eventId);
     }
 
     @Transactional
-    public TicketView checkIn(UUID eventId, UUID ticketCode) {
+    public TicketView checkIn(UUID eventId, String ticketCode) {
         Long staffUserId = authorize(eventId);
-        TicketView ticket = tickets.checkIn(new CheckInTicketCommand(ticketCode, eventId));
+        TicketView ticket = tickets.checkIn(new CheckInTicketCommand(resolveTicketCode(eventId, ticketCode), eventId));
         audit.record(eventId, staffUserId, TicketInventoryAuditType.TICKET_CHECKED_IN, ticket.id(), "Ticket checked in");
         return ticket;
     }
 
     @Transactional
-    public TicketView reverse(UUID eventId, UUID ticketCode) {
+    public TicketView reverse(UUID eventId, String ticketCode) {
         Long staffUserId = authorize(eventId);
-        TicketView ticket = tickets.reverseCheckIn(new ReverseCheckInCommand(ticketCode, eventId));
+        TicketView ticket = tickets.reverseCheckIn(new ReverseCheckInCommand(resolveTicketCode(eventId, ticketCode), eventId));
         audit.record(eventId, staffUserId, TicketInventoryAuditType.CHECK_IN_REVERSED, ticket.id(), "Check-in reversed");
         return ticket;
     }
@@ -90,6 +94,21 @@ public class CheckInService {
             .filter(ticket -> ticket.getStatus() == TicketStatus.CHECKED_IN)
             .count();
         return new CheckInCounts(registered, checkedIn);
+    }
+
+    private UUID resolveTicketCode(UUID eventId, String input) {
+        String code = input.strip();
+        if (QR_CODE.matcher(code).matches()) return UUID.fromString(code);
+
+        String manualCode = code.toUpperCase(Locale.ROOT).replaceAll("[\\s-]", "").replace('O', '0').replace('I', '1').replace('L', '1');
+        if (!MANUAL_CODE.matcher(manualCode).matches()) {
+            throw new IllegalArgumentException("Enter an eight-character check-in code or a ticket QR UUID");
+        }
+
+        return repository
+            .findTicketCodeByEventIdAndManualCode(eventId, manualCode)
+            .orElseThrow(() -> new TicketNotFoundException("Ticket not found for supplied ticket code"))
+            .value();
     }
 
     private Long authorize(UUID eventId) {

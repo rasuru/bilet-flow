@@ -88,19 +88,28 @@ public class PdfBoxTicketDocumentRenderer implements TicketDocumentRenderer {
                 y = lines(content, font, "Seat: " + ticket.event().seat(), 11, 38, y, 510, 2);
                 y = lines(content, font, "Ticket ID: " + ticket.ticket().id(), 10, 38, y - 10, 510, 1);
                 lines(content, font, "Order reference: " + ticket.ticket().orderId(), 10, 38, y, 510, 1);
+                String manualCode = ticket.displayManualCode();
                 if (ticket.hasAdmissionCode()) {
                     content.drawImage(LosslessFactory.createFromImage(document, image(ticket)), 38, 72, 200, 200);
-                    lines(content, font, ticket.ticket().ticketCode().toString(), 8, 38, 58, 240, 1);
+                    if (manualCode == null) {
+                        lines(content, font, ticket.ticket().ticketCode().toString(), 8, 38, 58, 240, 1);
+                    } else {
+                        lines(content, font, "Check-in code", 11, 260, 252, 285, 1);
+                        lines(content, font, manualCode, 22, 260, 228, 285, 1);
+                    }
                 } else lines(content, font, "NOT VALID FOR ADMISSION", 16, 38, 215, 510, 2);
+                String manualEntry = manualCode == null ? "" : " If the QR cannot be scanned, give staff the check-in code.";
                 lines(
                     content,
                     font,
                     ticket.hasAdmissionCode()
-                        ? "Present this QR on your phone or print at actual size. Black-and-white printing is supported. Digital and printed copies share one admission. Keep this code private. Admission status is verified online; this PDF does not override cancellations or refunds."
+                        ? "Show this QR on your phone or print at actual size. Black-and-white printing is supported." +
+                              manualEntry +
+                              " Digital and printed copies share one admission. Keep these codes private. Admission is verified online."
                         : "This document is not valid for admission. Do not use older printed or digital copies. Check your account for the current ticket or refund status.",
                     10,
                     260,
-                    245,
+                    manualCode == null ? 245 : 193,
                     285,
                     9
                 );
