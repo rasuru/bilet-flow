@@ -279,6 +279,21 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
+    public List<UserDTO> findPublicUsers(String login) {
+        return userRepository
+            .findOneByLogin(login.toLowerCase(Locale.ROOT))
+            .filter(User::isActivated)
+            .map(UserDTO::new)
+            .stream()
+            .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<UserDTO> findPublicUsers(List<Long> ids) {
+        return userRepository.findAllById(ids).stream().filter(User::isActivated).map(UserDTO::new).toList();
+    }
+
+    @Transactional(readOnly = true)
     public Page<UserDTO> getAllPublicUsers(Pageable pageable) {
         return userRepository.findAllByIdNotNullAndActivatedIsTrue(pageable).map(UserDTO::new);
     }
