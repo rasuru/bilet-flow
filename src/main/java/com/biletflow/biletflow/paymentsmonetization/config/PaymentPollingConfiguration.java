@@ -11,11 +11,20 @@ public class PaymentPollingConfiguration {
     @Bean("paymentPollingExecutor")
     public ThreadPoolTaskExecutor paymentPollingExecutor(@Value("${biletflow.payments.poll-workers:4}") int workers) {
         if (workers < 1 || workers > 32) throw new IllegalArgumentException("Payment poll workers must be between 1 and 32");
+        return executor(workers, "payment-reconcile-");
+    }
+
+    @Bean("mockPaymentPollingExecutor")
+    public ThreadPoolTaskExecutor mockPaymentPollingExecutor() {
+        return executor(1, "mock-payment-reconcile-");
+    }
+
+    private static ThreadPoolTaskExecutor executor(int workers, String threadPrefix) {
         var executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(workers);
         executor.setMaxPoolSize(workers);
         executor.setQueueCapacity(0);
-        executor.setThreadNamePrefix("payment-reconcile-");
+        executor.setThreadNamePrefix(threadPrefix);
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(60);
         return executor;

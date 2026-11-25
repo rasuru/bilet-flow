@@ -26,7 +26,8 @@ public class CheckoutProcessPersistenceMapper {
             domain.holds().stream().map(CheckoutHoldJpaEmbeddable::new).toList(),
             domain.redemptionId(),
             domain.promoCode(),
-            domain.createdAt()
+            domain.createdAt(),
+            domain.selfRefundDeadline()
         );
     }
 
@@ -49,7 +50,8 @@ public class CheckoutProcessPersistenceMapper {
             entity.getRefundId(),
             entity.getRedemptionId(),
             entity.getPromoCode(),
-            entity.getCreatedAt()
+            entity.getCreatedAt(),
+            entity.getSelfRefundDeadline()
         );
     }
 }

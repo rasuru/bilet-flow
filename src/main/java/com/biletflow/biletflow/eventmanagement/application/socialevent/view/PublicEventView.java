@@ -16,5 +16,6 @@ public record PublicEventView(
     Instant startAt,
     Instant endAt,
     RegistrationWindowView registrationWindow,
-    EventVenueView venue
+    EventVenueView venue,
+    Integer refundHoursBeforeStart
 ) {}

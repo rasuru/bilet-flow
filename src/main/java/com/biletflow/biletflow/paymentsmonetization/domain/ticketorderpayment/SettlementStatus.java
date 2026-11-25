@@ -8,6 +8,7 @@ public enum SettlementStatus {
     CAPTURED,
     REFUNDED,
     VOIDED,
+    EXPIRED,
     DECLINED,
     UNKNOWN,
 }

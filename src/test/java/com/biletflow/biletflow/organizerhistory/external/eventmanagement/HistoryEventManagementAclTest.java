@@ -5,6 +5,7 @@ import static org.mockito.Mockito.*;
 
 import com.biletflow.biletflow.common.application.EntityNotFoundException;
 import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditService;
+import com.biletflow.biletflow.eventmanagement.application.socialevent.PrivateAttendeeAccess;
 import com.biletflow.biletflow.eventmanagement.domain.EventDateRange;
 import com.biletflow.biletflow.eventmanagement.domain.EventVisibility;
 import com.biletflow.biletflow.eventmanagement.domain.RegistrationWindow;
@@ -27,7 +28,7 @@ class HistoryEventManagementAclTest {
     private final Instant now = Instant.parse("2026-11-24T10:00:00Z");
     private final SocialEventRepository repository = mock(SocialEventRepository.class);
     private final HistoryEventManagementAcl acl = new HistoryEventManagementAcl(
-        new DefaultEventManagementOhs(repository, mock(VenueLayoutRepository.class), mock(EventAuditService.class))
+        new DefaultEventManagementOhs(repository, mock(VenueLayoutRepository.class), mock(EventAuditService.class), mock(PrivateAttendeeAccess.class))
     );
 
     private SocialEvent event() {

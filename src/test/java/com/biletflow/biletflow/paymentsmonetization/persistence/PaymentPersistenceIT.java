@@ -7,6 +7,7 @@ import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.common.events.*;
 import com.biletflow.biletflow.common.persistence.JsonCodec;
 import com.biletflow.biletflow.paymentsmonetization.application.*;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentProvider;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentStatus;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentTerms;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
@@ -152,7 +153,7 @@ class PaymentPersistenceIT {
             works.schedule(refund.getId(), now.minusSeconds(2));
             works.schedule(leased.getId(), now.minusSeconds(3));
             assertTrue(works.lease(leased.getId(), now, now.plusSeconds(90)));
-            var due = works.due(now);
+            var due = works.due(now, PaymentProvider.HALYK);
             assertTrue(due.indexOf(refund.getId()) >= 0);
             assertTrue(due.indexOf(pending.getId()) >= 0);
             assertTrue(due.indexOf(completed.getId()) > due.indexOf(pending.getId()));

@@ -16,6 +16,8 @@ public class JpaPaymentSettingsRepository implements PaymentSettingsRepository {
     static final String ACTIVATION_FEE = "activation-fee-kzt";
     static final String PROCESSING_FEE_RATE = "processing-fee-rate";
 
+    static final String PROVIDER = "payment-provider";
+
     private final EntityManager entities;
 
     public JpaPaymentSettingsRepository(EntityManager entities) {
@@ -54,5 +56,23 @@ public class JpaPaymentSettingsRepository implements PaymentSettingsRepository {
             PaymentSettingJpaEntity.rate(PROCESSING_FEE_RATE, setting.rate(), setting.updatedBy(), setting.updatedAt())
         );
         else row.updateRate(setting.rate(), setting.updatedBy(), setting.updatedAt());
+    }
+
+    @Override
+    public Optional<ProviderSetting> paymentProvider() {
+        return Optional.ofNullable(entities.find(PaymentSettingJpaEntity.class, PROVIDER)).map(row ->
+            new ProviderSetting(row.getPaymentProvider(), row.getUpdatedBy(), row.getUpdatedAt())
+        );
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void savePaymentProvider(ProviderSetting setting) {
+        var row = entities.find(PaymentSettingJpaEntity.class, PROVIDER);
+        if (row == null) {
+            entities.persist(PaymentSettingJpaEntity.provider(PROVIDER, setting.provider(), setting.updatedBy(), setting.updatedAt()));
+        } else {
+            row.updateProvider(setting.provider(), setting.updatedBy(), setting.updatedAt());
+        }
     }
 }

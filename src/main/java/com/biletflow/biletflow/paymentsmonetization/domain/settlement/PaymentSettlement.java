@@ -294,11 +294,13 @@ public final class PaymentSettlement {
             }
             case FAIL -> {
                 if (w.getStatus() == PaymentStatus.PENDING) {
-                    if (w.isTicket()) w.getPayment().fail("BANK_DECLINED_OR_VOIDED", now);
-                    else w.getActivationPayment().fail("BANK_DECLINED_OR_VOIDED", now);
-                    if (w.isTicket()) publish(w, "FAILED", null);
-                    effects.audit.add("PAYMENT_FAILED_OR_VOIDED");
-                    if (w.isTicket() && !w.isAbandoned()) effects.notices.add(PaymentNoticeKind.TICKET_PAYMENT_FAILED);
+                    boolean timedOut = o.status() == SettlementStatus.EXPIRED;
+                    String reason = timedOut ? "PAYMENT_EXPIRED" : "BANK_DECLINED_OR_VOIDED";
+                    if (w.isTicket()) w.getPayment().fail(reason, now);
+                    else w.getActivationPayment().fail(reason, now);
+                    if (w.isTicket()) publish(w, timedOut ? "EXPIRED" : "FAILED", null);
+                    effects.audit.add(timedOut ? "PAYMENT_EXPIRED" : "PAYMENT_FAILED_OR_VOIDED");
+                    if (w.isTicket() && !timedOut && !w.isAbandoned()) effects.notices.add(PaymentNoticeKind.TICKET_PAYMENT_FAILED);
                     if (!w.isTicket() && !w.isAbandoned() && w.getId().equals(context.activationPaymentId())) effects.notices.add(
                         PaymentNoticeKind.ACTIVATION_FEE_FAILED
                     );

@@ -7,7 +7,9 @@ import com.biletflow.biletflow.common.application.FinancialAudit;
 import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.paymentsmonetization.application.command.ActivatePaidSalesCommand;
+import com.biletflow.biletflow.paymentsmonetization.config.PaidSalesActivationBypass;
 import com.biletflow.biletflow.paymentsmonetization.domain.activation.EventPaidSalesActivation;
+import com.biletflow.biletflow.paymentsmonetization.domain.activation.EventPaidSalesActivationStatus;
 import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.ActivationNotAllowedException;
 import com.biletflow.biletflow.paymentsmonetization.domain.payoutaccount.PayoutAccountRepository;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentOperation;
@@ -41,6 +43,7 @@ public class PaymentService implements PaymentsOhs {
     private final PaidSalesInventoryOhs inventory;
     private final PaymentTermsProvider currentTerms;
     private final PayoutAccountRepository payoutAccounts;
+    private final PaidSalesActivationBypass activationBypass;
 
     public PaymentService(
         PaymentWorkRepository works,
@@ -54,7 +57,8 @@ public class PaymentService implements PaymentsOhs {
         CallbackSecrets secrets,
         PaidSalesInventoryOhs inventory,
         PaymentTermsProvider currentTerms,
-        PayoutAccountRepository payoutAccounts
+        PayoutAccountRepository payoutAccounts,
+        PaidSalesActivationBypass activationBypass
     ) {
         this.works = Objects.requireNonNull(works, "works cannot be null");
         this.activations = Objects.requireNonNull(activations, "activations cannot be null");
@@ -68,11 +72,20 @@ public class PaymentService implements PaymentsOhs {
         this.inventory = Objects.requireNonNull(inventory, "inventory cannot be null");
         this.currentTerms = Objects.requireNonNull(currentTerms, "currentTerms cannot be null");
         this.payoutAccounts = Objects.requireNonNull(payoutAccounts, "payoutAccounts cannot be null");
+        this.activationBypass = Objects.requireNonNull(activationBypass);
     }
 
     @Override
     public boolean permitsPaidSales(UUID eventId) {
-        return activations.find(eventId).map(activation -> activation.aggregate().permitsPaidSales()).orElse(false);
+        return activations.find(eventId)
+            .map(activation -> activation.aggregate().permitsPaidSales() || bypassesActivation(activation.aggregate().getStatus()))
+            .orElseGet(() -> bypassesActivation(null));
+    }
+
+    boolean bypassesActivation(EventPaidSalesActivationStatus status) {
+        return activationBypass.enabled()
+            && status != EventPaidSalesActivationStatus.SUSPENDED
+            && status != EventPaidSalesActivationStatus.ACTIVE;
     }
 
     @Override
@@ -89,7 +102,6 @@ public class PaymentService implements PaymentsOhs {
         Objects.requireNonNull(c.orderId());
         Objects.requireNonNull(c.eventId());
         terms.requireTicketRequest(c.payerId(), c.amount(), c.expiresAt(), clock.instant());
-        bank.validateAmount(c.amount());
         locks.lock("payment-order:" + c.orderId());
         var existing = works.findOrder(c.orderId());
         if (existing.isPresent()) {
@@ -99,8 +111,7 @@ public class PaymentService implements PaymentsOhs {
         }
         var scope = events.salesScope(c.eventId(), clock.instant());
         locks.lock("activation:" + c.eventId());
-        var activation = activations.find(c.eventId()).orElseThrow(() -> new IllegalStateException("Paid sales are not activated"));
-        terms.requirePaidSales(scope.registrationOpen(), activation.aggregate().permitsPaidSales());
+        terms.requirePaidSales(scope.registrationOpen(), permitsPaidSales(c.eventId()));
         PaymentWork w = currentTerms.current().ticket(
             c.orderId(),
             c.eventId(),
@@ -109,7 +120,7 @@ public class PaymentService implements PaymentsOhs {
             c.amount(),
             c.expiresAt(),
             clock.instant(),
-            works.nextInvoice(),
+            bank.allocateInvoice(c.amount(), works::nextInvoice),
             secrets.generate()
         );
         works.insert(w);
@@ -151,8 +162,8 @@ public class PaymentService implements PaymentsOhs {
             "Register a payout account before activating paid sales"
         );
         var feeTerms = currentTerms.current();
-        bank.validateAmount(feeTerms.activationFee());
-        PaymentWork w = feeTerms.activation(eventId, organizer, clock.instant(), works.nextInvoice(), secrets.generate());
+        String invoice = bank.allocateInvoice(feeTerms.activationFee(), works::nextInvoice);
+        PaymentWork w = feeTerms.activation(eventId, organizer, clock.instant(), invoice, secrets.generate());
         works.insert(w);
         activations.save(
             new ActivationRepository.Activation(

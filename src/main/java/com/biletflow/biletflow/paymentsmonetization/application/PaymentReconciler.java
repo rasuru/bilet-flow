@@ -45,6 +45,10 @@ public class PaymentReconciler {
         if (!tx.required(() -> works.lease(id, clock.instant(), clock.instant().plusSeconds(90)))) return;
         try {
             var snapshot = works.find(id).orElseThrow();
+            if (PaymentProvider.forInvoice(snapshot.getInvoiceId()) == PaymentProvider.MOCK) {
+                tx.run(() -> settleMock(snapshot));
+                return;
+            }
             var observation = bank.inspect(snapshot.getInvoiceId());
             var command = tx.required(() -> transitions.settle(id, observation));
             if (command != null) {
@@ -76,6 +80,20 @@ public class PaymentReconciler {
                 var work = works.find(id).orElseThrow();
                 works.schedule(id, clock.instant().plusSeconds(work.pollDelaySeconds(clock.instant())));
             });
+        }
+    }
+
+    private void settleMock(PaymentWork work) {
+        UUID id = work.getId();
+        if (!work.isTicket()) locks.lock("activation:" + work.getEventId());
+        locks.lock("payment:" + id);
+        var observation = bank.inspect(work.getInvoiceId());
+        var command = transitions.settle(id, observation);
+        if (command != null) {
+            // The simulator and settlement share a database. Commit refund dispatch, provider
+            // state, ledger, and the refund outcome together so there is no ambiguous send.
+            bank.mutate(work, command.transactionId(), command.operation(), command.operationId().toString());
+            transitions.settle(id, bank.inspect(work.getInvoiceId()));
         }
     }
 }

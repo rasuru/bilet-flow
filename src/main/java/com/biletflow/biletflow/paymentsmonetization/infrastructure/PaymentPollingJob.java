@@ -2,6 +2,7 @@ package com.biletflow.biletflow.paymentsmonetization.infrastructure;
 
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentReconciler;
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentWorkRepository;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentProvider;
 import java.time.Clock;
 import java.util.Objects;
 import java.util.Set;
@@ -22,6 +23,7 @@ public class PaymentPollingJob {
     private final PaymentReconciler reconciler;
     private final PaymentWorkRepository works;
     private final TaskExecutor workers;
+    private final TaskExecutor mockWorkers;
     private final Clock clock;
     private final Set<UUID> inFlight = ConcurrentHashMap.newKeySet();
 
@@ -29,20 +31,27 @@ public class PaymentPollingJob {
         PaymentReconciler reconciler,
         PaymentWorkRepository works,
         @Qualifier("paymentPollingExecutor") TaskExecutor workers,
+        @Qualifier("mockPaymentPollingExecutor") TaskExecutor mockWorkers,
         Clock clock
     ) {
         this.reconciler = Objects.requireNonNull(reconciler);
         this.works = Objects.requireNonNull(works);
         this.workers = Objects.requireNonNull(workers);
+        this.mockWorkers = Objects.requireNonNull(mockWorkers);
         this.clock = Objects.requireNonNull(clock);
     }
 
     @Scheduled(fixedDelayString = "${biletflow.payments.poll-delay-ms:1000}")
     public void poll() {
-        for (UUID id : works.due(clock.instant())) {
+        dispatch(PaymentProvider.MOCK, mockWorkers);
+        dispatch(PaymentProvider.HALYK, workers);
+    }
+
+    private void dispatch(PaymentProvider provider, TaskExecutor executor) {
+        for (UUID id : works.due(clock.instant(), provider)) {
             if (!inFlight.add(id)) continue;
             try {
-                workers.execute(() -> {
+                executor.execute(() -> {
                     try {
                         reconciler.reconcile(id);
                     } finally {

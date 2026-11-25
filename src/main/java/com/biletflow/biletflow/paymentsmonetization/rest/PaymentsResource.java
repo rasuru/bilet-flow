@@ -109,8 +109,9 @@ public class PaymentsResource {
 
     @PostMapping("/{id}/session")
     @Operation(
-        summary = "Get the Halyk sandbox form",
-        description = "Only the payer may open a pending unexpired payment. Load scriptUrl and call halyk.pay(paymentObject). The persisted form is reused after retries; merchant credentials stay on the server."
+        summary = "Open the payment checkout",
+        description = "Only the payer may open a pending unexpired payment. For Halyk, load scriptUrl and call halyk.pay(paymentObject). " +
+            "For mock payments, mockPaymentId identifies the in-site checkout. The payment keeps its original provider."
     )
     @ApiResponse(
         responseCode = "200",

@@ -5,6 +5,7 @@ import static org.mockito.Mockito.*;
 
 import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditRepository;
 import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditService;
+import com.biletflow.biletflow.eventmanagement.application.socialevent.PrivateAttendeeAccess;
 import com.biletflow.biletflow.eventmanagement.domain.*;
 import java.time.Instant;
 import java.util.List;
@@ -17,7 +18,7 @@ class EventManagementSupportAccessTest {
         Instant now = Instant.parse("2026-11-22T10:00:00Z");
         var audit = mock(EventAuditService.class);
         var repository = mock(SocialEventRepository.class);
-        var ohs = new DefaultEventManagementOhs(repository, mock(VenueLayoutRepository.class), audit);
+        var ohs = new DefaultEventManagementOhs(repository, mock(VenueLayoutRepository.class), audit, mock(PrivateAttendeeAccess.class));
         var eventId = java.util.UUID.randomUUID();
         var caseId = java.util.UUID.randomUUID();
 
@@ -42,7 +43,7 @@ class EventManagementSupportAccessTest {
         when(repository.findByOrganizerId(10L)).thenReturn(List.of(event));
         when(repository.findByStaffUserId(20L)).thenReturn(List.of(event));
         var ohs = new DefaultEventManagementOhs(repository, mock(VenueLayoutRepository.class),
-            mock(EventAuditService.class));
+            mock(EventAuditService.class), mock(PrivateAttendeeAccess.class));
 
         assertTrue(ohs.canHandleAttendeeSupport(event.getId().value(), 10L));
         assertTrue(ohs.canHandleAttendeeSupport(event.getId().value(), 20L));

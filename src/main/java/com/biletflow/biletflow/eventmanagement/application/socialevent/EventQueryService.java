@@ -20,8 +20,10 @@ public class EventQueryService {
 
     private final SocialEventRepository repository;
     private final CurrentActor currentActor;
+    private final PrivateAttendeeAccess attendeeAccess;
 
-    public EventQueryService(SocialEventRepository repository, CurrentActor currentActor) {
+    public EventQueryService(SocialEventRepository repository, CurrentActor currentActor, PrivateAttendeeAccess attendeeAccess) {
+        this.attendeeAccess = attendeeAccess;
         this.repository = Objects.requireNonNull(repository, "repository cannot be null");
         this.currentActor = Objects.requireNonNull(currentActor, "currentActor cannot be null");
     }
@@ -29,20 +31,11 @@ public class EventQueryService {
     public PublicEventView getPublic(SocialEventId eventId) {
         SocialEvent event = requireEvent(eventId);
 
-        if (!isPubliclyReadable(event)) {
+        if (!attendeeAccess.canReadEvent(event, currentActor.userId().orElse(null))) {
             throw new SocialEventNotFoundException(eventId.value().toString());
         }
 
         return toPublicView(event);
-    }
-
-    static boolean isPubliclyReadable(SocialEvent event) {
-        boolean publiclyReadableStatus =
-            event.getStatus() == SocialEventStatus.PUBLISHED || event.getStatus() == SocialEventStatus.CANCELLED;
-        boolean publiclyReadableVisibility =
-            event.getVisibility() == EventVisibility.PUBLIC || event.getVisibility() == EventVisibility.UNLISTED;
-
-        return publiclyReadableStatus && publiclyReadableVisibility;
     }
 
     public List<ManagedEventView> listMine() {
@@ -94,7 +87,8 @@ public class EventQueryService {
             event.getDateRange().startAt(),
             event.getDateRange().endAt(),
             toRegistrationWindowView(event.getRegistrationWindow()),
-            event.getVenue().map(EventQueryService::toVenueView).orElse(null)
+            event.getVenue().map(EventQueryService::toVenueView).orElse(null),
+            event.getRefundPolicy().hoursBeforeStart()
         );
     }
 
@@ -115,7 +109,8 @@ public class EventQueryService {
                 .getStaffAssignments()
                 .stream()
                 .map(assignment -> new ManagedEventView.StaffView(assignment.userId(), assignment.role(), assignment.assignedAt()))
-                .toList()
+                .toList(),
+            event.getRefundPolicy().hoursBeforeStart()
         );
     }
 

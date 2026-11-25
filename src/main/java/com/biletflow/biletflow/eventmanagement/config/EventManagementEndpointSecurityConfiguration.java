@@ -19,7 +19,8 @@ public class EventManagementEndpointSecurityConfiguration {
                     "/api/events/mine/analytics",
                     "/api/events/assigned-for-check-in",
                     "/api/events/*/manage",
-                    "/api/events/*/analytics"
+                    "/api/events/*/analytics",
+                    "/api/events/*/attendee-invitations"
                 )
                 .authenticated()
 
@@ -30,7 +31,7 @@ public class EventManagementEndpointSecurityConfiguration {
                 // Event Management mutations only
                 .requestMatchers(HttpMethod.POST, "/api/events")
                 .authenticated()
-                .requestMatchers(HttpMethod.PUT, "/api/events/*")
+                .requestMatchers(HttpMethod.PUT, "/api/events/*", "/api/events/*/refund-policy")
                 .authenticated()
                 .requestMatchers(
                     HttpMethod.POST,
@@ -39,10 +40,13 @@ public class EventManagementEndpointSecurityConfiguration {
                     "/api/events/*/cancel",
                     "/api/events/*/duplicate",
                     "/api/events/*/venue",
-                    "/api/events/*/staff"
+                    "/api/events/*/staff",
+                    "/api/events/*/attendee-invitations",
+                    "/api/events/*/attendee-invitations/accept",
+                    "/api/events/*/attendee-invitations/*/resend"
                 )
                 .authenticated()
-                .requestMatchers(HttpMethod.DELETE, "/api/events/*/staff/*")
+                .requestMatchers(HttpMethod.DELETE, "/api/events/*/staff/*", "/api/events/*/attendee-invitations/*")
                 .authenticated();
     }
 }

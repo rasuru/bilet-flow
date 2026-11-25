@@ -26,7 +26,7 @@ public class SmtpPaymentNoticeSender implements PaymentNoticeSender {
                 body =
                     "Your payment for " +
                     eventTitle +
-                    " was declined or cancelled by the bank. No tickets were issued and no charge was confirmed.\n" +
+                    " did not complete. No tickets were issued and no charge was confirmed.\n" +
                     "You can start a new checkout if tickets are still available.";
             }
             case ACTIVATION_FEE_FAILED -> {
@@ -34,7 +34,7 @@ public class SmtpPaymentNoticeSender implements PaymentNoticeSender {
                 body =
                     "The paid-sales activation fee for " +
                     eventTitle +
-                    " was declined or cancelled by the bank. Paid sales are not active.\n" +
+                    " did not complete. Paid sales are not active.\n" +
                     "Request activation again to receive a new fee payment.";
             }
             case ACTIVATION_FEE_SUCCEEDED -> {
@@ -49,7 +49,7 @@ public class SmtpPaymentNoticeSender implements PaymentNoticeSender {
             notice.amountKzt().toPlainString() +
             " KZT\nPayment reference: " +
             notice.paymentId() +
-            "\n\nThis is a Halyk sandbox transaction in a BiletFlow demonstration. No real money moved.";
+            "\n\nThis is a sandbox transaction in a BiletFlow demonstration. No real money moved.";
         emails.send(new EmailSender.Email(notice.id(), recipient, "BiletFlow: " + subject, text));
     }
 }

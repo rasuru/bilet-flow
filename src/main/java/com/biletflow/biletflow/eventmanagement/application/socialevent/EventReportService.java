@@ -25,6 +25,7 @@ public class EventReportService {
     private final CurrentActor actor;
     private final TransactionLocks locks;
     private final Clock clock;
+    private final PrivateAttendeeAccess attendeeAccess;
 
     public EventReportService(
         SocialEventRepository events,
@@ -32,7 +33,8 @@ public class EventReportService {
         EventReportQueries queries,
         CurrentActor actor,
         TransactionLocks locks,
-        Clock clock
+        Clock clock,
+        PrivateAttendeeAccess attendeeAccess
     ) {
         this.events = events;
         this.reports = reports;
@@ -40,6 +42,7 @@ public class EventReportService {
         this.actor = actor;
         this.locks = locks;
         this.clock = clock;
+        this.attendeeAccess = attendeeAccess;
     }
 
     @Transactional
@@ -50,7 +53,7 @@ public class EventReportService {
         if (existing.isPresent()) return existing.get().id();
 
         events.findById(new SocialEventId(eventId))
-            .filter(EventQueryService::isPubliclyReadable)
+            .filter(event -> attendeeAccess.canReadEvent(event, reporter))
             .orElseThrow(() -> new SocialEventNotFoundException(eventId.toString()));
         var report = EventReport.submit(eventId, reporter, reason, clock.instant());
         reports.save(report);

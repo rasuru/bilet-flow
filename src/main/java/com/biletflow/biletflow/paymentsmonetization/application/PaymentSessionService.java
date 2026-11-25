@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.paymentsmonetization.application;
 
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentProvider;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import java.time.Clock;
 import java.util.Objects;
@@ -22,6 +23,9 @@ public class PaymentSessionService {
 
     public PaymentGateway.Session open(PaymentWork work) {
         work.requireSessionAvailable(clock.instant());
+        if (PaymentProvider.forInvoice(work.getInvoiceId()) == PaymentProvider.MOCK) {
+            return new PaymentGateway.Session(null, null, null, work.getId());
+        }
         UUID claim = UUID.randomUUID();
         var cached = sessions.claim(work.getId(), claim, clock.instant());
         if (cached != null) return cached;

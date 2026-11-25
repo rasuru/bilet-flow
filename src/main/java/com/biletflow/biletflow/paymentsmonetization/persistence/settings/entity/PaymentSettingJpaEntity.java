@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.paymentsmonetization.persistence.settings.entity;
 
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentProvider;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -17,6 +18,10 @@ public class PaymentSettingJpaEntity {
 
     @Column(name = "rate", precision = 7, scale = 4)
     private BigDecimal rate;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_provider", length = 16)
+    private PaymentProvider paymentProvider;
 
     @Column(name = "updated_by", nullable = false)
     private long updatedBy;
@@ -52,6 +57,23 @@ public class PaymentSettingJpaEntity {
         this.rate = rate;
         this.updatedBy = updatedBy;
         this.updatedAt = updatedAt;
+    }
+
+    public static PaymentSettingJpaEntity provider(String key, PaymentProvider provider, long updatedBy, Instant updatedAt) {
+        var row = new PaymentSettingJpaEntity();
+        row.key = key;
+        row.updateProvider(provider, updatedBy, updatedAt);
+        return row;
+    }
+
+    public void updateProvider(PaymentProvider provider, long updatedBy, Instant updatedAt) {
+        this.paymentProvider = provider;
+        this.updatedBy = updatedBy;
+        this.updatedAt = updatedAt;
+    }
+
+    public PaymentProvider getPaymentProvider() {
+        return paymentProvider;
     }
 
     public BigDecimal getRate() {

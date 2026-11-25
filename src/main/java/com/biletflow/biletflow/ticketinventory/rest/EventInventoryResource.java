@@ -1,9 +1,11 @@
 package com.biletflow.biletflow.ticketinventory.rest;
 
+import com.biletflow.biletflow.common.application.EntityNotFoundException;
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.EventInventoryService;
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.view.EventInventoryView;
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.view.GaAvailabilityView;
 import com.biletflow.biletflow.ticketinventory.application.eventinventory.view.SeatAvailabilityView;
+import com.biletflow.biletflow.ticketinventory.application.eventmanagement.port.EventManagementPort;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
@@ -12,6 +14,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.time.Clock;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -27,9 +30,19 @@ import org.springframework.web.bind.annotation.RestController;
 public class EventInventoryResource {
 
     private final EventInventoryService inventoryService;
+    private final EventManagementPort events;
+    private final Clock clock;
 
-    public EventInventoryResource(EventInventoryService inventoryService) {
+    public EventInventoryResource(EventInventoryService inventoryService, EventManagementPort events, Clock clock) {
         this.inventoryService = Objects.requireNonNull(inventoryService, "inventoryService cannot be null");
+        this.events = Objects.requireNonNull(events);
+        this.clock = Objects.requireNonNull(clock);
+    }
+
+    private void requireAttendeeAccess(UUID eventId) {
+        if (!events.publicSalesScope(eventId, clock.instant()).attendeeReadable()) {
+            throw new EntityNotFoundException("Event not found: " + eventId);
+        }
     }
 
     @GetMapping("/inventory")
@@ -61,6 +74,7 @@ public class EventInventoryResource {
             example = "550e8400-e29b-41d4-a716-446655440000"
         ) @PathVariable UUID eventId
     ) {
+        requireAttendeeAccess(eventId);
         return inventoryService.getInventory(eventId);
     }
 
@@ -96,6 +110,7 @@ public class EventInventoryResource {
             example = "550e8400-e29b-41d4-a716-446655440000"
         ) @PathVariable UUID eventId
     ) {
+        requireAttendeeAccess(eventId);
         return inventoryService.getAvailability(eventId);
     }
 
@@ -131,6 +146,7 @@ public class EventInventoryResource {
             example = "550e8400-e29b-41d4-a716-446655440000"
         ) @PathVariable UUID eventId
     ) {
+        requireAttendeeAccess(eventId);
         return inventoryService.getSeatMap(eventId);
     }
 }

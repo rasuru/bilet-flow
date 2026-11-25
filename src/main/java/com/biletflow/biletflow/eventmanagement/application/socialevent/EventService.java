@@ -221,6 +221,17 @@ public class EventService {
         );
     }
 
+    @Transactional
+    public void updateRefundPolicy(SocialEventId eventId, RefundPolicy policy) {
+        Long userId = currentActor.requireUserId();
+        SocialEvent event = requireEvent(eventId);
+        assertCanModifyEvent(event, userId);
+        if (event.getRefundPolicy().equals(policy)) return;
+        event.updateRefundPolicy(policy);
+        eventRepository.save(event);
+        auditService.record(eventId.value(), userId, EventAuditRepository.EventAuditType.UPDATED, "Refund policy updated");
+    }
+
     private void validateVenueConfiguration(Venue venue) {
         if (!(venue.getSeatingConfig() instanceof Venue.AssignedSeating assigned)) {
             return;

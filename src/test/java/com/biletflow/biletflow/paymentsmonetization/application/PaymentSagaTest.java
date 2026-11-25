@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.paymentsmonetization.application;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -20,6 +21,7 @@ import com.biletflow.biletflow.paymentsmonetization.application.command.Reinstat
 import com.biletflow.biletflow.paymentsmonetization.application.command.ResolvePaymentOperationCommand;
 import com.biletflow.biletflow.paymentsmonetization.application.command.SuspendPaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.config.HalykProperties;
+import com.biletflow.biletflow.paymentsmonetization.config.PaidSalesActivationBypass;
 import com.biletflow.biletflow.paymentsmonetization.domain.activation.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.activationfeepayment.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.ActivationNotAllowedException;
@@ -29,6 +31,8 @@ import com.biletflow.biletflow.paymentsmonetization.domain.settlement.*;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.*;
 import com.biletflow.biletflow.paymentsmonetization.infrastructure.halyk.HalykGateway;
+import com.biletflow.biletflow.paymentsmonetization.infrastructure.RoutedPaymentGateway;
+import com.biletflow.biletflow.paymentsmonetization.application.MockPaymentScenarios.Scenario;
 import com.biletflow.biletflow.paymentsmonetization.ohs.*;
 import com.biletflow.biletflow.promotions.ohs.PromotionsOhs;
 import com.biletflow.biletflow.ticketinventory.domain.ticket.AttendeeEmail;
@@ -41,6 +45,7 @@ import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.env.MockEnvironment;
 import tools.jackson.databind.json.JsonMapper;
 
 /** Isolated application tests: real services/domain, fake bank and repositories. Database guarantees have separate ITs. */
@@ -58,6 +63,172 @@ public class PaymentSagaTest {
             failed = true;
         }
         check(failed, "Expected rejection");
+    }
+
+    @Test
+    void mockSessionAndRefundStayLocalAfterSwitchingBackToHalyk() {
+        var f = mockFixture();
+        var order = f.start();
+        var work = f.work(order);
+        var store = mock(PaymentSessionStore.class);
+        var session = new PaymentSessionService(store, f.gateway, f.clock).open(work);
+        assertEquals(work.getId(), session.mockPaymentId());
+        verifyNoInteractions(store);
+
+        var settings = new PaymentSettingsService(f.settings, new PaymentTermsProvider(f.terms, f.settings),
+            f.gateway, f.locks, f.audit, f.admin, f.clock);
+        settings.changePaymentProvider(PaymentProvider.HALYK);
+        assertEquals(PaymentProvider.HALYK, PaymentProvider.forInvoice(f.work(f.start()).getInvoiceId()));
+        var checkout = new MockCheckoutService(f.works, f.mockAttempts, f.locks, f.audit, f.clock);
+        assertThrows(AuthorizationException.class, () -> checkout.choose(work.getId(), 2, Scenario.SUCCESS));
+        checkout.choose(work.getId(), 1, Scenario.SUCCESS);
+        checkout.choose(work.getId(), 1, Scenario.SUCCESS);
+        assertThrows(IllegalStateException.class, () -> checkout.choose(work.getId(), 1, Scenario.FAILURE));
+        f.reconciler.reconcile(work.getId());
+        f.deliver();
+        assertEquals("COMPLETED", f.checkout.get(order.id(), 1).status());
+
+        f.checkout.refund(order.id(), 7, "Mock refund");
+        f.reconciler.reconcile(work.getId());
+        f.reconciler.reconcile(work.getId());
+        f.deliver();
+        assertEquals("REFUNDED", f.checkout.get(order.id(), 1).refundState());
+        assertEquals(1, f.ledger.refunds.size());
+        assertTrue(f.bank.commands.isEmpty());
+        assertEquals(0, f.bank.sessionCalls);
+    }
+
+    @Test
+    void mockFailureAndExpiryReleaseInventoryAndDelayedPaymentUsesTheClock() {
+        var f = mockFixture();
+        var service = new MockCheckoutService(f.works, f.mockAttempts, f.locks, f.audit, f.clock);
+
+        var failure = f.start();
+        service.choose(failure.paymentId(), 1, Scenario.FAILURE);
+        f.reconciler.reconcile(failure.paymentId());
+        f.deliver();
+        assertEquals("PAYMENT_FAILED", f.checkout.get(failure.id(), 1).status());
+        assertTrue(f.stock.released.contains(failure.id()));
+
+        var expired = f.start();
+        service.choose(expired.paymentId(), 1, Scenario.EXPIRATION);
+        f.reconciler.reconcile(expired.paymentId());
+        f.deliver();
+        assertTrue(service.get(expired.paymentId(), 1).expired());
+        assertEquals("EXPIRED", f.checkout.get(expired.id(), 1).status());
+        assertTrue(f.stock.released.contains(expired.id()));
+
+        var delayed = f.start();
+        service.choose(delayed.paymentId(), 1, Scenario.DELAYED_SUCCESS);
+        f.reconciler.reconcile(delayed.paymentId());
+        f.deliver();
+        assertEquals("AWAITING_PAYMENT", f.checkout.get(delayed.id(), 1).status());
+        f.clock.advance(service.get(delayed.paymentId(), 1).delaySeconds());
+        f.reconciler.reconcile(delayed.paymentId());
+        f.deliver();
+        assertEquals("COMPLETED", f.checkout.get(delayed.id(), 1).status());
+    }
+
+    @Test
+    void mockActivationUsesTheNormalActivationAggregateAndSettingsRequireAdmin() {
+        var f = mockFixture();
+        f.activations.rows.remove(f.event);
+        var checkout = new MockCheckoutService(f.works, f.mockAttempts, f.locks, f.audit, f.clock);
+        UUID id = f.service.activate(new ActivatePaidSalesCommand(f.event, 7, true, true));
+        assertFalse(f.service.permitsPaidSales(f.event));
+        checkout.choose(id, 7, Scenario.SUCCESS);
+        f.reconciler.reconcile(id);
+        assertTrue(f.service.permitsPaidSales(f.event));
+
+        var settings = new PaymentSettingsService(f.settings, new PaymentTermsProvider(f.terms, f.settings),
+            f.gateway, f.locks, f.audit, f.admin, f.clock);
+        f.admin.administrator = false;
+        assertThrows(AuthorizationException.class, () -> settings.changePaymentProvider(PaymentProvider.HALYK));
+    }
+
+    private static Fixture mockFixture() {
+        var f = new Fixture(new PaidSalesActivationBypass(new MockEnvironment(), false), true);
+        var settings = new PaymentSettingsService(f.settings, new PaymentTermsProvider(f.terms, f.settings),
+            f.gateway, f.locks, f.audit, f.admin, f.clock);
+        assertEquals(PaymentProvider.HALYK, settings.paymentProvider().provider());
+        settings.changePaymentProvider(PaymentProvider.MOCK);
+        f.bank.unavailable = true;
+        return f;
+    }
+
+    @Test
+    void developmentBypassAllowsMissingActivationWithoutOverridingSuspension() {
+        var f = new Fixture(new PaidSalesActivationBypass(new MockEnvironment().withProperty("spring.profiles.active", "dev"), true));
+        var activation = f.activations.find(f.event).orElseThrow();
+        f.activations.rows.remove(f.event);
+        check(f.service.permitsPaidSales(f.event), "The development override allows sales with no activation row");
+        check(f.paid().status().equals("COMPLETED"), "Bypassed checkout still requires a captured ticket payment");
+        f.activations.save(activation);
+        f.administration.suspend(new SuspendPaidSalesCommand(f.event, "Platform suspension"));
+        check(!f.service.permitsPaidSales(f.event), "The override preserves platform suspension");
+
+        var production = new MockEnvironment();
+        production.setActiveProfiles("dev", "prod");
+        check(!new PaidSalesActivationBypass(production, true).enabled(), "Production takes precedence over dev");
+    }
+
+    @Test
+    void privateCheckoutRequiresAnInvitationAndCompensatesCaptureAfterRevocation() {
+        var f = new Fixture();
+        f.events.privateEvent = true;
+        assertThrows(EntityNotFoundException.class, f::start);
+        assertThrows(EntityNotFoundException.class, () -> f.checkout.quote(
+            f.event, null, "PROMO123", List.of(new CheckoutInventoryOhs.QuoteSelection(f.type, 1))
+        ));
+
+        f.events.purchaserInvited = true;
+        var checkout = f.start();
+        f.events.purchaserInvited = false;
+        var work = f.work(checkout);
+        f.observe(work, "CHARGE");
+        f.deliver();
+        check(f.stock.issued.isEmpty(), "No tickets may be issued after permission is revoked");
+        check(work.getPayment().getRefund().isPresent(), "Late capture is compensated");
+    }
+
+    @Test
+    void purchaserRefundUsesTheSavedDeadlineAndReusesTheExistingSaga() {
+        var f = new Fixture();
+        var deadline = f.clock.instant().plusSeconds(3600);
+        f.events.refundDeadline = deadline;
+        var order = f.paid();
+        f.events.refundDeadline = null;
+
+        assertThrows(AuthorizationException.class, () -> f.checkout.requestSelfRefund(order.id(), 7));
+        check(order.selfRefundAvailable() && deadline.equals(order.selfRefundDeadline()), "The purchaser sees the checkout deadline");
+        check(!f.checkout.get(order.id(), 7).selfRefundAvailable(), "Organizers use their existing refund workflow");
+
+        var pending = f.checkout.requestSelfRefund(order.id(), 1);
+        var retry = f.checkout.requestSelfRefund(order.id(), 1);
+        check(f.stock.refundPending && pending.refundId().equals(retry.refundId()), "Refund blocks admission and retries reuse it");
+        var work = f.work(order);
+        f.observe(work, "CHARGE");
+        f.observe(work, "REFUND");
+        f.deliver();
+        check(f.checkout.get(order.id(), 1).refundState().equals("REFUNDED"), "The bank outcome settles the refund");
+    }
+
+    @Test
+    void expiredOrUsedOrdersStillRequireOrganizerReview() {
+        var f = new Fixture();
+        f.events.refundDeadline = f.clock.instant().minusSeconds(1);
+        var expired = f.paid();
+        check(!expired.selfRefundAvailable(), "The cutoff elapsed");
+        assertThrows(IllegalStateException.class, () -> f.checkout.requestSelfRefund(expired.id(), 1));
+        f.checkout.refund(expired.id(), 7, "Policy exception");
+
+        f.events.refundDeadline = f.clock.instant().plusSeconds(3600);
+        var checkedIn = f.paid();
+        var valid = checkedIn.tickets().getFirst();
+        f.stock.issued.put(checkedIn.id(), List.of(new CheckoutInventoryOhs.IssuedTicket(
+            valid.id(), valid.code(), "CHECKED_IN", valid.ticketTypeId(), valid.seatId(), valid.attendeeEmail()
+        )));
+        assertThrows(IllegalStateException.class, () -> f.checkout.requestSelfRefund(checkedIn.id(), 1));
     }
 
     @Test
@@ -987,8 +1158,9 @@ public class PaymentSagaTest {
             return List.of();
         }
 
-        public List<UUID> due(Instant now) {
-            return new ArrayList<>(rows.keySet());
+        public List<UUID> due(Instant now, PaymentProvider provider) {
+            return rows.values().stream().filter(work -> PaymentProvider.forInvoice(work.getInvoiceId()) == provider)
+                .map(PaymentWork::getId).toList();
         }
 
         public boolean lease(UUID id, Instant now, Instant until) {
@@ -998,6 +1170,28 @@ public class PaymentSagaTest {
         public void schedule(UUID id, Instant when) {}
 
         public void wake(UUID id, Instant when) {}
+    }
+
+    static final class SimulatedAttempts implements MockPaymentScenarios {
+        final Map<UUID, Attempt> rows = new HashMap<>();
+        int sequence;
+
+        public String nextInvoice() {
+            return "M" + ++sequence;
+        }
+
+        public Optional<Attempt> find(UUID id) {
+            return Optional.ofNullable(rows.get(id));
+        }
+
+        public void insert(UUID id, Scenario scenario, Instant settlesAt) {
+            rows.put(id, new Attempt(scenario, settlesAt, false));
+        }
+
+        public void markRefunded(UUID id) {
+            var attempt = rows.get(id);
+            rows.put(id, new Attempt(attempt.scenario(), attempt.settlesAt(), true));
+        }
     }
 
     static final class Activations implements ActivationRepository {
@@ -1059,7 +1253,16 @@ public class PaymentSagaTest {
 
     static final class Settings implements PaymentSettingsRepository {
 
+        ProviderSetting provider;
         ActivationFeeSetting fee;
+
+        public Optional<ProviderSetting> paymentProvider() {
+            return Optional.ofNullable(provider);
+        }
+
+        public void savePaymentProvider(ProviderSetting setting) {
+            provider = setting;
+        }
 
         public Optional<ActivationFeeSetting> activationFee() {
             return Optional.ofNullable(fee);
@@ -1122,6 +1325,14 @@ public class PaymentSagaTest {
     static final class Events implements EventManagementOhs {
 
         boolean open = true;
+        boolean privateEvent;
+        boolean purchaserInvited;
+        Instant refundDeadline;
+
+        @Override
+        public boolean canAccessPrivateEvent(UUID eventId, long userId) {
+            return purchaserInvited && userId == 1;
+        }
 
         public EventTicketingConfigurationView getTicketingConfiguration(UUID id) {
             throw new UnsupportedOperationException();
@@ -1152,7 +1363,7 @@ public class PaymentSagaTest {
         }
 
         public SalesScope salesScope(UUID e, Instant now) {
-            return new SalesScope(e, 7, open, !open, now.plusSeconds(86400));
+            return new SalesScope(e, 7, open, !open, now.plusSeconds(86400), !privateEvent, refundDeadline);
         }
 
         public boolean canHandleAttendeeSupport(UUID e, Long u) {
@@ -1351,20 +1562,7 @@ public class PaymentSagaTest {
         Settings settings = new Settings();
         PayoutAccounts payoutAccounts = new PayoutAccounts();
         PaymentNotices paymentNotices = new PaymentNotices();
-        PaymentService service = new PaymentService(
-            works,
-            activations,
-            events,
-            locks,
-            audit,
-            clock,
-            terms,
-            bank,
-            secrets,
-            paidTypes,
-            new PaymentTermsProvider(terms, settings),
-            payoutAccounts
-        );
+        PaymentService service;
         PaymentTransitions transitions = new PaymentTransitions(
             works,
             activations,
@@ -1379,24 +1577,52 @@ public class PaymentSagaTest {
         Actor admin = new Actor();
         PaidSalesAdministrationService administration = new PaidSalesAdministrationService(activations, locks, audit, admin, clock);
         PaymentAccessService access = new PaymentAccessService(works, bank, secrets, transitions, audit, clock, locks);
-        PaymentReconciler reconciler = new PaymentReconciler(works, bank, transitions, locks, clock, new LocalTransactions());
+        PaymentReconciler reconciler;
+        PaymentGateway gateway;
+        SimulatedAttempts mockAttempts = new SimulatedAttempts();
         PromotionsOhs promotions = mock(PromotionsOhs.class);
-        CheckoutService checkout = new CheckoutService(
-            sessions,
-            orders,
-            processes,
-            stock,
-            service,
-            events,
-            locks,
-            audit,
-            Object::toString,
-            clock,
-            notices,
-            promotions
-        );
+        CheckoutService checkout;
 
         Fixture() {
+            this(new PaidSalesActivationBypass(new MockEnvironment(), false));
+        }
+
+        Fixture(PaidSalesActivationBypass bypass) {
+            this(bypass, false);
+        }
+
+        Fixture(PaidSalesActivationBypass bypass, boolean useRouter) {
+            gateway = useRouter ? new RoutedPaymentGateway(bank, settings, works, mockAttempts, clock) : bank;
+            reconciler = new PaymentReconciler(works, gateway, transitions, locks, clock, new LocalTransactions());
+            service = new PaymentService(
+                works,
+                activations,
+                events,
+                locks,
+                audit,
+                clock,
+                terms,
+                gateway,
+                secrets,
+                paidTypes,
+                new PaymentTermsProvider(terms, settings),
+                payoutAccounts,
+                bypass
+            );
+            checkout = new CheckoutService(
+                sessions,
+                orders,
+                processes,
+                stock,
+                service,
+                events,
+                locks,
+                audit,
+                Object::toString,
+                clock,
+                notices,
+                promotions
+            );
             payoutAccounts.save(PayoutAccount.register(7L, "Organizer Seven", KzIban.parse("KZ86125KZT5004100100"), clock.instant()));
             activations.save(
                 new ActivationRepository.Activation(

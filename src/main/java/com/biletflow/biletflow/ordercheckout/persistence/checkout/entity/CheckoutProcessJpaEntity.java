@@ -28,6 +28,9 @@ public class CheckoutProcessJpaEntity {
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
+    @Column(name = "self_refund_deadline", updatable = false)
+    private Instant selfRefundDeadline;
+
     @Column(name = "payment_id")
     private UUID paymentId;
 
@@ -73,7 +76,8 @@ public class CheckoutProcessJpaEntity {
         List<CheckoutHoldJpaEmbeddable> holds,
         UUID redemptionId,
         String promoCode,
-        Instant createdAt
+        Instant createdAt,
+        Instant selfRefundDeadline
     ) {
         this.id = id;
         this.eventId = eventId;
@@ -88,6 +92,7 @@ public class CheckoutProcessJpaEntity {
         this.redemptionId = redemptionId;
         this.promoCode = promoCode;
         this.createdAt = createdAt;
+        this.selfRefundDeadline = selfRefundDeadline;
     }
 
     public void updateMutableState(UUID paymentId, CheckoutRefundStatus refundState, UUID refundId) {
@@ -118,6 +123,10 @@ public class CheckoutProcessJpaEntity {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public Instant getSelfRefundDeadline() {
+        return selfRefundDeadline;
     }
 
     public UUID getPaymentId() {

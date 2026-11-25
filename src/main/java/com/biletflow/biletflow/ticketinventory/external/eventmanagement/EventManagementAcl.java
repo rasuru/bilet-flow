@@ -1,6 +1,7 @@
 package com.biletflow.biletflow.ticketinventory.external.eventmanagement;
 
 import com.biletflow.biletflow.common.application.EntityNotFoundException;
+import com.biletflow.biletflow.common.security.CurrentActor;
 import com.biletflow.biletflow.eventmanagement.domain.exceptions.SocialEventNotFoundException;
 import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.ticketinventory.application.common.InventoryKind;
@@ -18,8 +19,11 @@ public class EventManagementAcl implements EventManagementPort {
 
     private final EventManagementOhs eventManagementOhs;
 
-    public EventManagementAcl(EventManagementOhs eventManagementOhs) {
+    private final CurrentActor actor;
+
+    public EventManagementAcl(EventManagementOhs eventManagementOhs, CurrentActor actor) {
         this.eventManagementOhs = Objects.requireNonNull(eventManagementOhs);
+        this.actor = Objects.requireNonNull(actor);
     }
 
     @Override
@@ -45,7 +49,10 @@ public class EventManagementAcl implements EventManagementPort {
     public PublicSalesScope publicSalesScope(UUID eventId, Instant now) {
         try {
             var scope = eventManagementOhs.salesScope(eventId, now);
-            return new PublicSalesScope(scope.registrationOpen(), scope.publiclyReadable());
+            boolean readable = scope.publiclyReadable() || actor.userId()
+                .filter(userId -> eventManagementOhs.canAccessPrivateEvent(eventId, userId))
+                .isPresent();
+            return new PublicSalesScope(scope.registrationOpen(), readable);
         } catch (SocialEventNotFoundException exception) {
             throw new EntityNotFoundException("Event not found: " + eventId);
         }

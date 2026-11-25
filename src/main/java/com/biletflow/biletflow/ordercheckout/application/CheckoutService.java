@@ -72,9 +72,9 @@ public class CheckoutService {
 
     public record PromoQuote(UUID promotionId, String promoCode, BigDecimal subtotalKzt, BigDecimal discountKzt, BigDecimal amountKzt) {}
 
-    public PromoQuote quote(UUID eventId, String promoCode, List<CheckoutInventoryOhs.QuoteSelection> selections) {
+    public PromoQuote quote(UUID eventId, Long actor, String promoCode, List<CheckoutInventoryOhs.QuoteSelection> selections) {
         var scope = events.salesScope(eventId, clock.instant());
-        if (!scope.publiclyReadable()) throw new EntityNotFoundException("Event not found");
+        requireAttendeeAccess(scope, actor);
         requireRegistrationOpen(scope);
         var lines = inventory.quote(eventId, selections);
         var basket = lines.stream().map(line -> new PromotionsOhs.Line(line.ticketTypeId(), line.unitPrice(), line.quantity())).toList();
@@ -107,7 +107,7 @@ public class CheckoutService {
         }
         Instant createdAt = clock.instant();
         var scope = events.salesScope(request.eventId(), createdAt);
-        if (request.promoCode() != null && !scope.publiclyReadable()) throw new EntityNotFoundException("Event not found");
+        requireAttendeeAccess(scope, owner);
         requireRegistrationOpen(scope);
         var held = inventory.reserve(request.eventId(), id, request.selections());
         var checkout = new CheckoutSession(
@@ -141,7 +141,8 @@ public class CheckoutService {
             null,
             promo == null ? null : promo.redemptionId(),
             promo == null ? null : promo.code(),
-            createdAt
+            createdAt,
+            scope.refundDeadline()
         );
         if (checkout.getFinalPrice().isZero()) {
             if (promo != null && !checkout.getTotalPrice().isZero() && !payments.permitsPaidSalesForCheckout(process.eventId())) {
@@ -168,7 +169,7 @@ public class CheckoutService {
     public CheckoutView get(UUID id, long actor) {
         var p = requireProcess(id);
         authorizeRead(p, actor);
-        return view(p, requireCheckout(id));
+        return view(p, requireCheckout(id), p.ownerId() == actor);
     }
 
     /** Internal OHS projection; its caller must authorize the event scope. */
@@ -206,7 +207,7 @@ public class CheckoutService {
         return view(p, c);
     }
 
-    /** MVP policy: only organizers initiate full refunds of unused tickets; no partial refund or automatic customer entitlement. */
+    /** Organizer-initiated refund, including policy exceptions. */
     @Transactional
     public CheckoutView refund(UUID id, long organizer, String reason) {
         return refundForSupport(id, organizer, false, reason);
@@ -243,12 +244,45 @@ public class CheckoutService {
             audit.record("ordercheckout", id, organizer, "FREE_ORDER_CANCELLED");
             return view(p, c);
         }
-        inventory.prepareRefund(p.eventId(), id);
-        UUID refund = payments.refund(p.paymentId(), reason);
-        p = p.refund(CheckoutRefundStatus.PENDING, refund);
-        processes.save(p);
-        audit.record("ordercheckout", id, organizer, "ORDER_REFUND_REQUESTED");
-        return view(p, c);
+        return view(beginPaidRefund(p, organizer, reason), c);
+    }
+
+    @Transactional
+    public CheckoutView requestSelfRefund(UUID id, long buyer) {
+        locks.lock("checkout:" + id);
+        var process = requireProcess(id);
+        authorizeOwner(process, buyer);
+        var checkout = requireCheckout(id);
+        if (process.refundState() == CheckoutRefundStatus.PENDING || process.refundState() == CheckoutRefundStatus.REFUNDED) {
+            return view(process, checkout, true);
+        }
+        var order = orders.findById(new OrderId(id)).orElse(null);
+        if (order == null || !canSelfRefund(process, order.getStatus().name(), inventory.tickets(id))) {
+            throw new IllegalStateException("This order is outside the self-service refund policy. Contact order support.");
+        }
+        return view(beginPaidRefund(process, buyer, "Attendee requested a refund under the event policy"), checkout, true);
+    }
+
+    private CheckoutProcess beginPaidRefund(CheckoutProcess process, long actor, String reason) {
+        inventory.prepareRefund(process.eventId(), process.id());
+        UUID refund = payments.refund(process.paymentId(), reason);
+        var pending = process.refund(CheckoutRefundStatus.PENDING, refund);
+        processes.save(pending);
+        audit.record("ordercheckout", process.id(), actor, "ORDER_REFUND_REQUESTED");
+        return pending;
+    }
+
+    private boolean canSelfRefund(
+        CheckoutProcess process, String status, List<CheckoutInventoryOhs.IssuedTicket> tickets
+    ) {
+        return OrderStatus.COMPLETED.name().equals(status)
+            && process.paymentId() != null
+            && process.selfRefundDeadline() != null
+            && !clock.instant().isAfter(process.selfRefundDeadline())
+            && process.refundState() != CheckoutRefundStatus.PENDING
+            && process.refundState() != CheckoutRefundStatus.REFUNDED
+            && !tickets.isEmpty()
+            && tickets.stream().allMatch(ticket -> "VALID".equals(ticket.status()));
     }
 
     @Transactional
@@ -281,7 +315,7 @@ public class CheckoutService {
                 if (
                     c.getStatus() != CheckoutSessionStatus.AWAITING_PAYMENT ||
                     !acceptedAt.isBefore(p.deadline()) ||
-                    !events.salesScope(p.eventId(), acceptedAt).registrationOpen()
+                    !canFulfill(p, acceptedAt)
                 ) {
                     if (c.getStatus() == CheckoutSessionStatus.AWAITING_PAYMENT) {
                         c.expire();
@@ -301,12 +335,14 @@ public class CheckoutService {
                 checkouts.save(c);
                 audit.record("ordercheckout", p.id(), null, "PAID_ORDER_COMPLETED");
             }
-            case "FAILED" -> {
+            case "FAILED", "EXPIRED" -> {
                 if (c.getStatus() == CheckoutSessionStatus.AWAITING_PAYMENT) {
-                    c.markPaymentFailed();
+                    boolean expired = "EXPIRED".equals(outcome.outcome());
+                    if (expired) c.expire();
+                    else c.markPaymentFailed();
                     checkouts.save(c);
                     release(p);
-                    audit.record("ordercheckout", p.id(), null, "CHECKOUT_PAYMENT_FAILED");
+                    audit.record("ordercheckout", p.id(), null, expired ? "CHECKOUT_EXPIRED" : "CHECKOUT_PAYMENT_FAILED");
                 }
             }
             case "REFUNDED" -> {
@@ -382,6 +418,19 @@ public class CheckoutService {
         return new CheckoutConflict(CheckoutConflict.Reason.PAID_SALES_INACTIVE, "Paid sales are not active for this event");
     }
 
+    private boolean canFulfill(CheckoutProcess process, Instant now) {
+        var scope = events.salesScope(process.eventId(), now);
+        return scope.registrationOpen() && canAccessEvent(scope, process.ownerId());
+    }
+
+    private void requireAttendeeAccess(EventManagementOhs.SalesScope scope, Long userId) {
+        if (!canAccessEvent(scope, userId)) throw new EntityNotFoundException("Event not found");
+    }
+
+    private boolean canAccessEvent(EventManagementOhs.SalesScope scope, Long userId) {
+        return scope.publiclyReadable() || (userId != null && events.canAccessPrivateEvent(scope.eventId(), userId));
+    }
+
     private static void requireRegistrationOpen(EventManagementOhs.SalesScope scope) {
         if (!scope.registrationOpen()) throw new CheckoutConflict(
             CheckoutConflict.Reason.REGISTRATION_CLOSED, "Event is not accepting registrations"
@@ -405,10 +454,15 @@ public class CheckoutService {
     }
 
     private CheckoutView view(CheckoutProcess p, CheckoutSession c) {
+        return view(p, c, false);
+    }
+
+    private CheckoutView view(CheckoutProcess p, CheckoutSession c, boolean buyer) {
         String status = orders
             .findById(new OrderId(p.id()))
             .map(o -> o.getStatus().name())
             .orElse(c.getStatus().name());
+        var tickets = inventory.tickets(p.id());
         return new CheckoutView(
             p.id(),
             p.eventId(),
@@ -418,12 +472,14 @@ public class CheckoutService {
             p.paymentId(),
             p.refundState() == null ? null : p.refundState().name(),
             p.refundId(),
-            inventory.tickets(p.id()),
+            tickets,
             true,
             c.getTotalPrice().amount(),
             c.getDiscountAmount().amount(),
             p.promoCode(),
-            p.createdAt()
+            p.createdAt(),
+            buyer && p.paymentId() != null ? p.selfRefundDeadline() : null,
+            buyer && canSelfRefund(p, status, tickets)
         );
     }
 }

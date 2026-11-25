@@ -15,7 +15,7 @@ import java.util.UUID;
 public interface EventManagementPort {
     EventTicketingConfiguration getTicketingConfiguration(UUID eventId);
 
-    record PublicSalesScope(boolean registrationOpen, boolean publiclyReadable) {}
+    record PublicSalesScope(boolean registrationOpen, boolean attendeeReadable) {}
 
     PublicSalesScope publicSalesScope(UUID eventId, Instant now);
 

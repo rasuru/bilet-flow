@@ -14,7 +14,8 @@ public record ActivationChecklistView(
     boolean readyToRequest,
     boolean complete,
     BigDecimal activationFeeKzt,
-    boolean sandbox
+    boolean sandbox,
+    boolean activationBypassed
 ) {
     public record Item(String key, boolean done, boolean simulated, String description) {}
 

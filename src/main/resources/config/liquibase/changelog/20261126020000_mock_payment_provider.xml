@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd"
+>
+    <changeSet id="20261126020000-mock-payment-provider" author="biletflow">
+        <addColumn tableName="pm_setting">
+            <column name="payment_provider" type="varchar(16)"/>
+        </addColumn>
+        <createSequence sequenceName="pm_mock_invoice_seq" startValue="1" maxValue="99999999999999"/>
+        <createTable tableName="pm_mock_attempt">
+            <column name="payment_id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="scenario" type="varchar(24)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="settles_at" type="timestamp with time zone">
+                <constraints nullable="false"/>
+            </column>
+            <column name="refunded" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="pm_mock_attempt" baseColumnNames="payment_id"
+                                 referencedTableName="pm_payment_work" referencedColumnNames="id"
+                                 constraintName="fk_pm_mock_attempt_payment" onDelete="CASCADE"/>
+    </changeSet>
+</databaseChangeLog>

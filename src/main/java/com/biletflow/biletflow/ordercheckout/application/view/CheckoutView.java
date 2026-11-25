@@ -19,5 +19,7 @@ public record CheckoutView(
     BigDecimal subtotalKzt,
     BigDecimal discountKzt,
     String promoCode,
-    Instant createdAt
+    Instant createdAt,
+    Instant selfRefundDeadline,
+    boolean selfRefundAvailable
 ) {}
