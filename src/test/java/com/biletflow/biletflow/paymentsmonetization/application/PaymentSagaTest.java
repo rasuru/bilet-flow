@@ -349,7 +349,7 @@ public class PaymentSagaTest {
         var f = new Fixture();
         var v = f.start();
         var w = f.work(v);
-        f.observe(w, "FAILED");
+        f.observe(w, "CANCEL");
         f.deliver();
         check("PAYMENT_FAILED".equals(f.checkout.get(v.id(), 1).status()), "Failed payment terminates checkout");
         check(f.stock.released.contains(v.id()), "Hold released");
@@ -417,7 +417,7 @@ public class PaymentSagaTest {
 
         var request = new CreateCheckoutCommand(fixture.event, fixture.request().selections(), "PROMO123");
         var checkout = fixture.checkout.create(checkoutId, 1, request);
-        fixture.observe(fixture.work(checkout), "FAILED");
+        fixture.observe(fixture.work(checkout), "CANCEL");
         fixture.deliver();
 
         verify(fixture.promotions).release(redemptionId, checkoutId);
@@ -539,9 +539,12 @@ public class PaymentSagaTest {
     }
 
     @Test
-    void declinedTicketPaymentEmailsThePurchaserButAbandonedCheckoutsDoNot() {
+    void expiredDeclinedTicketPaymentEmailsThePurchaserButAbandonedCheckoutsDoNot() {
         var f = new Fixture();
         var declined = f.work(f.start());
+        f.observe(declined, "FAILED");
+        check(f.paymentNotices.rows.isEmpty(), "A retryable decline does not send a failure notice");
+        f.clock.advance(601);
         f.observe(declined, "FAILED");
         check(f.paymentNotices.kinds().equals(List.of(PaymentNoticeKind.TICKET_PAYMENT_FAILED)), "Declined payment produces a notice");
         check(f.paymentNotices.rows.values().iterator().next().recipientId() == 1, "Failure notice goes to the purchaser");
@@ -556,13 +559,49 @@ public class PaymentSagaTest {
     }
 
     @Test
-    void declinedActivationFeeEmailsTheOrganizer() {
+    void expiredDeclinedActivationFeeEmailsTheOrganizer() {
         var f = new Fixture();
         f.activations.rows.clear();
         UUID id = f.service.activate(new ActivatePaidSalesCommand(f.event, 7, true, true));
         f.observe(f.works.find(id).orElseThrow(), "FAILED");
+        check(f.paymentNotices.rows.isEmpty(), "A retryable decline does not send a failure notice");
+        f.clock.advance(1801);
+        f.observe(f.works.find(id).orElseThrow(), "FAILED");
         check(f.paymentNotices.kinds().equals(List.of(PaymentNoticeKind.ACTIVATION_FEE_FAILED)), "Declined fee produces a notice");
         check(f.paymentNotices.rows.values().iterator().next().recipientId() == 7, "Fee failure notice goes to the organizer");
+    }
+
+    @Test
+    void declinedActivationCanSettleWithAnotherCardAndNotifyOnce() {
+        var f = new Fixture();
+        f.activations.rows.clear();
+        UUID id = f.service.activate(new ActivatePaidSalesCommand(f.event, 7, true, true));
+        var work = f.works.find(id).orElseThrow();
+        f.observe(work, "FAILED");
+        check(work.getStatus() == PaymentStatus.PENDING, "Card decline leaves fee pending");
+        check(f.paymentNotices.rows.isEmpty(), "No premature email");
+        check(f.service.activate(new ActivatePaidSalesCommand(f.event, 7, true, true)).equals(id), "Same fee invoice remains reusable");
+        f.observe(work, "AUTH", "00000000-0000-0000-0000-000000000002");
+        check(f.bank.commands.equals(List.of("charge")), "Only the authorized retry is captured");
+        f.observe(work, "CHARGE", "00000000-0000-0000-0000-000000000002");
+        f.observe(work, "CHARGE", "00000000-0000-0000-0000-000000000002");
+        check(f.activations.find(f.event).orElseThrow().aggregate().permitsPaidSales(), "Retry activates paid sales");
+        check(f.paymentNotices.kinds().equals(List.of(PaymentNoticeKind.ACTIVATION_FEE_SUCCEEDED)), "One activation receipt");
+    }
+
+    @Test
+    void declinedTicketCanSettleWithAnotherCardWithoutReleasingInventory() {
+        var f = new Fixture();
+        var checkout = f.start();
+        var work = f.work(checkout);
+        f.observe(work, "FAILED");
+        f.deliver();
+        check(!f.stock.released.contains(checkout.id()), "Retry preserves holds");
+        f.observe(work, "CHARGE", "00000000-0000-0000-0000-000000000002");
+        f.deliver();
+        f.observe(work, "CHARGE", "00000000-0000-0000-0000-000000000002");
+        f.deliver();
+        check(f.orders.rows.size() == 1, "Retry completes exactly one order");
     }
 
     @Test
@@ -1387,6 +1426,10 @@ public class PaymentSagaTest {
         void observe(PaymentWork w, String status) {
             String ref = w.isTicket() ? w.getPayment().getProviderReference() : w.getActivationPayment().getProviderReference();
             if (ref == null) ref = "00000000-0000-0000-0000-000000000001";
+            observe(w, status, ref);
+        }
+
+        void observe(PaymentWork w, String status, String ref) {
             bank.next = new SettlementEvidence(w.getInvoiceId(), ref, w.getAmount(), "KZT", true, normalize(status), w.getId().toString());
             reconciler.reconcile(w.getId());
         }
@@ -1407,3 +1450,4 @@ public class PaymentSagaTest {
         }
     }
 }
+
