@@ -70,12 +70,22 @@ public class TicketDocumentService {
 
     @Transactional
     public void requestEmail(UUID ticketId) {
-        var ticket = authorize(ticketId);
+        requestEmailForTicket(authorize(ticketId), false);
+    }
+
+    /** Internal support operation; the OHS caller authorizes the ticket/event scope. */
+    @Transactional
+    public void requestSupportEmail(UUID ticketId) {
+        requestEmailForTicket(requireTicket(ticketId), true);
+    }
+
+    private void requestEmailForTicket(Ticket ticket, boolean rejectSuspendedEvent) {
         var document = document(ticket);
-        if (ticket.getStatus() != TicketStatus.VALID || document.event().cancelled()) {
+        if (ticket.getStatus() != TicketStatus.VALID || document.event().cancelled()
+                || (rejectSuspendedEvent && document.event().suspended())) {
             throw new IllegalStateException("Only a valid ticket for a non-cancelled event can be emailed");
         }
-        deliveries.request(ticketId, clock.instant());
+        deliveries.request(ticket.getId().value(), clock.instant());
     }
 
     /** Internal worker query; no public endpoint delegates directly to this method. */
@@ -118,3 +128,4 @@ public class TicketDocumentService {
         return new TicketDocument(view, type.getName(), events.ticketDetails(ticket.getEventId(), view.seatId()));
     }
 }
+

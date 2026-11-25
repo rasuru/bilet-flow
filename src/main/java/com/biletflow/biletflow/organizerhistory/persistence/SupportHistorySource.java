@@ -49,7 +49,15 @@ public class SupportHistorySource extends AuditLogHistorySource {
                 Entity.ROW,
                 Description.LABEL,
                 "Support case escalated to platform administrators"
-            )
+            ),
+            new Mapping("ACTION_RESEND_TICKET", "SUPPORT_TICKET_RESEND_REQUESTED", HistoryCategory.SUPPORT,
+                "SUPPORT_CASE", Entity.ROW, Description.LABEL, "Ticket email requested from support case"),
+            new Mapping("ACTION_REVERSE_CHECK_IN", "SUPPORT_CHECK_IN_REVERSED", HistoryCategory.SUPPORT,
+                "SUPPORT_CASE", Entity.ROW, Description.LABEL, "Check-in reversed from support case"),
+            new Mapping("ACTION_CANCEL_FREE_ORDER", "SUPPORT_FREE_ORDER_CANCELLED", HistoryCategory.SUPPORT,
+                "SUPPORT_CASE", Entity.ROW, Description.LABEL, "Free order cancelled from support case"),
+            new Mapping("ACTION_REQUEST_REFUND", "SUPPORT_REFUND_REQUESTED", HistoryCategory.SUPPORT,
+                "SUPPORT_CASE", Entity.ROW, Description.LABEL, "Full refund requested from support case")
         ),
         Set.of("MESSAGE_ADDED")
     );
@@ -70,3 +78,4 @@ public class SupportHistorySource extends AuditLogHistorySource {
         return SQL;
     }
 }
+

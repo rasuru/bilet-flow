@@ -171,6 +171,11 @@ public class CheckoutService {
         return view(p, requireCheckout(id));
     }
 
+    /** Internal OHS projection; its caller must authorize the event scope. */
+    public CheckoutView supportView(UUID id) {
+        return view(requireProcess(id), requireCheckout(id));
+    }
+
     public List<CheckoutView> mine(long actor) {
         return checkouts
             .findAllByOwnerUserId(actor)
@@ -204,9 +209,15 @@ public class CheckoutService {
     /** MVP policy: only organizers initiate full refunds of unused tickets; no partial refund or automatic customer entitlement. */
     @Transactional
     public CheckoutView refund(UUID id, long organizer, String reason) {
+        return refundForSupport(id, organizer, false, reason);
+    }
+
+    /** Trusted OHS entry point: platformAdministrator must come from CurrentActor. */
+    @Transactional
+    public CheckoutView refundForSupport(UUID id, long organizer, boolean platformAdministrator, String reason) {
         locks.lock("checkout:" + id);
         var p = requireProcess(id);
-        if (!events.canManageTicketing(p.eventId(), organizer)) throw new AuthorizationException(
+        if (!platformAdministrator && !events.canManageTicketing(p.eventId(), organizer)) throw new AuthorizationException(
             "Only the organizer can refund this order"
         );
         var c = requireCheckout(id);
@@ -416,3 +427,4 @@ public class CheckoutService {
         );
     }
 }
+
