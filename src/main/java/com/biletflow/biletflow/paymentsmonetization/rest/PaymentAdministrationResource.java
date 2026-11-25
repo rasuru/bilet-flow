@@ -96,6 +96,13 @@ public class PaymentAdministrationResource {
         return response(queries.payments(new PaymentAdminQueries.PaymentFilter(status, purpose, eventId, payerId), offset, limit));
     }
 
+    @GetMapping("/payments/{id}")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    @Operation(summary = "Read the current administrative payment and reconciliation detail")
+    public ResponseEntity<AdminPaymentView> payment(@PathVariable UUID id) {
+        return response(queries.payment(id));
+    }
+
     @GetMapping("/activations")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     @Operation(

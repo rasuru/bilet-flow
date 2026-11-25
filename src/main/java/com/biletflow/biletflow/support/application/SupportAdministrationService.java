@@ -46,9 +46,16 @@ public class SupportAdministrationService {
         this.publisher = publisher;
     }
 
-    public List<SupportAdminQueries.Summary> search(CaseStatus status, UUID eventId, boolean escalatedOnly, int offset, int limit) {
+    public List<SupportAdminQueries.Summary> search(
+        CaseStatus status,
+        UUID eventId,
+        UUID orderId,
+        boolean escalatedOnly,
+        int offset,
+        int limit
+    ) {
         actor.requireAdministrator();
-        return queries.search(status, eventId, escalatedOnly, new QueryPage(offset, limit));
+        return queries.search(status, eventId, orderId, escalatedOnly, new QueryPage(offset, limit));
     }
 
     public SupportAdminQueries.Detail get(UUID caseId) {

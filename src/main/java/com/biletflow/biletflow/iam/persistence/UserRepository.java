@@ -40,6 +40,18 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     Page<User> findAllByIdNotNullAndActivatedIsTrue(Pageable pageable);
 
-    @Query("select distinct u from User u join u.authorities a where a.name = :authorityName and u.activated = true and u.email is not null and u.email <> ''")
+    @Query(
+        """
+        select u from User u
+        where locate(lower(:term), lower(u.login)) > 0
+           or locate(lower(:term), lower(coalesce(u.email, ''))) > 0
+           or locate(lower(:term), lower(trim(concat(coalesce(u.firstName, ''), ' ', coalesce(u.lastName, ''))))) > 0
+        """
+    )
+    Page<User> searchManagedUsers(@Param("term") String term, Pageable pageable);
+
+    @Query(
+        "select distinct u from User u join u.authorities a where a.name = :authorityName and u.activated = true and u.email is not null and u.email <> ''"
+    )
     List<User> findActivatedUsersWithAuthority(@Param("authorityName") String authorityName);
 }

@@ -26,6 +26,7 @@ class PaymentAdministrationAccessTest {
     private final TransactionLocks locks = mock(TransactionLocks.class);
     private final FinancialAudit audit = mock(FinancialAudit.class);
     private final PaymentAdminQueries queries = mock(PaymentAdminQueries.class);
+    private final PaymentWorkRepository works = mock(PaymentWorkRepository.class);
     private final ActivationRepository activations = mock(ActivationRepository.class);
     private final PaymentSettingsService settingsService = new PaymentSettingsService(
         settings,
@@ -36,7 +37,7 @@ class PaymentAdministrationAccessTest {
         actor,
         Clock.fixed(now, ZoneOffset.UTC)
     );
-    private final PaymentAdminQueryService queryService = new PaymentAdminQueryService(queries, mock(PaymentWorkRepository.class), actor);
+    private final PaymentAdminQueryService queryService = new PaymentAdminQueryService(queries, works, actor);
     private final PaidSalesAdministrationService paidSales = new PaidSalesAdministrationService(
         activations,
         locks,
@@ -57,6 +58,7 @@ class PaymentAdministrationAccessTest {
         assertThrows(AuthorizationException.class, () ->
             queryService.payments(new PaymentAdminQueries.PaymentFilter(null, null, null, null), 0, 10)
         );
+        assertThrows(AuthorizationException.class, () -> queryService.payment(UUID.randomUUID()));
         assertThrows(AuthorizationException.class, () -> queryService.activations(null, 0, 10));
         assertThrows(AuthorizationException.class, () -> paidSales.suspend(new SuspendPaidSalesCommand(UUID.randomUUID(), "Fraud")));
         assertThrows(AuthorizationException.class, settingsService::activationFee);
@@ -67,7 +69,7 @@ class PaymentAdministrationAccessTest {
         assertThrows(AuthorizationException.class, settingsService::processingFeeRate);
         assertThrows(AuthorizationException.class, () -> settingsService.changeProcessingFeeRate(new BigDecimal("2.5")));
 
-        verifyNoInteractions(queries, activations, settings, locks, audit);
+        verifyNoInteractions(queries, works, activations, settings, locks, audit);
     }
 
     @Test

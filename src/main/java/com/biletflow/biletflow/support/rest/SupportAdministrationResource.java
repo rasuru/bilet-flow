@@ -33,16 +33,19 @@ public class SupportAdministrationResource {
     @GetMapping
     @Operation(
         summary = "List platform support cases and escalated attendee cases",
-        description = "Use escalatedOnly=true to list attendee escalations only. Most recently updated first."
+        description = "Use orderId to list cases linked to an order or escalatedOnly=true to restrict the results to attendee escalations. Most recently updated first."
     )
     public ResponseEntity<List<SupportAdminQueries.Summary>> cases(
         @RequestParam(required = false) CaseStatus status,
         @RequestParam(required = false) UUID eventId,
+        @RequestParam(required = false) UUID orderId,
         @RequestParam(defaultValue = "false") boolean escalatedOnly,
         @RequestParam(defaultValue = "0") @Min(0) int offset,
         @RequestParam(defaultValue = "50") @Min(1) @Max(100) int limit
     ) {
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(support.search(status, eventId, escalatedOnly, offset, limit));
+        return ResponseEntity.ok()
+            .cacheControl(CacheControl.noStore())
+            .body(support.search(status, eventId, orderId, escalatedOnly, offset, limit));
     }
 
     @GetMapping("/{caseId}")

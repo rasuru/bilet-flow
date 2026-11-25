@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.paymentsmonetization.application;
 
+import com.biletflow.biletflow.common.application.EntityNotFoundException;
 import com.biletflow.biletflow.common.security.CurrentActor;
 import com.biletflow.biletflow.paymentsmonetization.application.view.ActivationRecordView;
 import com.biletflow.biletflow.paymentsmonetization.application.view.AdminPaymentView;
@@ -7,6 +8,7 @@ import com.biletflow.biletflow.paymentsmonetization.domain.activation.EventPaidS
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +37,14 @@ public class PaymentAdminQueryService {
             .flatMap(Optional::stream)
             .map(AdminPaymentView::from)
             .toList();
+    }
+
+    public AdminPaymentView payment(UUID id) {
+        actor.requireAdministrator();
+        return works
+            .find(id)
+            .map(AdminPaymentView::from)
+            .orElseThrow(() -> new EntityNotFoundException("Payment not found"));
     }
 
     public List<ActivationRecordView> activations(EventPaidSalesActivationStatus status, int offset, int limit) {

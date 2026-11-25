@@ -12,6 +12,7 @@ import com.biletflow.biletflow.paymentsmonetization.domain.exceptions.Activation
 import com.biletflow.biletflow.paymentsmonetization.domain.payoutaccount.PayoutAccountRepository;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentOperation;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentOperationState;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentStatus;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentTerms;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.ohs.*;
@@ -168,6 +169,16 @@ public class PaymentService implements PaymentsOhs {
     @Override
     public PaymentView get(UUID id) {
         return view(require(id));
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Override
+    public void requireReadyForAdministrativeRefund(UUID id) {
+        locks.lock("payment:" + id);
+        var work = require(id);
+        if (!work.isTicket() || work.getStatus() != PaymentStatus.SUCCEEDED || work.isReviewRequired() || work.isMutationUncertain()) {
+            throw new IllegalStateException("Resolve the outstanding payment operation before requesting a refund");
+        }
     }
 
     public PaymentWork authorized(UUID id, long user) {

@@ -689,6 +689,18 @@ public class PaymentSagaTest {
                 )
             )
         );
+        fails(() ->
+            f.access.resolve(
+                new ResolvePaymentOperationCommand(
+                    w.getId(),
+                    99,
+                    op,
+                    w.getOperationAt().minusSeconds(1),
+                    OperationResolution.CONFIRMED_NOT_EXECUTED_RETRY,
+                    "Evidence for a previous dispatch"
+                )
+            )
+        );
         f.access.resolve(
             new ResolvePaymentOperationCommand(w.getId(), 99, op, OperationResolution.REFUND_CONFIRMED_REJECTED, "Bank case 1")
         );
@@ -1450,4 +1462,3 @@ public class PaymentSagaTest {
         }
     }
 }
-

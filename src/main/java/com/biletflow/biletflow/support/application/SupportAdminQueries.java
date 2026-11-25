@@ -37,5 +37,9 @@ public interface SupportAdminQueries {
 
     record Detail(Summary supportCase, List<Message> messages) {}
 
-    List<Summary> search(CaseStatus status, UUID eventId, boolean escalatedOnly, QueryPage page);
+    default List<Summary> search(CaseStatus status, UUID eventId, boolean escalatedOnly, QueryPage page) {
+        return search(status, eventId, null, escalatedOnly, page);
+    }
+
+    List<Summary> search(CaseStatus status, UUID eventId, UUID orderId, boolean escalatedOnly, QueryPage page);
 }
