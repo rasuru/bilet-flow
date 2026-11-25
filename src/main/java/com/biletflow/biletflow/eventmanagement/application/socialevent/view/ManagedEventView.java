@@ -19,7 +19,9 @@ public record ManagedEventView(
     Instant endAt,
     RegistrationWindowView registrationWindow,
     EventVenueView venue,
-    List<StaffView> staff
+    List<StaffView> staff,
+    RefundPolicyView refundPolicy,
+    String privateAccessCode
 ) {
     public ManagedEventView {
         staff = List.copyOf(staff);

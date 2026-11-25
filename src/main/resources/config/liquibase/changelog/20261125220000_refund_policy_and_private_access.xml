@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+    <changeSet id="20261125220000-refund-policy-and-private-access" author="biletflow">
+        <addColumn tableName="event_management_event">
+            <column name="refund_policy_refunds_allowed" type="boolean"/>
+            <column name="refund_policy_cutoff_hours" type="integer"/>
+            <column name="refund_policy_terms" type="varchar(2000)"/>
+            <column name="private_access_code" type="varchar(64)"/>
+        </addColumn>
+        <sql>
+            UPDATE event_management_event
+            SET private_access_code = replace(gen_random_uuid()::text, '-', '')
+            WHERE visibility = 'PRIVATE' AND private_access_code IS NULL
+        </sql>
+    </changeSet>
+</databaseChangeLog>

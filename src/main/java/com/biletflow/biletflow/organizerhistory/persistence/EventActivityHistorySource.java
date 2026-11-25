@@ -22,7 +22,10 @@ public class EventActivityHistorySource extends AuditLogHistorySource {
             Mapping.details("REINSTATED", HistoryCategory.EVENT, "EVENT", Entity.EVENT),
             Mapping.details("VENUE_ATTACHED", HistoryCategory.EVENT, "EVENT", Entity.EVENT),
             Mapping.details("STAFF_ASSIGNED", HistoryCategory.EVENT, "EVENT", Entity.EVENT),
-            Mapping.details("STAFF_REMOVED", HistoryCategory.EVENT, "EVENT", Entity.EVENT)
+            Mapping.details("STAFF_REMOVED", HistoryCategory.EVENT, "EVENT", Entity.EVENT),
+            Mapping.details("REFUND_POLICY_UPDATED", HistoryCategory.EVENT, "EVENT", Entity.EVENT),
+            Mapping.details("REFUND_POLICY_REMOVED", HistoryCategory.EVENT, "EVENT", Entity.EVENT),
+            Mapping.details("PRIVATE_ACCESS_ROTATED", HistoryCategory.EVENT, "EVENT", Entity.EVENT)
         ),
         Set.of("SUPPORT_CASE_STATUS_CHANGED")
     );

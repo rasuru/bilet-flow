@@ -5,6 +5,7 @@ import com.biletflow.biletflow.common.security.CurrentActor;
 import com.biletflow.biletflow.eventmanagement.application.socialevent.view.EventVenueView;
 import com.biletflow.biletflow.eventmanagement.application.socialevent.view.ManagedEventView;
 import com.biletflow.biletflow.eventmanagement.application.socialevent.view.PublicEventView;
+import com.biletflow.biletflow.eventmanagement.application.socialevent.view.RefundPolicyView;
 import com.biletflow.biletflow.eventmanagement.application.socialevent.view.RegistrationWindowView;
 import com.biletflow.biletflow.eventmanagement.domain.*;
 import com.biletflow.biletflow.eventmanagement.domain.exceptions.SocialEventNotFoundException;
@@ -27,13 +28,22 @@ public class EventQueryService {
     }
 
     public PublicEventView getPublic(SocialEventId eventId) {
+        return getPublic(eventId, null);
+    }
+
+    public PublicEventView getPublic(SocialEventId eventId, String accessCode) {
         SocialEvent event = requireEvent(eventId);
 
-        if (!isPubliclyReadable(event)) {
+        if (!isReadableByAttendees(event, accessCode)) {
             throw new SocialEventNotFoundException(eventId.value().toString());
         }
 
         return toPublicView(event);
+    }
+
+    static boolean isReadableByAttendees(SocialEvent event, String accessCode) {
+        boolean readableStatus = event.getStatus() == SocialEventStatus.PUBLISHED || event.getStatus() == SocialEventStatus.CANCELLED;
+        return readableStatus && event.grantsAttendeeAccess(accessCode);
     }
 
     static boolean isPubliclyReadable(SocialEvent event) {
@@ -94,8 +104,16 @@ public class EventQueryService {
             event.getDateRange().startAt(),
             event.getDateRange().endAt(),
             toRegistrationWindowView(event.getRegistrationWindow()),
-            event.getVenue().map(EventQueryService::toVenueView).orElse(null)
+            event.getVenue().map(EventQueryService::toVenueView).orElse(null),
+            refundPolicyView(event)
         );
+    }
+
+    static RefundPolicyView refundPolicyView(SocialEvent event) {
+        return event
+            .getRefundPolicy()
+            .map(policy -> RefundPolicyView.from(policy, event.getDateRange()))
+            .orElse(null);
     }
 
     static ManagedEventView toManagedView(SocialEvent event) {
@@ -115,7 +133,11 @@ public class EventQueryService {
                 .getStaffAssignments()
                 .stream()
                 .map(assignment -> new ManagedEventView.StaffView(assignment.userId(), assignment.role(), assignment.assignedAt()))
-                .toList()
+                .toList(),
+            refundPolicyView(event),
+            event.getVisibility() == EventVisibility.PRIVATE
+                ? event.getPrivateAccessCode().map(PrivateAccessCode::value).orElse(null)
+                : null
         );
     }
 

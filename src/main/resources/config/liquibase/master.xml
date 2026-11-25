@@ -45,5 +45,6 @@
     <include file="config/liquibase/changelog/20261125010000_ticket_manual_codes.xml" relativeToChangelogFile="false"/>
     <include file="config/liquibase/changelog/20261125020000_predefined_venue_layouts.xml" relativeToChangelogFile="false"/>
     <include file="config/liquibase/changelog/20261125030000_remove_accessible_seat.xml" relativeToChangelogFile="false"/>
+    <include file="config/liquibase/changelog/20261125220000_refund_policy_and_private_access.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>
 

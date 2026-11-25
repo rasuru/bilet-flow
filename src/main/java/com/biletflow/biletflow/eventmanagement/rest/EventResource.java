@@ -4,6 +4,7 @@ import com.biletflow.biletflow.eventmanagement.application.socialevent.EventQuer
 import com.biletflow.biletflow.eventmanagement.application.socialevent.EventService;
 import com.biletflow.biletflow.eventmanagement.application.socialevent.command.*;
 import com.biletflow.biletflow.eventmanagement.application.socialevent.view.ManagedEventView;
+import com.biletflow.biletflow.eventmanagement.application.socialevent.view.PrivateAccessView;
 import com.biletflow.biletflow.eventmanagement.application.socialevent.view.PublicEventView;
 import com.biletflow.biletflow.eventmanagement.domain.*;
 import io.swagger.v3.oas.annotations.Operation;
@@ -14,9 +15,12 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
@@ -31,6 +35,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -51,15 +56,22 @@ public class EventResource {
     @GetMapping("/{eventId}")
     @Operation(
         summary = "Get a publicly readable event",
-        description = "Returns a PUBLIC or UNLISTED event when its status is PUBLISHED or CANCELLED. " +
-            "Private, draft, and unpublished events are exposed as not found."
+        description = "Returns a PUBLISHED or CANCELLED event. PUBLIC and UNLISTED events are readable by anyone; " +
+            "a PRIVATE event is readable only with its current access code from the organizer's invite link. " +
+            "Draft and unpublished events, and private events without a valid code, are exposed as not found."
     )
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Event returned"),
-        @ApiResponse(responseCode = "404", description = "Event does not exist or is not publicly readable", content = @Content),
+        @ApiResponse(responseCode = "404", description = "Event does not exist or is not readable by the caller", content = @Content),
     })
-    public PublicEventView getPublic(@Parameter(description = "Event ID", required = true) @PathVariable UUID eventId) {
-        return eventQueryService.getPublic(new SocialEventId(eventId));
+    public PublicEventView getPublic(
+        @Parameter(description = "Event ID", required = true) @PathVariable UUID eventId,
+        @Parameter(description = "Access code from a private event's invite link") @RequestParam(
+            name = "access",
+            required = false
+        ) String accessCode
+    ) {
+        return eventQueryService.getPublic(new SocialEventId(eventId), accessCode);
     }
 
     @GetMapping("/mine")
@@ -295,6 +307,66 @@ public class EventResource {
         return ResponseEntity.noContent().build();
     }
 
+    @PutMapping("/{eventId}/refund-policy")
+    @Operation(
+        summary = "Set the event's refund policy",
+        description = "Defines the refund terms attendees see on the event page. Refunds remain organizer-initiated full refunds; " +
+            "the policy states when the organizer will grant them. The policy is copied when the event is duplicated."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "Refund policy saved"),
+        @ApiResponse(responseCode = "400", description = "Invalid policy", content = @Content),
+        @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content),
+        @ApiResponse(responseCode = "403", description = "Current user does not manage this event", content = @Content),
+        @ApiResponse(responseCode = "404", description = "Event not found", content = @Content),
+        @ApiResponse(responseCode = "409", description = "Cancelled event cannot be modified", content = @Content),
+    })
+    public ResponseEntity<Void> defineRefundPolicy(
+        @Parameter(description = "Event ID", required = true) @PathVariable UUID eventId,
+        @Valid @RequestBody RefundPolicyRequest request
+    ) {
+        eventService.handle(
+            new DefineRefundPolicyCommand(
+                new SocialEventId(eventId),
+                request.refundsAllowed(),
+                request.cutoffHoursBeforeStart() == null ? 0 : request.cutoffHoursBeforeStart(),
+                request.terms()
+            )
+        );
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/{eventId}/refund-policy")
+    @Operation(summary = "Remove the event's refund policy", description = "Attendees then see no refund policy for the event.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "Refund policy absent"),
+        @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content),
+        @ApiResponse(responseCode = "403", description = "Current user does not manage this event", content = @Content),
+        @ApiResponse(responseCode = "404", description = "Event not found", content = @Content),
+        @ApiResponse(responseCode = "409", description = "Cancelled event cannot be modified", content = @Content),
+    })
+    public ResponseEntity<Void> removeRefundPolicy(@Parameter(description = "Event ID", required = true) @PathVariable UUID eventId) {
+        eventService.handle(new RemoveRefundPolicyCommand(new SocialEventId(eventId)));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{eventId}/private-access/rotate")
+    @Operation(
+        summary = "Replace a private event's access code",
+        description = "Generates a new access code for the invite link and invalidates the previous one. " +
+            "Share the link as /events/{eventId}?access={accessCode}. The current code is also in the management view."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "New access code"),
+        @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content),
+        @ApiResponse(responseCode = "403", description = "Current user does not manage this event", content = @Content),
+        @ApiResponse(responseCode = "404", description = "Event not found", content = @Content),
+        @ApiResponse(responseCode = "409", description = "The event is not private or is cancelled", content = @Content),
+    })
+    public PrivateAccessView rotatePrivateAccess(@Parameter(description = "Event ID", required = true) @PathVariable UUID eventId) {
+        return eventService.handle(new RotatePrivateAccessCommand(new SocialEventId(eventId)));
+    }
+
     private RegistrationWindow toRegistrationWindow(RegistrationWindowRequest request) {
         return switch (request.mode()) {
             case ALWAYS_OPEN -> new RegistrationWindow.AlwaysOpen();
@@ -397,6 +469,15 @@ public class EventResource {
     }
 
     @Schema(description = "Event staff assignment request.")
+    public record RefundPolicyRequest(
+        @Schema(description = "Whether the organizer grants refunds for this event") @NotNull Boolean refundsAllowed,
+        @Schema(description = "Refunds close this many hours before the event starts; only when refunds are allowed", example = "48")
+        @Min(0)
+        @Max(RefundPolicy.MAX_CUTOFF_HOURS)
+        Integer cutoffHoursBeforeStart,
+        @Schema(description = "Refund terms shown to attendees") @Size(max = RefundPolicy.MAX_TERMS_LENGTH) String terms
+    ) {}
+
     public record AssignStaffRequest(
         @Schema(description = "User ID to assign", example = "42") @NotNull Long staffUserId,
         @Schema(description = "Role granted for this event") @NotNull StaffRole role

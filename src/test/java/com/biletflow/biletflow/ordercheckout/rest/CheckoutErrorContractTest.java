@@ -46,7 +46,7 @@ class CheckoutErrorContractTest {
     void unavailableSeatUsesSpecificProblemInsteadOfGenericConflict() throws Exception {
         UUID seatId = UUID.randomUUID();
         when(actor.requireUserId()).thenReturn(42L);
-        when(checkout.create(any(), eq(42L), any())).thenThrow(
+        when(checkout.create(any(), eq(42L), any(), any())).thenThrow(
             new CheckoutInventoryOhs.Unavailable("Seat is unavailable", seatId, new IllegalStateException())
         );
 

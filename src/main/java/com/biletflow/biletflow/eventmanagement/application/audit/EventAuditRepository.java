@@ -20,5 +20,8 @@ public interface EventAuditRepository {
         STAFF_ASSIGNED,
         STAFF_REMOVED,
         SUPPORT_CASE_STATUS_CHANGED,
+        REFUND_POLICY_UPDATED,
+        REFUND_POLICY_REMOVED,
+        PRIVATE_ACCESS_ROTATED,
     }
 }

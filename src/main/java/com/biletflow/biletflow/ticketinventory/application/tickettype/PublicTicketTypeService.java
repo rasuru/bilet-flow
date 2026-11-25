@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional(readOnly = true)
 public class PublicTicketTypeService {
+
     private final TicketTypeRepository types;
     private final EventInventoryRepository inventories;
     private final EventManagementPort events;
@@ -25,8 +26,11 @@ public class PublicTicketTypeService {
     private final Clock clock;
 
     public PublicTicketTypeService(
-        TicketTypeRepository types, EventInventoryRepository inventories, EventManagementPort events,
-        PaidSalesPort payments, Clock clock
+        TicketTypeRepository types,
+        EventInventoryRepository inventories,
+        EventManagementPort events,
+        PaidSalesPort payments,
+        Clock clock
     ) {
         this.types = Objects.requireNonNull(types);
         this.inventories = Objects.requireNonNull(inventories);
@@ -36,21 +40,35 @@ public class PublicTicketTypeService {
     }
 
     public List<PublicTicketTypeView> list(UUID eventId) {
+        return list(eventId, null);
+    }
+
+    public List<PublicTicketTypeView> list(UUID eventId, String accessCode) {
         var now = clock.instant();
         var scope = events.publicSalesScope(eventId, now);
-        if (!scope.publiclyReadable()) throw new EntityNotFoundException("Event not found: " + eventId);
-        var visibleTypes = types.findAllByEventId(eventId).stream()
-            .filter(type -> type.getStatus() != TicketTypeStatus.HIDDEN).toList();
+        if (!scope.publiclyReadable() && !events.grantsAttendeeAccess(eventId, accessCode)) {
+            throw new EntityNotFoundException("Event not found: " + eventId);
+        }
+        var visibleTypes = types
+            .findAllByEventId(eventId)
+            .stream()
+            .filter(type -> type.getStatus() != TicketTypeStatus.HIDDEN)
+            .toList();
         if (visibleTypes.isEmpty()) return List.of();
-        var inventory = inventories.findByEventId(eventId)
+        var inventory = inventories
+            .findByEventId(eventId)
             .orElseThrow(() -> new EntityNotFoundException("EventInventory not found for event: " + eventId));
         inventory.cleanUpExpiredHolds(now);
-        boolean paidSalesPermitted = scope.registrationOpen() && visibleTypes.stream().anyMatch(type -> !type.isFree())
-            && payments.permitsPaidSales(eventId);
-        return visibleTypes.stream().map(type -> PublicTicketTypeView.from(
-            TicketTypeService.toView(type, inventory),
-            TicketPurchaseAvailability.evaluate(type, inventory.getMode(), now, scope.registrationOpen(), paidSalesPermitted)
-        )).toList();
+        boolean paidSalesPermitted =
+            scope.registrationOpen() && visibleTypes.stream().anyMatch(type -> !type.isFree()) && payments.permitsPaidSales(eventId);
+        return visibleTypes
+            .stream()
+            .map(type ->
+                PublicTicketTypeView.from(
+                    TicketTypeService.toView(type, inventory),
+                    TicketPurchaseAvailability.evaluate(type, inventory.getMode(), now, scope.registrationOpen(), paidSalesPermitted)
+                )
+            )
+            .toList();
     }
 }
-

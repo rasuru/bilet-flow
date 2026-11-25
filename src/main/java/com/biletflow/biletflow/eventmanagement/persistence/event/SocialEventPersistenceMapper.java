@@ -37,7 +37,9 @@ public class SocialEventPersistenceMapper {
             new EventDateRange(entity.getEventStartAt(), entity.getEventEndAt()),
             registrationWindow,
             venue,
-            staffAssignments
+            staffAssignments,
+            toDomainRefundPolicy(entity),
+            entity.getPrivateAccessCode() == null ? null : new PrivateAccessCode(entity.getPrivateAccessCode())
         );
     }
 
@@ -78,12 +80,30 @@ public class SocialEventPersistenceMapper {
 
         mapVenue(domain, entity);
 
+        domain
+            .getRefundPolicy()
+            .ifPresentOrElse(
+                policy -> entity.setRefundPolicy(policy.refundsAllowed(), policy.cutoffHoursBeforeStart(), policy.terms()),
+                () -> entity.setRefundPolicy(null, null, null)
+            );
+
+        entity.setPrivateAccessCode(domain.getPrivateAccessCode().map(PrivateAccessCode::value).orElse(null));
+
         entity.replaceStaffAssignments(
             domain
                 .getStaffAssignments()
                 .stream()
                 .map(assignment -> new StaffAssignmentJpaEmbeddable(assignment.userId(), assignment.role(), assignment.assignedAt()))
                 .toList()
+        );
+    }
+
+    private RefundPolicy toDomainRefundPolicy(SocialEventJpaEntity entity) {
+        if (entity.getRefundPolicyRefundsAllowed() == null) return null;
+        return new RefundPolicy(
+            entity.getRefundPolicyRefundsAllowed(),
+            entity.getRefundPolicyCutoffHours() == null ? 0 : entity.getRefundPolicyCutoffHours(),
+            entity.getRefundPolicyTerms()
         );
     }
 

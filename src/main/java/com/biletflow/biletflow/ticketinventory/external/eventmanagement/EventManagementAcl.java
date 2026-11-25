@@ -52,6 +52,15 @@ public class EventManagementAcl implements EventManagementPort {
     }
 
     @Override
+    public boolean grantsAttendeeAccess(UUID eventId, String accessCode) {
+        try {
+            return eventManagementOhs.grantsAttendeeAccess(eventId, null, accessCode);
+        } catch (SocialEventNotFoundException exception) {
+            throw new EntityNotFoundException("Event not found: " + eventId);
+        }
+    }
+
+    @Override
     public boolean canManageTicketing(UUID eventId, Long userId) {
         return eventManagementOhs.canManageTicketing(eventId, userId);
     }
@@ -84,4 +93,3 @@ public class EventManagementAcl implements EventManagementPort {
         }
     }
 }
-

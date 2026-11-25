@@ -19,10 +19,11 @@ public interface EventManagementPort {
 
     PublicSalesScope publicSalesScope(UUID eventId, Instant now);
 
+    boolean grantsAttendeeAccess(UUID eventId, String accessCode);
+
     boolean canManageTicketing(UUID eventId, Long userId);
 
     boolean canCheckIn(UUID eventId, Long userId);
 
     TicketEventDetails ticketDetails(UUID eventId, UUID seatId);
 }
-

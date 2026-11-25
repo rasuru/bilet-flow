@@ -43,6 +43,12 @@ public class EventManagementEndpointSecurityConfiguration {
                 )
                 .authenticated()
                 .requestMatchers(HttpMethod.DELETE, "/api/events/*/staff/*")
+                .authenticated()
+                .requestMatchers(HttpMethod.PUT, "/api/events/*/refund-policy")
+                .authenticated()
+                .requestMatchers(HttpMethod.DELETE, "/api/events/*/refund-policy")
+                .authenticated()
+                .requestMatchers(HttpMethod.POST, "/api/events/*/private-access/rotate")
                 .authenticated();
     }
 }

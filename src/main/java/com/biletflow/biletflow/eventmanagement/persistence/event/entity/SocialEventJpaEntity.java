@@ -81,6 +81,18 @@ public class SocialEventJpaEntity {
     @Column(name = "venue_layout_id")
     private UUID venueLayoutId;
 
+    @Column(name = "refund_policy_refunds_allowed")
+    private Boolean refundPolicyRefundsAllowed;
+
+    @Column(name = "refund_policy_cutoff_hours")
+    private Integer refundPolicyCutoffHours;
+
+    @Column(name = "refund_policy_terms", length = 2000)
+    private String refundPolicyTerms;
+
+    @Column(name = "private_access_code", length = 64)
+    private String privateAccessCode;
+
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(
         name = "event_management_event_staff",
@@ -204,6 +216,32 @@ public class SocialEventJpaEntity {
         this.visibility = visibility;
         this.eventStartAt = eventStartAt;
         this.eventEndAt = eventEndAt;
+    }
+
+    public Boolean getRefundPolicyRefundsAllowed() {
+        return refundPolicyRefundsAllowed;
+    }
+
+    public Integer getRefundPolicyCutoffHours() {
+        return refundPolicyCutoffHours;
+    }
+
+    public String getRefundPolicyTerms() {
+        return refundPolicyTerms;
+    }
+
+    public String getPrivateAccessCode() {
+        return privateAccessCode;
+    }
+
+    public void setRefundPolicy(Boolean refundsAllowed, Integer cutoffHours, String terms) {
+        this.refundPolicyRefundsAllowed = refundsAllowed;
+        this.refundPolicyCutoffHours = cutoffHours;
+        this.refundPolicyTerms = terms;
+    }
+
+    public void setPrivateAccessCode(String privateAccessCode) {
+        this.privateAccessCode = privateAccessCode;
     }
 
     public void setRegistrationWindow(RegistrationWindowModeJpa mode, Instant startAt, Instant endAt) {

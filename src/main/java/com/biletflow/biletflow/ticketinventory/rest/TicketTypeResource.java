@@ -1,15 +1,15 @@
 package com.biletflow.biletflow.ticketinventory.rest;
 
 import com.biletflow.biletflow.common.domain.Money;
-import com.biletflow.biletflow.ticketinventory.application.tickettype.TicketTypeService;
 import com.biletflow.biletflow.ticketinventory.application.tickettype.PublicTicketTypeService;
-import com.biletflow.biletflow.ticketinventory.application.tickettype.view.PublicTicketTypeView;
+import com.biletflow.biletflow.ticketinventory.application.tickettype.TicketTypeService;
 import com.biletflow.biletflow.ticketinventory.application.tickettype.command.CreateAssignedSeatingTicketTypeCommand;
 import com.biletflow.biletflow.ticketinventory.application.tickettype.command.CreateGeneralAdmissionTicketTypeCommand;
 import com.biletflow.biletflow.ticketinventory.application.tickettype.command.HideTicketTypeCommand;
 import com.biletflow.biletflow.ticketinventory.application.tickettype.command.UnhideTicketTypeCommand;
 import com.biletflow.biletflow.ticketinventory.application.tickettype.command.UpdateAssignedSeatingTicketTypeCommand;
 import com.biletflow.biletflow.ticketinventory.application.tickettype.command.UpdateGeneralAdmissionTicketTypeCommand;
+import com.biletflow.biletflow.ticketinventory.application.tickettype.view.PublicTicketTypeView;
 import com.biletflow.biletflow.ticketinventory.application.tickettype.view.TicketTypeView;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -38,6 +38,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -57,7 +58,8 @@ public class TicketTypeResource {
     @GetMapping("/events/{eventId}/ticket-types")
     @Operation(
         summary = "List public ticket types",
-        description = "Returns visible ticket types with current purchasing eligibility. Hidden ticket types are excluded."
+        description = "Returns visible ticket types with current purchasing eligibility. Hidden ticket types are excluded. " +
+            "A PRIVATE event's ticket types need the access code from its invite link."
     )
     @ApiResponse(
         responseCode = "200",
@@ -69,9 +71,13 @@ public class TicketTypeResource {
             description = "Event identifier",
             required = true,
             example = "550e8400-e29b-41d4-a716-446655440000"
-        ) @PathVariable UUID eventId
+        ) @PathVariable UUID eventId,
+        @Parameter(description = "Access code from a private event's invite link") @RequestParam(
+            name = "access",
+            required = false
+        ) String accessCode
     ) {
-        return publicTicketTypes.list(eventId);
+        return publicTicketTypes.list(eventId, accessCode);
     }
 
     @GetMapping("/events/{eventId}/ticket-types/manage")
@@ -478,4 +484,3 @@ public class TicketTypeResource {
         @Schema(description = "UTC instant when sales close", example = "2026-10-10T16:00:00Z") @NotNull Instant salesEndAt
     ) {}
 }
-

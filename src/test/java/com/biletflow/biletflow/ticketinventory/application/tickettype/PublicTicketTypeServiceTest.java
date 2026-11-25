@@ -26,6 +26,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class PublicTicketTypeServiceTest {
+
     private final Instant now = Instant.parse("2026-11-25T12:00:00Z");
     private final UUID event = UUID.randomUUID();
     private final Clock clock = Clock.fixed(now, ZoneOffset.UTC);
@@ -75,9 +76,26 @@ class PublicTicketTypeServiceTest {
         assertThrows(EntityNotFoundException.class, () -> publicTypes.list(event));
     }
 
+    @Test
+    void privateEventTicketTypesNeedTheInviteCode() {
+        prepare(List.of(ticket(0)));
+        when(events.publicSalesScope(event, now)).thenReturn(new EventManagementPort.PublicSalesScope(true, false));
+        when(events.grantsAttendeeAccess(event, "invite-code-1234567890")).thenReturn(true);
+
+        assertThrows(EntityNotFoundException.class, () -> publicTypes.list(event, null));
+        assertThrows(EntityNotFoundException.class, () -> publicTypes.list(event, "wrong-code-0000000000"));
+        assertEquals(1, publicTypes.list(event, "invite-code-1234567890").size());
+    }
+
     private TicketType ticket(long price) {
-        return TicketType.createGeneralAdmission(event, "Ticket", "", Money.kzt(price), 1,
-            new SalesWindow(now.minusSeconds(60), now.plusSeconds(600)));
+        return TicketType.createGeneralAdmission(
+            event,
+            "Ticket",
+            "",
+            Money.kzt(price),
+            1,
+            new SalesWindow(now.minusSeconds(60), now.plusSeconds(600))
+        );
     }
 
     private void prepare(List<TicketType> tickets) {
@@ -88,4 +106,3 @@ class PublicTicketTypeServiceTest {
         when(events.publicSalesScope(event, now)).thenReturn(new EventManagementPort.PublicSalesScope(true, true));
     }
 }
-

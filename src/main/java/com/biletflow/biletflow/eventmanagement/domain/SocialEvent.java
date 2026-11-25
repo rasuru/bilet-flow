@@ -24,6 +24,8 @@ public class SocialEvent {
     private EventDateRange dateRange;
     private RegistrationWindow registrationWindow;
     private Venue venue;
+    private RefundPolicy refundPolicy;
+    private PrivateAccessCode privateAccessCode;
 
     private final List<StaffAssignment> staffAssignments;
 
@@ -55,6 +57,7 @@ public class SocialEvent {
 
         this.status = SocialEventStatus.DRAFT;
         this.staffAssignments = new ArrayList<>();
+        ensurePrivateAccessCode();
     }
 
     public static SocialEvent createDraft(
@@ -95,6 +98,42 @@ public class SocialEvent {
         Venue venue,
         List<StaffAssignment> staffAssignments
     ) {
+        return rehydrate(
+            id,
+            organizerId,
+            title,
+            description,
+            category,
+            imageUrl,
+            status,
+            statusBeforeSuspension,
+            visibility,
+            dateRange,
+            registrationWindow,
+            venue,
+            staffAssignments,
+            null,
+            null
+        );
+    }
+
+    public static SocialEvent rehydrate(
+        SocialEventId id,
+        Long organizerId,
+        String title,
+        String description,
+        String category,
+        String imageUrl,
+        SocialEventStatus status,
+        SocialEventStatus statusBeforeSuspension,
+        EventVisibility visibility,
+        EventDateRange dateRange,
+        RegistrationWindow registrationWindow,
+        Venue venue,
+        List<StaffAssignment> staffAssignments,
+        RefundPolicy refundPolicy,
+        PrivateAccessCode privateAccessCode
+    ) {
         SocialEvent event = new SocialEvent(
             id,
             organizerId,
@@ -109,12 +148,17 @@ public class SocialEvent {
 
         event.status = Objects.requireNonNull(status, "SocialEventStatus cannot be null");
 
-        if ((status == SocialEventStatus.SUSPENDED) != (statusBeforeSuspension != null)
-            || statusBeforeSuspension == SocialEventStatus.SUSPENDED || statusBeforeSuspension == SocialEventStatus.CANCELLED) {
+        if (
+            (status == SocialEventStatus.SUSPENDED) != (statusBeforeSuspension != null) ||
+            statusBeforeSuspension == SocialEventStatus.SUSPENDED ||
+            statusBeforeSuspension == SocialEventStatus.CANCELLED
+        ) {
             throw new IllegalArgumentException("Invalid suspension state");
         }
         event.statusBeforeSuspension = statusBeforeSuspension;
         event.venue = venue;
+        event.refundPolicy = refundPolicy;
+        event.privateAccessCode = privateAccessCode;
 
         event.staffAssignments.clear();
         event.staffAssignments.addAll(Objects.requireNonNull(staffAssignments, "staffAssignments cannot be null"));
@@ -195,6 +239,34 @@ public class SocialEvent {
         this.dateRange = Objects.requireNonNull(dateRange, "Date range cannot be null");
 
         this.registrationWindow = Objects.requireNonNull(registrationWindow, "Registration window cannot be null");
+
+        ensurePrivateAccessCode();
+    }
+
+    public void defineRefundPolicy(RefundPolicy refundPolicy) {
+        ensureNotCancelled();
+        this.refundPolicy = Objects.requireNonNull(refundPolicy, "Refund policy cannot be null");
+    }
+
+    public boolean removeRefundPolicy() {
+        ensureNotCancelled();
+        boolean removed = refundPolicy != null;
+        refundPolicy = null;
+        return removed;
+    }
+
+    public PrivateAccessCode rotatePrivateAccessCode() {
+        ensureNotCancelled();
+        if (visibility != EventVisibility.PRIVATE) {
+            throw new InvalidEventStateException("Only private events have an access code");
+        }
+        privateAccessCode = PrivateAccessCode.generate();
+        return privateAccessCode;
+    }
+
+    public boolean grantsAttendeeAccess(String accessCode) {
+        if (visibility != EventVisibility.PRIVATE) return true;
+        return privateAccessCode != null && privateAccessCode.matches(accessCode);
     }
 
     public void attachVenue(Venue venue) {
@@ -255,6 +327,8 @@ public class SocialEvent {
             copy.attachVenue(venue.copy());
         }
 
+        copy.refundPolicy = refundPolicy;
+
         return copy;
     }
 
@@ -266,8 +340,11 @@ public class SocialEvent {
     /** Support access is narrower than general event management: organizer and EVENT_ADMIN staff only. */
     public boolean canHandleSupport(Long userId) {
         Objects.requireNonNull(userId, "userId cannot be null");
-        return organizerId.equals(userId) || staffAssignments.stream().anyMatch(
-            assignment -> assignment.userId().equals(userId) && assignment.role() == StaffRole.EVENT_ADMIN
+        return (
+            organizerId.equals(userId) ||
+            staffAssignments
+                .stream()
+                .anyMatch(assignment -> assignment.userId().equals(userId) && assignment.role() == StaffRole.EVENT_ADMIN)
         );
     }
 
@@ -279,6 +356,12 @@ public class SocialEvent {
                 .stream()
                 .anyMatch(assignment -> assignment.userId().equals(userId) && assignment.role() == StaffRole.EVENT_ADMIN)
         );
+    }
+
+    private void ensurePrivateAccessCode() {
+        if (visibility == EventVisibility.PRIVATE && privateAccessCode == null) {
+            privateAccessCode = PrivateAccessCode.generate();
+        }
     }
 
     private void ensureNotCancelled() {
@@ -353,6 +436,14 @@ public class SocialEvent {
 
     public Optional<Venue> getVenue() {
         return Optional.ofNullable(venue);
+    }
+
+    public Optional<RefundPolicy> getRefundPolicy() {
+        return Optional.ofNullable(refundPolicy);
+    }
+
+    public Optional<PrivateAccessCode> getPrivateAccessCode() {
+        return Optional.ofNullable(privateAccessCode);
     }
 
     public List<StaffAssignment> getStaffAssignments() {

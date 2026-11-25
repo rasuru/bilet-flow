@@ -68,10 +68,15 @@ public class CheckoutResource {
     public record CheckoutRequest(
         @NotNull UUID eventId,
         @NotNull @Size(min = 1, max = 30) List<@NotNull @Valid SelectionRequest> selections,
-        @Pattern(regexp = "[A-Za-z0-9]{6,20}") String promoCode
+        @Pattern(regexp = "[A-Za-z0-9]{6,20}") String promoCode,
+        @Schema(description = "Access code from a private event's invite link") @Size(max = 64) String accessCode
     ) {
         public CheckoutRequest(UUID eventId, List<SelectionRequest> selections) {
-            this(eventId, selections, null);
+            this(eventId, selections, null, null);
+        }
+
+        public CheckoutRequest(UUID eventId, List<SelectionRequest> selections, String promoCode) {
+            this(eventId, selections, promoCode, null);
         }
 
         CreateCheckoutCommand toCommand() {
@@ -86,16 +91,23 @@ public class CheckoutResource {
     public record QuoteRequest(
         @NotNull UUID eventId,
         @NotBlank @Pattern(regexp = "[A-Za-z0-9]{6,20}") String promoCode,
-        @NotNull @Size(min = 1, max = 30) List<@NotNull @Valid QuoteSelectionRequest> selections
-    ) {}
+        @NotNull @Size(min = 1, max = 30) List<@NotNull @Valid QuoteSelectionRequest> selections,
+        @Schema(description = "Access code from a private event's invite link") @Size(max = 64) String accessCode
+    ) {
+        public QuoteRequest(UUID eventId, String promoCode, List<QuoteSelectionRequest> selections) {
+            this(eventId, promoCode, selections, null);
+        }
+    }
 
     @PostMapping("/quote")
     @Operation(summary = "Preview a promo discount without reserving inventory or a redemption")
     public CheckoutService.PromoQuote quote(@Valid @RequestBody QuoteRequest request) {
-        var selections = request.selections().stream()
+        var selections = request
+            .selections()
+            .stream()
             .map(selection -> new CheckoutInventoryOhs.QuoteSelection(selection.ticketTypeId(), selection.quantity()))
             .toList();
-        return checkout.quote(request.eventId(), request.promoCode(), selections);
+        return checkout.quote(request.eventId(), request.promoCode(), selections, actor.userId().orElse(null), request.accessCode());
     }
 
     @PostMapping
@@ -109,7 +121,7 @@ public class CheckoutResource {
         content = @Content(schema = @Schema(implementation = CheckoutView.class))
     )
     public ResponseEntity<CheckoutView> create(@RequestHeader("Idempotency-Key") UUID key, @Valid @RequestBody CheckoutRequest request) {
-        return response(checkout.create(key, actor.requireUserId(), request.toCommand()));
+        return response(checkout.create(key, actor.requireUserId(), request.toCommand(), request.accessCode()));
     }
 
     @GetMapping

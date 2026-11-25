@@ -73,22 +73,46 @@ public class CheckoutService {
     public record PromoQuote(UUID promotionId, String promoCode, BigDecimal subtotalKzt, BigDecimal discountKzt, BigDecimal amountKzt) {}
 
     public PromoQuote quote(UUID eventId, String promoCode, List<CheckoutInventoryOhs.QuoteSelection> selections) {
+        return quote(eventId, promoCode, selections, null, null);
+    }
+
+    public PromoQuote quote(
+        UUID eventId,
+        String promoCode,
+        List<CheckoutInventoryOhs.QuoteSelection> selections,
+        Long userId,
+        String accessCode
+    ) {
         var scope = events.salesScope(eventId, clock.instant());
-        if (!scope.publiclyReadable()) throw new EntityNotFoundException("Event not found");
+        requireAttendeeAccess(scope, userId, accessCode);
         requireRegistrationOpen(scope);
         var lines = inventory.quote(eventId, selections);
-        var basket = lines.stream().map(line -> new PromotionsOhs.Line(line.ticketTypeId(), line.unitPrice(), line.quantity())).toList();
+        var basket = lines
+            .stream()
+            .map(line -> new PromotionsOhs.Line(line.ticketTypeId(), line.unitPrice(), line.quantity()))
+            .toList();
         var quote = promotions.quote(eventId, UUID.randomUUID(), promoCode, basket);
-        Money subtotal = lines.stream().map(line -> line.unitPrice().multiply(line.quantity())).reduce(Money.zeroKzt(), Money::add);
+        Money subtotal = lines
+            .stream()
+            .map(line -> line.unitPrice().multiply(line.quantity()))
+            .reduce(Money.zeroKzt(), Money::add);
         requirePaidSalesIfPriced(eventId, subtotal);
         return new PromoQuote(
-            quote.campaignId(), quote.code(), subtotal.amount(), quote.discountAmount().amount(),
+            quote.campaignId(),
+            quote.code(),
+            subtotal.amount(),
+            quote.discountAmount().amount(),
             subtotal.subtract(quote.discountAmount()).amount()
         );
     }
 
     @Transactional
     public CheckoutView create(UUID id, long owner, CreateCheckoutCommand request) {
+        return create(id, owner, request, null);
+    }
+
+    @Transactional
+    public CheckoutView create(UUID id, long owner, CreateCheckoutCommand request, String accessCode) {
         if (request.selections().isEmpty() || request.selections().size() > 30) throw new IllegalArgumentException(
             "Supply 1 to 30 ticket selections"
         );
@@ -107,7 +131,7 @@ public class CheckoutService {
         }
         Instant createdAt = clock.instant();
         var scope = events.salesScope(request.eventId(), createdAt);
-        if (request.promoCode() != null && !scope.publiclyReadable()) throw new EntityNotFoundException("Event not found");
+        requireAttendeeAccess(scope, owner, accessCode);
         requireRegistrationOpen(scope);
         var held = inventory.reserve(request.eventId(), id, request.selections());
         var checkout = new CheckoutSession(
@@ -124,7 +148,11 @@ public class CheckoutService {
             );
         PromotionsOhs.Reservation promo = null;
         if (request.promoCode() != null) {
-            var basket = held.lines().stream().map(line -> new PromotionsOhs.Line(line.ticketTypeId(), line.price(), 1)).toList();
+            var basket = held
+                .lines()
+                .stream()
+                .map(line -> new PromotionsOhs.Line(line.ticketTypeId(), line.price(), 1))
+                .toList();
             promo = promotions.reserve(request.eventId(), id, request.promoCode(), basket, PromotionsOhs.Source.CODE, held.expiresAt());
             checkout.applyPromotion(promo.campaignId(), promo.discountAmount());
         }
@@ -382,9 +410,16 @@ public class CheckoutService {
         return new CheckoutConflict(CheckoutConflict.Reason.PAID_SALES_INACTIVE, "Paid sales are not active for this event");
     }
 
+    private void requireAttendeeAccess(EventManagementOhs.SalesScope scope, Long userId, String accessCode) {
+        if (!scope.publiclyReadable() && !events.grantsAttendeeAccess(scope.eventId(), userId, accessCode)) {
+            throw new EntityNotFoundException("Event not found");
+        }
+    }
+
     private static void requireRegistrationOpen(EventManagementOhs.SalesScope scope) {
         if (!scope.registrationOpen()) throw new CheckoutConflict(
-            CheckoutConflict.Reason.REGISTRATION_CLOSED, "Event is not accepting registrations"
+            CheckoutConflict.Reason.REGISTRATION_CLOSED,
+            "Event is not accepting registrations"
         );
     }
 
@@ -427,4 +462,3 @@ public class CheckoutService {
         );
     }
 }
-

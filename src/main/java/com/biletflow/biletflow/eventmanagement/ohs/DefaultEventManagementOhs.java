@@ -1,8 +1,8 @@
 package com.biletflow.biletflow.eventmanagement.ohs;
 
-import com.biletflow.biletflow.eventmanagement.domain.*;
 import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditRepository;
 import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditService;
+import com.biletflow.biletflow.eventmanagement.domain.*;
 import com.biletflow.biletflow.eventmanagement.domain.exceptions.SocialEventNotFoundException;
 import com.biletflow.biletflow.eventmanagement.domain.exceptions.VenueLayoutNotFoundException;
 import com.biletflow.biletflow.eventmanagement.ohs.dto.*;
@@ -22,8 +22,11 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
     private final VenueLayoutRepository layoutRepository;
     private final EventAuditService auditService;
 
-    public DefaultEventManagementOhs(SocialEventRepository eventRepository, VenueLayoutRepository layoutRepository,
-                                     EventAuditService auditService) {
+    public DefaultEventManagementOhs(
+        SocialEventRepository eventRepository,
+        VenueLayoutRepository layoutRepository,
+        EventAuditService auditService
+    ) {
         this.eventRepository = Objects.requireNonNull(eventRepository);
         this.layoutRepository = Objects.requireNonNull(layoutRepository);
         this.auditService = Objects.requireNonNull(auditService);
@@ -100,7 +103,8 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
     @Override
     public boolean canHandleAttendeeSupport(UUID eventId, Long userId) {
         Objects.requireNonNull(userId, "userId cannot be null");
-        return eventRepository.findById(new SocialEventId(Objects.requireNonNull(eventId, "eventId cannot be null")))
+        return eventRepository
+            .findById(new SocialEventId(Objects.requireNonNull(eventId, "eventId cannot be null")))
             .map(event -> event.canHandleSupport(userId))
             .orElse(false);
     }
@@ -109,8 +113,9 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
     public List<UUID> findSupportManagedEventIds(Long userId) {
         Objects.requireNonNull(userId, "userId cannot be null");
         return java.util.stream.Stream.concat(
-                eventRepository.findByOrganizerId(userId).stream(),
-                eventRepository.findByStaffUserId(userId).stream())
+            eventRepository.findByOrganizerId(userId).stream(),
+            eventRepository.findByStaffUserId(userId).stream()
+        )
             .filter(event -> event.canHandleSupport(userId))
             .map(event -> event.getId().value())
             .distinct()
@@ -121,7 +126,9 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
     public java.util.Optional<SupportRouting> supportRouting(UUID eventId) {
         Objects.requireNonNull(eventId, "eventId cannot be null");
         return eventRepository.findById(new SocialEventId(eventId)).map(event -> {
-            List<Long> staff = event.getStaffAssignments().stream()
+            List<Long> staff = event
+                .getStaffAssignments()
+                .stream()
                 .filter(assignment -> assignment.role() == StaffRole.EVENT_ADMIN)
                 .map(StaffAssignment::userId)
                 .distinct()
@@ -132,13 +139,31 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
 
     @Override
     @Transactional
-    public void recordSupportCaseStatusChanged(UUID eventId, UUID caseId, Long actorUserId,
-                                                String previousStatus, String newStatus, java.time.Instant occurredAt) {
+    public void recordSupportCaseStatusChanged(
+        UUID eventId,
+        UUID caseId,
+        Long actorUserId,
+        String previousStatus,
+        String newStatus,
+        java.time.Instant occurredAt
+    ) {
         Objects.requireNonNull(caseId, "caseId cannot be null");
         Objects.requireNonNull(occurredAt, "occurredAt cannot be null");
         // EventAuditService owns the event activity log; Support supplies only its published audit facts.
-        auditService.recordAt(eventId, actorUserId, EventAuditRepository.EventAuditType.SUPPORT_CASE_STATUS_CHANGED,
-            "Support case " + caseId + " status changed from " + previousStatus + " to " + newStatus, occurredAt);
+        auditService.recordAt(
+            eventId,
+            actorUserId,
+            EventAuditRepository.EventAuditType.SUPPORT_CASE_STATUS_CHANGED,
+            "Support case " + caseId + " status changed from " + previousStatus + " to " + newStatus,
+            occurredAt
+        );
+    }
+
+    @Override
+    public boolean grantsAttendeeAccess(UUID eventId, Long userId, String accessCode) {
+        SocialEvent event = requireEvent(eventId);
+        if (userId != null && event.canBeManagedBy(userId)) return true;
+        return event.grantsAttendeeAccess(accessCode);
     }
 
     @Override
@@ -150,7 +175,11 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
             event.getRegistrationWindow().isOpenAt(now) &&
             !event.getDateRange().hasStarted(now);
         return new SalesScope(
-            eventId, event.getOrganizerId(), open, cancelled, event.getDateRange().startAt(),
+            eventId,
+            event.getOrganizerId(),
+            open,
+            cancelled,
+            event.getDateRange().startAt(),
             event.getVisibility() != EventVisibility.PRIVATE
         );
     }
@@ -189,9 +218,15 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
     public SupportEvent supportEvent(UUID eventId) {
         var event = requireEvent(eventId);
         var venue = event.getVenue().orElse(null);
-        return new SupportEvent(event.getTitle(), event.getDateRange().startAt(), event.getDateRange().endAt(),
-            venue == null ? null : venue.getName(), venue == null ? null : venue.getAddress(),
-            event.getStatus() == SocialEventStatus.CANCELLED, event.getStatus() == SocialEventStatus.SUSPENDED);
+        return new SupportEvent(
+            event.getTitle(),
+            event.getDateRange().startAt(),
+            event.getDateRange().endAt(),
+            venue == null ? null : venue.getName(),
+            venue == null ? null : venue.getAddress(),
+            event.getStatus() == SocialEventStatus.CANCELLED,
+            event.getStatus() == SocialEventStatus.SUSPENDED
+        );
     }
 
     private SocialEvent requireEvent(UUID eventId) {
@@ -210,4 +245,3 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
         return layoutRepository.findById(layoutId).orElseThrow(() -> new VenueLayoutNotFoundException(layoutId.value().toString()));
     }
 }
-

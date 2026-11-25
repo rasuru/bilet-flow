@@ -7,6 +7,7 @@ import com.biletflow.biletflow.common.security.CurrentActor;
 import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditRepository;
 import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditService;
 import com.biletflow.biletflow.eventmanagement.application.socialevent.command.*;
+import com.biletflow.biletflow.eventmanagement.application.socialevent.view.PrivateAccessView;
 import com.biletflow.biletflow.eventmanagement.domain.*;
 import com.biletflow.biletflow.eventmanagement.domain.exceptions.SocialEventNotFoundException;
 import com.biletflow.biletflow.eventmanagement.ohs.EventCancelled;
@@ -219,6 +220,68 @@ public class EventService {
             EventAuditRepository.EventAuditType.STAFF_REMOVED,
             "Staff member removed"
         );
+    }
+
+    @Transactional
+    public void handle(DefineRefundPolicyCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Long currentUserId = currentActor.requireUserId();
+
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
+
+        RefundPolicy policy = new RefundPolicy(command.refundsAllowed(), command.cutoffHoursBeforeStart(), command.terms());
+        event.defineRefundPolicy(policy);
+        eventRepository.save(event);
+
+        auditService.record(
+            event.getId().value(),
+            currentUserId,
+            EventAuditRepository.EventAuditType.REFUND_POLICY_UPDATED,
+            "Refund policy set: " + policy.summary()
+        );
+    }
+
+    @Transactional
+    public void handle(RemoveRefundPolicyCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Long currentUserId = currentActor.requireUserId();
+
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
+
+        if (!event.removeRefundPolicy()) return;
+        eventRepository.save(event);
+
+        auditService.record(
+            event.getId().value(),
+            currentUserId,
+            EventAuditRepository.EventAuditType.REFUND_POLICY_REMOVED,
+            "Refund policy removed"
+        );
+    }
+
+    @Transactional
+    public PrivateAccessView handle(RotatePrivateAccessCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Long currentUserId = currentActor.requireUserId();
+
+        SocialEvent event = requireEvent(command.eventId());
+        assertCanModifyEvent(event, currentUserId);
+
+        PrivateAccessCode code = event.rotatePrivateAccessCode();
+        eventRepository.save(event);
+
+        auditService.record(
+            event.getId().value(),
+            currentUserId,
+            EventAuditRepository.EventAuditType.PRIVATE_ACCESS_ROTATED,
+            "Private access link replaced; the previous link no longer works"
+        );
+        return new PrivateAccessView(event.getId().value(), code.value());
     }
 
     private void validateVenueConfiguration(Venue venue) {
