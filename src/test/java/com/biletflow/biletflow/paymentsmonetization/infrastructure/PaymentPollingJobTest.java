@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentReconciler;
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentWorkRepository;
 import com.biletflow.biletflow.paymentsmonetization.config.PaymentPollingConfiguration;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentProvider;
 import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -13,6 +14,20 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskExecutor;
 
 class PaymentPollingJobTest {
+
+    @Test
+    void mockPaymentsRunWhenAllHalykWorkersAreBusy() {
+        var reconciler = mock(PaymentReconciler.class);
+        var works = mock(PaymentWorkRepository.class);
+        UUID mockPayment = UUID.randomUUID();
+        UUID halykPayment = UUID.randomUUID();
+        when(works.due(any(), eq(PaymentProvider.MOCK))).thenReturn(List.of(mockPayment));
+        when(works.due(any(), eq(PaymentProvider.HALYK))).thenReturn(List.of(halykPayment));
+        TaskExecutor busy = work -> { throw new RejectedExecutionException(); };
+        new PaymentPollingJob(reconciler, works, busy, Runnable::run, Clock.systemUTC()).poll();
+        verify(reconciler).reconcile(mockPayment);
+        verify(reconciler, never()).reconcile(halykPayment);
+    }
 
     @Test
     void aSlowPaymentDoesNotBlockAnotherPaymentOrCreateAnUnboundedQueue() throws Exception {
@@ -39,11 +54,11 @@ class PaymentPollingJobTest {
         })
             .when(reconciler)
             .reconcile(fast);
-        when(works.due(any())).thenReturn(List.of(slow, fast, neverQueued));
+        when(works.due(any(), eq(PaymentProvider.HALYK))).thenReturn(List.of(slow, fast, neverQueued));
         var workers = new PaymentPollingConfiguration().paymentPollingExecutor(2);
         workers.initialize();
         try {
-            var job = new PaymentPollingJob(reconciler, works, workers, Clock.systemUTC());
+            var job = new PaymentPollingJob(reconciler, works, workers, Runnable::run, Clock.systemUTC());
             job.poll();
             assertTrue(bothStarted.await(2, TimeUnit.SECONDS));
             assertTrue(fastFinished.await(2, TimeUnit.SECONDS), "The second status check must run while the first is blocked");
@@ -62,7 +77,7 @@ class PaymentPollingJobTest {
         var works = mock(PaymentWorkRepository.class);
         var executor = mock(TaskExecutor.class);
         var id = UUID.randomUUID();
-        when(works.due(any())).thenReturn(List.of(id));
+        when(works.due(any(), eq(PaymentProvider.HALYK))).thenReturn(List.of(id));
         doThrow(new RejectedExecutionException())
             .doAnswer(call -> {
                 call.getArgument(0, Runnable.class).run();
@@ -70,7 +85,7 @@ class PaymentPollingJobTest {
             })
             .when(executor)
             .execute(any());
-        var job = new PaymentPollingJob(reconciler, works, executor, Clock.systemUTC());
+        var job = new PaymentPollingJob(reconciler, works, executor, Runnable::run, Clock.systemUTC());
         job.poll();
         job.poll();
         verify(reconciler).reconcile(id);

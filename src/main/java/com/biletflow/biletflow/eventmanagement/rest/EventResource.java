@@ -14,6 +14,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -23,6 +25,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -50,16 +53,23 @@ public class EventResource {
 
     @GetMapping("/{eventId}")
     @Operation(
-        summary = "Get a publicly readable event",
-        description = "Returns a PUBLIC or UNLISTED event when its status is PUBLISHED or CANCELLED. " +
-            "Private, draft, and unpublished events are exposed as not found."
+        summary = "Get an event visible to the caller",
+        description = "Public and unlisted events are readable by link. Private events require an accepted invitation or organizer access. " +
+            "Only published and cancelled events are visible through this endpoint."
     )
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Event returned"),
         @ApiResponse(responseCode = "404", description = "Event does not exist or is not publicly readable", content = @Content),
     })
-    public PublicEventView getPublic(@Parameter(description = "Event ID", required = true) @PathVariable UUID eventId) {
-        return eventQueryService.getPublic(new SocialEventId(eventId));
+    public ResponseEntity<PublicEventView> getPublic(@Parameter(description = "Event ID", required = true) @PathVariable UUID eventId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(eventQueryService.getPublic(new SocialEventId(eventId)));
+    }
+
+    @PutMapping("/{eventId}/refund-policy")
+    @Operation(summary = "Set the refund policy for future orders")
+    public ResponseEntity<Void> updateRefundPolicy(@PathVariable UUID eventId, @Valid @RequestBody RefundPolicyRequest request) {
+        eventService.updateRefundPolicy(new SocialEventId(eventId), new RefundPolicy(request.hoursBeforeStart()));
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/mine")
@@ -338,6 +348,11 @@ public class EventResource {
             Objects.requireNonNull(id, "id cannot be null");
         }
     }
+
+    public record RefundPolicyRequest(
+        @Schema(description = "Hours before event start. Null sends refund requests through support.")
+        @Min(0) @Max(RefundPolicy.MAX_HOURS) Integer hoursBeforeStart
+    ) {}
 
     @Schema(description = "Editable event details used when creating or updating an event.")
     public record EventDetailsRequest(

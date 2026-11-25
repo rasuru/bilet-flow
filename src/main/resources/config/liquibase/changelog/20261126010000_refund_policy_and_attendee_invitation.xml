@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd"
+>
+    <changeSet id="20261126010000-refund-policy" author="biletflow">
+        <addColumn tableName="event_management_event">
+            <column name="refund_hours_before_start" type="int"/>
+        </addColumn>
+        <addColumn tableName="oc_saga">
+            <column name="self_refund_deadline" type="timestamp with time zone"/>
+        </addColumn>
+    </changeSet>
+    <changeSet id="20261126010000-attendee-invitation" author="biletflow">
+        <createTable tableName="em_attendee_invitation">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="event_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="email" type="varchar(254)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="token" type="uuid">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uq_em_attendee_invitation_token"/>
+            </column>
+            <column name="accepted_by" type="bigint"/>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="em_attendee_invitation" baseColumnNames="event_id"
+                                 referencedTableName="event_management_event" referencedColumnNames="id"
+                                 constraintName="fk_em_attendee_invitation_event" onDelete="CASCADE"/>
+        <addForeignKeyConstraint baseTableName="em_attendee_invitation" baseColumnNames="accepted_by"
+                                 referencedTableName="jhi_user" referencedColumnNames="id"
+                                 constraintName="fk_em_attendee_invitation_user" onDelete="CASCADE"/>
+        <addUniqueConstraint tableName="em_attendee_invitation" columnNames="event_id,email"
+                             constraintName="uq_em_attendee_invitation_email"/>
+        <createIndex tableName="em_attendee_invitation" indexName="idx_em_attendee_invitation_accepted">
+            <column name="event_id"/>
+            <column name="accepted_by"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

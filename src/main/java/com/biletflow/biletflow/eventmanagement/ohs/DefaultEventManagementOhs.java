@@ -3,6 +3,7 @@ package com.biletflow.biletflow.eventmanagement.ohs;
 import com.biletflow.biletflow.eventmanagement.domain.*;
 import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditRepository;
 import com.biletflow.biletflow.eventmanagement.application.audit.EventAuditService;
+import com.biletflow.biletflow.eventmanagement.application.socialevent.PrivateAttendeeAccess;
 import com.biletflow.biletflow.eventmanagement.domain.exceptions.SocialEventNotFoundException;
 import com.biletflow.biletflow.eventmanagement.domain.exceptions.VenueLayoutNotFoundException;
 import com.biletflow.biletflow.eventmanagement.ohs.dto.*;
@@ -21,9 +22,15 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
     private final SocialEventRepository eventRepository;
     private final VenueLayoutRepository layoutRepository;
     private final EventAuditService auditService;
+    private final PrivateAttendeeAccess attendeeAccess;
 
-    public DefaultEventManagementOhs(SocialEventRepository eventRepository, VenueLayoutRepository layoutRepository,
-                                     EventAuditService auditService) {
+    public DefaultEventManagementOhs(
+        SocialEventRepository eventRepository,
+        VenueLayoutRepository layoutRepository,
+        EventAuditService auditService,
+        PrivateAttendeeAccess attendeeAccess
+    ) {
+        this.attendeeAccess = Objects.requireNonNull(attendeeAccess);
         this.eventRepository = Objects.requireNonNull(eventRepository);
         this.layoutRepository = Objects.requireNonNull(layoutRepository);
         this.auditService = Objects.requireNonNull(auditService);
@@ -126,7 +133,7 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
                 .map(StaffAssignment::userId)
                 .distinct()
                 .toList();
-            return new SupportRouting(eventId, event.getOrganizerId(), staff);
+            return new SupportRouting(eventId, event.getOrganizerId(), staff, event.getVisibility() == EventVisibility.PRIVATE);
         });
     }
 
@@ -151,8 +158,14 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
             !event.getDateRange().hasStarted(now);
         return new SalesScope(
             eventId, event.getOrganizerId(), open, cancelled, event.getDateRange().startAt(),
-            event.getVisibility() != EventVisibility.PRIVATE
+            event.getVisibility() != EventVisibility.PRIVATE,
+            event.getRefundPolicy().deadline(event.getDateRange().startAt())
         );
+    }
+
+    @Override
+    public boolean canAccessPrivateEvent(UUID eventId, long userId) {
+        return attendeeAccess.canAccess(requireEvent(eventId), userId);
     }
 
     @Override

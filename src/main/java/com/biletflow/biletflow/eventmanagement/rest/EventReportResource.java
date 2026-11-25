@@ -26,7 +26,7 @@ public class EventReportResource {
 
     @PostMapping
     @Operation(
-        summary = "Report a publicly readable event",
+        summary = "Report an event visible to the caller",
         description = "Repeat submissions for the same event and reporter return the original report ID."
     )
     @ApiResponse(responseCode = "401", description = "Authentication required")

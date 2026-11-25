@@ -232,8 +232,12 @@ public class SupportCaseApplicationService {
             throw new IllegalArgumentException("Attendee support cases must include an event, order, or ticket reference");
         }
         UUID validatedEventId = eventId;
-        eventManagement.supportRouting(validatedEventId)
+        var routing = eventManagement.supportRouting(validatedEventId)
             .orElseThrow(() -> new EntityNotFoundException("Event not found: " + validatedEventId));
+        if (orderId == null && ticketId == null && routing.privateEvent() &&
+            !eventManagement.canAccessPrivateEvent(validatedEventId, requesterId)) {
+            throw new EntityNotFoundException("Event not found: " + validatedEventId);
+        }
         return new SupportContext(eventId, orderId, ticketId);
     }
 

@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.paymentsmonetization.application;
 
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentProvider;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
@@ -18,4 +19,10 @@ public interface PaymentSettingsRepository {
     Optional<ProcessingFeeRateSetting> processingFeeRate();
 
     void saveProcessingFeeRate(ProcessingFeeRateSetting setting);
+
+    record ProviderSetting(PaymentProvider provider, long updatedBy, Instant updatedAt) {}
+
+    Optional<ProviderSetting> paymentProvider();
+
+    void savePaymentProvider(ProviderSetting setting);
 }

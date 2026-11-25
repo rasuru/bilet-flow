@@ -37,7 +37,8 @@ public class SocialEventPersistenceMapper {
             new EventDateRange(entity.getEventStartAt(), entity.getEventEndAt()),
             registrationWindow,
             venue,
-            staffAssignments
+            staffAssignments,
+            new RefundPolicy(entity.getRefundHoursBeforeStart())
         );
     }
 
@@ -74,6 +75,7 @@ public class SocialEventPersistenceMapper {
             domain.getDateRange().endAt()
         );
 
+        entity.setRefundHoursBeforeStart(domain.getRefundPolicy().hoursBeforeStart());
         mapRegistrationWindow(domain.getRegistrationWindow(), entity);
 
         mapVenue(domain, entity);

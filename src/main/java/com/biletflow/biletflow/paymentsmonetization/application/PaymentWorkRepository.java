@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.paymentsmonetization.application;
 
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentProvider;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import java.time.Instant;
 import java.util.List;
@@ -13,7 +14,7 @@ public interface PaymentWorkRepository {
     Optional<PaymentWork> findInvoice(String invoiceId);
     void insert(PaymentWork work);
     void save(PaymentWork work);
-    List<UUID> due(Instant now);
+    List<UUID> due(Instant now, PaymentProvider provider);
     List<UUID> requiringReview();
     boolean lease(UUID id, Instant now, Instant until);
     void schedule(UUID id, Instant when);

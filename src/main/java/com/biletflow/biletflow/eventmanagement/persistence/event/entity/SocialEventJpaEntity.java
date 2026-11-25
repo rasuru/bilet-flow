@@ -49,6 +49,17 @@ public class SocialEventJpaEntity {
     @Column(name = "visibility", nullable = false, length = 32)
     private EventVisibility visibility;
 
+    @Column(name = "refund_hours_before_start")
+    private Integer refundHoursBeforeStart;
+
+    public Integer getRefundHoursBeforeStart() {
+        return refundHoursBeforeStart;
+    }
+
+    public void setRefundHoursBeforeStart(Integer hours) {
+        this.refundHoursBeforeStart = hours;
+    }
+
     @Column(name = "event_start_at", nullable = false)
     private Instant eventStartAt;
 

@@ -59,6 +59,20 @@ Use `stop` rather than removing containers when keeping local data. The
 repository's PostgreSQL Compose configuration stores its database inside the
 container unless an explicit persistent volume is configured.
 
+## Paid sales without event activation
+
+Set `BILETFLOW_DEV_BYPASS_PAID_SALES_ACTIVATION=true` in `.env.local`
+and restart the backend to sell paid tickets without an activation fee.
+This setting applies only to the Spring `dev` profile and is disabled
+when `prod` is active. Suspended paid sales still block new checkouts.
+Paid ticket checkouts still require working Halyk sandbox credentials.
+
+## BiletFlow mock checkout
+
+A platform administrator can choose **BiletFlow mock checkout** in **Admin → Platform settings → Payment provider**. The setting applies to new ticket and activation payments. Existing payments and refunds stay on the provider selected when the payment was created. Halyk sandbox is the default.
+
+Continue to payment from an order or the organizer activation checklist. The mock page can succeed immediately, fail, expire immediately, or succeed after 10 seconds. The scheduled worker completes delayed payments even after the page closes. Use the order's refund button when eligible, or the existing support and admin refund actions, to test refunds. The mock settlement requires neither Halyk credentials nor card details.
+
 ## Halyk browser testing
 
 In another terminal, serve the existing payment helper:

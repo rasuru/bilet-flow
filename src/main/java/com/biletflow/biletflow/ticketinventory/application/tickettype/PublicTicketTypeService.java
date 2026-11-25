@@ -38,7 +38,7 @@ public class PublicTicketTypeService {
     public List<PublicTicketTypeView> list(UUID eventId) {
         var now = clock.instant();
         var scope = events.publicSalesScope(eventId, now);
-        if (!scope.publiclyReadable()) throw new EntityNotFoundException("Event not found: " + eventId);
+        if (!scope.attendeeReadable()) throw new EntityNotFoundException("Event not found: " + eventId);
         var visibleTypes = types.findAllByEventId(eventId).stream()
             .filter(type -> type.getStatus() != TicketTypeStatus.HIDDEN).toList();
         if (visibleTypes.isEmpty()) return List.of();

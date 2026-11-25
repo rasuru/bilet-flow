@@ -14,6 +14,9 @@ public interface EventManagementOhs {
     boolean canManageTicketing(UUID eventId, Long userId);
     boolean canCheckIn(UUID eventId, Long userId);
     SalesScope salesScope(UUID eventId, Instant now);
+
+    /** Private-event permission for an authenticated attendee or the organizer. */
+    boolean canAccessPrivateEvent(UUID eventId, long userId);
     com.biletflow.biletflow.eventmanagement.ohs.dto.TicketEventDetailsView ticketDetails(UUID eventId, UUID seatId);
 
     record SupportEvent(String title, Instant startsAt, Instant endsAt, String venue, String address,
@@ -40,14 +43,24 @@ public interface EventManagementOhs {
                                         String previousStatus, String newStatus, Instant occurredAt);
 
     record SalesScope(
-        UUID eventId, long organizerId, boolean registrationOpen, boolean cancelled, Instant eventStartsAt, boolean publiclyReadable
+        UUID eventId, long organizerId, boolean registrationOpen, boolean cancelled, Instant eventStartsAt,
+        boolean publiclyReadable, Instant refundDeadline
     ) {
+        public SalesScope(UUID eventId, long organizerId, boolean registrationOpen, boolean cancelled, Instant eventStartsAt,
+                          boolean publiclyReadable) {
+            this(eventId, organizerId, registrationOpen, cancelled, eventStartsAt, publiclyReadable, null);
+        }
+
         public SalesScope(UUID eventId, long organizerId, boolean registrationOpen, boolean cancelled, Instant eventStartsAt) {
             this(eventId, organizerId, registrationOpen, cancelled, eventStartsAt, true);
         }
     }
 
-    record SupportRouting(UUID eventId, Long organizerUserId, List<Long> supportStaffUserIds) {
+    record SupportRouting(UUID eventId, Long organizerUserId, List<Long> supportStaffUserIds, boolean privateEvent) {
+        public SupportRouting(UUID eventId, Long organizerUserId, List<Long> supportStaffUserIds) {
+            this(eventId, organizerUserId, supportStaffUserIds, false);
+        }
+
         public SupportRouting {
             supportStaffUserIds = List.copyOf(supportStaffUserIds);
         }

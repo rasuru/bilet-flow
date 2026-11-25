@@ -95,7 +95,7 @@ public class CheckoutResource {
         var selections = request.selections().stream()
             .map(selection -> new CheckoutInventoryOhs.QuoteSelection(selection.ticketTypeId(), selection.quantity()))
             .toList();
-        return checkout.quote(request.eventId(), request.promoCode(), selections);
+        return checkout.quote(request.eventId(), actor.userId().orElse(null), request.promoCode(), selections);
     }
 
     @PostMapping
@@ -163,6 +163,12 @@ public class CheckoutResource {
     )
     public ResponseEntity<CheckoutView> refund(@PathVariable UUID id, @Valid @RequestBody RefundRequest request) {
         return response(checkout.refund(id, actor.requireUserId(), request.reason()));
+    }
+
+    @PostMapping("/{id}/self-refund")
+    @Operation(summary = "Request a full refund under the refund policy agreed at checkout")
+    public ResponseEntity<CheckoutView> selfRefund(@PathVariable UUID id) {
+        return response(checkout.requestSelfRefund(id, actor.requireUserId()));
     }
 
     private <T> ResponseEntity<T> response(T body) {

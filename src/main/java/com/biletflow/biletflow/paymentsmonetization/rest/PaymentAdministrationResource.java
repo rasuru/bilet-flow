@@ -4,6 +4,7 @@ import com.biletflow.biletflow.paymentsmonetization.application.PaidSalesAdminis
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentAdminQueries;
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentAdminQueryService;
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentSettingsService;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentProvider;
 import com.biletflow.biletflow.paymentsmonetization.application.command.ReinstatePaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.application.command.SuspendPaidSalesCommand;
 import com.biletflow.biletflow.paymentsmonetization.application.view.ActivationFeeView;
@@ -152,6 +153,22 @@ public class PaymentAdministrationResource {
     )
     public ResponseEntity<ActivationRecordView> reinstate(@PathVariable UUID eventId, @Valid @RequestBody ReasonRequest request) {
         return response(paidSales.reinstate(new ReinstatePaidSalesCommand(eventId, request.reason())));
+    }
+
+    @GetMapping("/settings/payment-provider")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    @Operation(summary = "Get the provider for new sandbox payments")
+    public ResponseEntity<PaymentSettingsService.ProviderView> paymentProvider() {
+        return response(settings.paymentProvider());
+    }
+
+    public record ProviderRequest(@NotNull PaymentProvider provider) {}
+
+    @PutMapping("/settings/payment-provider")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    @Operation(summary = "Select the provider for new sandbox payments")
+    public ResponseEntity<PaymentSettingsService.ProviderView> changePaymentProvider(@Valid @RequestBody ProviderRequest request) {
+        return response(settings.changePaymentProvider(request.provider()));
     }
 
     @GetMapping("/settings/activation-fee")

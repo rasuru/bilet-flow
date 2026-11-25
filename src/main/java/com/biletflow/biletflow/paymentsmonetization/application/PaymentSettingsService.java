@@ -5,6 +5,7 @@ import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.common.security.CurrentActor;
 import com.biletflow.biletflow.paymentsmonetization.application.view.ActivationFeeView;
 import com.biletflow.biletflow.paymentsmonetization.application.view.ProcessingFeeRateView;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentProvider;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
@@ -24,6 +25,10 @@ public class PaymentSettingsService {
 
     static final UUID PROCESSING_FEE_RATE_SETTING = UUID.nameUUIDFromBytes(
         "payments:processing-fee-rate".getBytes(StandardCharsets.UTF_8)
+    );
+
+    private static final UUID PAYMENT_PROVIDER_SETTING = UUID.nameUUIDFromBytes(
+        "payments:payment-provider".getBytes(StandardCharsets.UTF_8)
     );
 
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
@@ -112,6 +117,32 @@ public class PaymentSettingsService {
         );
         return rateView();
     }
+
+    public ProviderView paymentProvider() {
+        actor.requireAdministrator();
+        return providerView();
+    }
+
+    @Transactional
+    public ProviderView changePaymentProvider(PaymentProvider provider) {
+        long admin = actor.requireAdministrator();
+        Objects.requireNonNull(provider);
+        locks.lock("payment-settings:payment-provider");
+        PaymentProvider previous = providerView().provider();
+        if (previous != provider) {
+            settings.savePaymentProvider(new PaymentSettingsRepository.ProviderSetting(provider, admin, clock.instant()));
+            audit.recordDetails("payments", PAYMENT_PROVIDER_SETTING, admin, "PAYMENT_PROVIDER_CHANGED", previous + " -> " + provider);
+        }
+        return providerView();
+    }
+
+    private ProviderView providerView() {
+        return settings.paymentProvider()
+            .map(setting -> new ProviderView(setting.provider(), setting.updatedBy(), setting.updatedAt()))
+            .orElseGet(() -> new ProviderView(PaymentProvider.HALYK, null, null));
+    }
+
+    public record ProviderView(PaymentProvider provider, Long updatedBy, java.time.Instant updatedAt) {}
 
     private ProcessingFeeRateView rateView() {
         var override = settings.processingFeeRate();

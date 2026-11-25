@@ -27,7 +27,7 @@ public final class SettlementDecision {
             case CAPTURED -> !paid ? Action.SUCCEED : wantsRefund ? (mutationUncertain ? Action.WAIT : Action.REFUND) : Action.WAIT;
             case AUTHORIZED -> paid ? Action.REVIEW : mutationUncertain ? Action.WAIT : stopPayment ? Action.VOID : Action.CAPTURE;
             case REFUNDED -> Action.REFUNDED;
-            case VOIDED, DECLINED -> paid ? Action.REVIEW : Action.FAIL;
+            case VOIDED, DECLINED, EXPIRED -> paid ? Action.REVIEW : Action.FAIL;
             case PENDING, NOT_FOUND -> Action.WAIT;
             case UNKNOWN -> Action.REVIEW;
         };

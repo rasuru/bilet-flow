@@ -109,14 +109,16 @@ public class PaymentQueryService {
                 "The one-time activation fee payment has been confirmed by the bank."
             )
         );
+        boolean bypassed = payments.bypassesActivation(status);
         return new ActivationChecklistView(
             eventId,
             status == null ? "NOT_REQUESTED" : status.name(),
             items,
-            eventEligible && paidTicketType && payoutAccount && !feePaid,
+            eventEligible && paidTicketType && payoutAccount && !feePaid && !bypassed,
             status == EventPaidSalesActivationStatus.ACTIVE,
             activationTerms.current().activationFee(),
-            true
+            true,
+            bypassed
         );
     }
 

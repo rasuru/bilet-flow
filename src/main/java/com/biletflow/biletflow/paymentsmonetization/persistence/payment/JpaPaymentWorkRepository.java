@@ -2,6 +2,7 @@ package com.biletflow.biletflow.paymentsmonetization.persistence.payment;
 
 import com.biletflow.biletflow.common.application.TransactionLocks;
 import com.biletflow.biletflow.paymentsmonetization.application.PaymentWorkRepository;
+import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentProvider;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentWork;
 import com.biletflow.biletflow.paymentsmonetization.persistence.payment.entity.HalykInvoiceJpaEntity;
 import com.biletflow.biletflow.paymentsmonetization.persistence.payment.entity.PaymentWorkJpaEntity;
@@ -118,8 +119,8 @@ public class JpaPaymentWorkRepository implements PaymentWorkRepository {
     }
 
     @Override
-    public List<UUID> due(Instant now) {
-        return rows.due(now, PageRequest.of(0, 50));
+    public List<UUID> due(Instant now, PaymentProvider provider) {
+        return rows.due(now, provider == PaymentProvider.MOCK, PageRequest.of(0, 50));
     }
 
     @Override

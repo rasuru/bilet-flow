@@ -19,7 +19,8 @@ public record ManagedEventView(
     Instant endAt,
     RegistrationWindowView registrationWindow,
     EventVenueView venue,
-    List<StaffView> staff
+    List<StaffView> staff,
+    Integer refundHoursBeforeStart
 ) {
     public ManagedEventView {
         staff = List.copyOf(staff);

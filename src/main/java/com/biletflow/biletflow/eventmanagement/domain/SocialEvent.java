@@ -24,6 +24,7 @@ public class SocialEvent {
     private EventDateRange dateRange;
     private RegistrationWindow registrationWindow;
     private Venue venue;
+    private RefundPolicy refundPolicy = new RefundPolicy(null);
 
     private final List<StaffAssignment> staffAssignments;
 
@@ -93,7 +94,8 @@ public class SocialEvent {
         EventDateRange dateRange,
         RegistrationWindow registrationWindow,
         Venue venue,
-        List<StaffAssignment> staffAssignments
+        List<StaffAssignment> staffAssignments,
+        RefundPolicy refundPolicy
     ) {
         SocialEvent event = new SocialEvent(
             id,
@@ -115,6 +117,7 @@ public class SocialEvent {
         }
         event.statusBeforeSuspension = statusBeforeSuspension;
         event.venue = venue;
+        event.refundPolicy = Objects.requireNonNull(refundPolicy);
 
         event.staffAssignments.clear();
         event.staffAssignments.addAll(Objects.requireNonNull(staffAssignments, "staffAssignments cannot be null"));
@@ -255,7 +258,17 @@ public class SocialEvent {
             copy.attachVenue(venue.copy());
         }
 
+        copy.refundPolicy = refundPolicy;
         return copy;
+    }
+
+    public RefundPolicy getRefundPolicy() {
+        return refundPolicy;
+    }
+
+    public void updateRefundPolicy(RefundPolicy policy) {
+        ensureNotCancelled();
+        refundPolicy = Objects.requireNonNull(policy);
     }
 
     public boolean canBeManagedBy(Long userId) {

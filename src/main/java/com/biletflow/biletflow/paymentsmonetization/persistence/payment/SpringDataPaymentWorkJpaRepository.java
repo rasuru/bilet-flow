@@ -12,14 +12,15 @@ public interface SpringDataPaymentWorkJpaRepository extends JpaRepository<Paymen
     Optional<PaymentWorkJpaEntity> findByInvoiceId(String invoiceId);
 
     @Query(
-        "select p.id from PaymentWorkJpaEntity p where p.nextPoll <= :now and (p.leaseUntil is null or p.leaseUntil <= :now) order by " +
+        "select p.id from PaymentWorkJpaEntity p where p.nextPoll <= :now and (p.leaseUntil is null or p.leaseUntil <= :now) " +
+            "and ((:mock = true and p.invoiceId like 'M%') or (:mock = false and p.invoiceId not like 'M%')) order by " +
             "case when p.reviewRequired = false and (" +
             "(p.status = com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentStatus.PENDING and p.abandoned = false and p.deadline > :now) " +
             "or p.status = com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentStatus.REFUND_REQUESTED " +
             "or p.operationState in (com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentOperationState.SENT, com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentOperationState.UNKNOWN) " +
             "or (p.currentRefundId is not null and p.operationState is null)) then 0 else 1 end, p.nextPoll, p.id"
     )
-    List<UUID> due(@Param("now") Instant now, Pageable page);
+    List<UUID> due(@Param("now") Instant now, @Param("mock") boolean mock, Pageable page);
 
     @Query(
         "select p.id from PaymentWorkJpaEntity p where p.reviewRequired = true or p.operationState = com.biletflow.biletflow.paymentsmonetization.domain.settlement.PaymentOperationState.UNKNOWN order by p.nextPoll, p.id"
