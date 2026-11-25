@@ -17,7 +17,6 @@ import com.biletflow.biletflow.ticketinventory.domain.eventinventory.ga.Inventor
 import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketType;
 import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeId;
 import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeRepository;
-import com.biletflow.biletflow.ticketinventory.domain.tickettype.TicketTypeStatus;
 import com.biletflow.biletflow.ticketinventory.ohs.TicketSalesAvailability;
 import java.time.Clock;
 import java.time.Instant;
@@ -146,69 +145,24 @@ public class EventInventoryService {
     }
 
     public TicketSalesAvailability salesAvailability(UUID eventId, Instant now, boolean paidSalesPermitted) {
-        List<TicketType> eligibleTypes = ticketTypeRepository
-            .findAllByEventId(eventId)
-            .stream()
-            .filter(type -> type.getStatus() == TicketTypeStatus.ACTIVE)
-            .filter(type -> paidSalesPermitted || type.isFree())
-            .toList();
-        if (eligibleTypes.isEmpty()) {
-            return TicketSalesAvailability.UNAVAILABLE;
-        }
-
         var inventory = inventoryRepository.findByEventId(eventId);
-        if (inventory.isEmpty()) {
-            return TicketSalesAvailability.UNAVAILABLE;
-        }
+        if (inventory.isEmpty()) return TicketSalesAvailability.UNAVAILABLE;
 
-        // The repository returns a detached domain aggregate. Apply the same lazy expiry as a hold, without saving.
+        // Detached domain snapshot; release expired holds without persisting the read.
         EventInventory snapshot = inventory.orElseThrow();
         snapshot.cleanUpExpiredHolds(now);
-        Set<String> availableSeatCategories = availableSeatCategories(snapshot.getMode());
         boolean soldOut = false;
         boolean comingSoon = false;
-        for (TicketType type : eligibleTypes) {
-            boolean inStock = switch (snapshot.getMode()) {
-                case GeneralAdmissionInventory ga -> {
-                    InventoryCounters counters = ga.getCounters().get(type.getId());
-                    yield !type.isAssignedSeatingType() && counters != null && counters.available() > 0;
-                }
-                case AssignedSeatingInventory ignored ->
-                    type.isAssignedSeatingType() && availableSeatCategories.contains(type.getPriceCategory());
-            };
-            if (type.isPurchasableAt(now)) {
-                if (inStock) {
-                    return TicketSalesAvailability.AVAILABLE;
-                }
-                soldOut = true;
-            } else if (inStock && now.isBefore(type.getSalesWindow().startAt())) {
-                comingSoon = true;
+        for (TicketType type : ticketTypeRepository.findAllByEventId(eventId)) {
+            switch (TicketPurchaseAvailability.evaluate(type, snapshot.getMode(), now, true, paidSalesPermitted)) {
+                case AVAILABLE -> { return TicketSalesAvailability.AVAILABLE; }
+                case SOLD_OUT -> soldOut = true;
+                case COMING_SOON -> comingSoon = true;
+                default -> { }
             }
         }
-
-        if (comingSoon) {
-            return TicketSalesAvailability.COMING_SOON;
-        }
+        if (comingSoon) return TicketSalesAvailability.COMING_SOON;
         return soldOut ? TicketSalesAvailability.SOLD_OUT : TicketSalesAvailability.UNAVAILABLE;
-    }
-
-    private Set<String> availableSeatCategories(InventoryMode mode) {
-        if (!(mode instanceof AssignedSeatingInventory assigned)) {
-            return Set.of();
-        }
-        Set<SeatId> taken = new HashSet<>();
-        for (SeatHold hold : assigned.getHolds()) {
-            if (hold.getStatus() == SeatHoldStatus.HELD || hold.getStatus() == SeatHoldStatus.SOLD) {
-                taken.add(hold.getSeatId());
-            }
-        }
-        Set<String> categories = new HashSet<>();
-        assigned.getSeatPriceCategories().forEach((seatId, category) -> {
-            if (!taken.contains(seatId)) {
-                categories.add(category);
-            }
-        });
-        return categories;
     }
 
     public EventInventoryView getInventory(UUID eventId) {

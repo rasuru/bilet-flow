@@ -254,13 +254,6 @@ public class TicketTypeService {
             .toList();
     }
 
-    public List<TicketTypeView> listPublicForEvent(UUID eventId) {
-        return listForEvent(eventId)
-            .stream()
-            .filter(ticketType -> ticketType.status() != TicketTypeStatus.HIDDEN)
-            .toList();
-    }
-
     public List<TicketTypeView> listForManagement(UUID eventId) {
         Objects.requireNonNull(eventId, "eventId cannot be null");
         authorizeTicketingManagement(eventId);
@@ -354,7 +347,7 @@ public class TicketTypeService {
             .orElseThrow(() -> new EntityNotFoundException("EventInventory not found for event: " + eventId));
     }
 
-    private TicketTypeView toView(TicketType ticketType, EventInventory inventory) {
+    static TicketTypeView toView(TicketType ticketType, EventInventory inventory) {
         if (inventory.getMode() instanceof GeneralAdmissionInventory ga) {
             InventoryCounters counters = ga.getCounters().get(ticketType.getId());
 
@@ -398,3 +391,4 @@ public class TicketTypeService {
         );
     }
 }
+

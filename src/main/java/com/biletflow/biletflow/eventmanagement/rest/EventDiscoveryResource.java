@@ -27,7 +27,7 @@ public class EventDiscoveryResource {
     @Operation(
         summary = "Discover public events",
         description = "Lists published public events that have not ended and whose registration deadline has not passed. " +
-            "Includes sold-out events and upcoming sales by default."
+            "Requires at least one purchasable ticket by default. Pass availableOnly=false to include unavailable events."
     )
     @ApiResponse(responseCode = "200", description = "Page of event summaries")
     @ApiResponse(responseCode = "400", description = "Invalid discovery parameters")
@@ -37,7 +37,7 @@ public class EventDiscoveryResource {
         @Parameter(description = "Case-insensitive substring in the title or description") @RequestParam(defaultValue = "") String query,
         @Parameter(description = "Case-insensitive exact category") @RequestParam(defaultValue = "") String category,
         @Parameter(description = "Require an available ticket that can be purchased now")
-        @RequestParam(defaultValue = "false") boolean availableOnly,
+        @RequestParam(defaultValue = "true") boolean availableOnly,
         @Parameter(description = "Event start date order, startAt,asc or startAt,desc")
         @RequestParam(defaultValue = "startAt,asc") String sort
     ) {
@@ -49,3 +49,4 @@ public class EventDiscoveryResource {
         return discovery.discover(page, size, query, category, availableOnly, descending);
     }
 }
+

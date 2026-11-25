@@ -17,3 +17,8 @@ Event Management owns layout reference data. Ticket Inventory owns event-specifi
 
 No new reservation endpoint or bounded context is needed. Existing checkout and ticket inventory continue to use seat UUIDs.
 
+
+## Public purchasing eligibility
+
+`GET /api/events/{eventId}/ticket-types` includes `purchasable` and `purchaseStatus` for each visible ticket type. `purchasable` is true only when registration is open, the ticket type is active and within its sales window, its inventory has stock, and paid sales are permitted if the type has a nonzero price. `purchaseStatus` is one of `AVAILABLE`, `SALES_NOT_ACTIVE`, `REGISTRATION_CLOSED`, `COMING_SOON`, `SOLD_OUT`, `SALES_CLOSED`, or `UNAVAILABLE`. Physical seat status remains independent: `AVAILABLE` seats must also have a purchasable matching ticket type before selection. Management ticket-type responses are unchanged. Discovery defaults to `availableOnly=true`; `false` is an explicit opt-out for API consumers. Checkout still validates current eligibility and reserves atomically.
+
