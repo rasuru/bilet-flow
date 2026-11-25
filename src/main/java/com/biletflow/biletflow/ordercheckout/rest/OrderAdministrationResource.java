@@ -1,13 +1,17 @@
 package com.biletflow.biletflow.ordercheckout.rest;
 
+import com.biletflow.biletflow.ordercheckout.application.AdminOrderOperations;
 import com.biletflow.biletflow.ordercheckout.application.OrderAdminQueries;
 import com.biletflow.biletflow.ordercheckout.application.OrderAdministrationQueryService;
 import com.biletflow.biletflow.ordercheckout.domain.order.OrderStatus;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.CacheControl;
@@ -26,8 +30,27 @@ public class OrderAdministrationResource {
 
     private final OrderAdministrationQueryService orders;
 
-    public OrderAdministrationResource(OrderAdministrationQueryService orders) {
+    private final AdminOrderOperations operations;
+
+    public OrderAdministrationResource(OrderAdministrationQueryService orders, AdminOrderOperations operations) {
         this.orders = orders;
+        this.operations = operations;
+    }
+
+    @GetMapping("/orders/{orderId}")
+    @Operation(summary = "Read issued tickets, payment, refund, and available actions")
+    public ResponseEntity<AdminOrderOperations.Detail> detail(@PathVariable UUID orderId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(operations.get(orderId));
+    }
+
+    public record OrderAction(@NotNull AdminOrderOperations.Action action, UUID ticketId, @Size(max = 200) String reason) {}
+
+    @PostMapping("/orders/{orderId}/actions")
+    @Operation(summary = "Resend a ticket, cancel a free order, or request a full refund")
+    public ResponseEntity<AdminOrderOperations.Detail> execute(@PathVariable UUID orderId, @Valid @RequestBody OrderAction command) {
+        return ResponseEntity.ok()
+            .cacheControl(CacheControl.noStore())
+            .body(operations.execute(orderId, command.action(), command.ticketId(), command.reason()));
     }
 
     @GetMapping("/orders")

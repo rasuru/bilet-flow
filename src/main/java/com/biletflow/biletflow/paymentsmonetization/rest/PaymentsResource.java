@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.responses.*;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
+import java.time.Instant;
 import java.util.*;
 import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -215,6 +216,7 @@ public class PaymentsResource {
 
     public record Resolution(
         UUID expectedOperationId,
+        Instant expectedOperationAt,
         @NotNull OperationResolution resolution,
         @NotBlank @Size(max = 200) String bankSupportReference
     ) {}
@@ -230,8 +232,9 @@ public class PaymentsResource {
         access.resolve(
             new ResolvePaymentOperationCommand(
                 id,
-                actor.requireUserId(),
+                actor.requireAdministrator(),
                 request.expectedOperationId(),
+                request.expectedOperationAt(),
                 request.resolution(),
                 request.bankSupportReference()
             )

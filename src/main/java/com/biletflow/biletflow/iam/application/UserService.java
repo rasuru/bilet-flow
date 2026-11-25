@@ -279,6 +279,16 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
+    public Page<AdminUserDTO> searchManagedUsers(String term, Pageable pageable) {
+        return userRepository.searchManagedUsers(term, pageable).map(AdminUserDTO::new);
+    }
+
+    @Transactional(readOnly = true)
+    public List<UserDTO> findManagedUserIdentities(List<Long> ids) {
+        return userRepository.findAllById(ids).stream().map(UserDTO::new).toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<UserDTO> findPublicUsers(String login) {
         return userRepository
             .findOneByLogin(login.toLowerCase(Locale.ROOT))

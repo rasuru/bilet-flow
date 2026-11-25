@@ -2,6 +2,8 @@ package com.biletflow.biletflow.paymentsmonetization.domain.settlement;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.biletflow.biletflow.paymentsmonetization.domain.activation.EventPaidSalesActivation;
+import com.biletflow.biletflow.paymentsmonetization.domain.notice.PaymentNoticeKind;
 import com.biletflow.biletflow.paymentsmonetization.domain.ticketorderpayment.*;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -220,4 +222,98 @@ class PaymentSettlementTest {
         assertEquals(300, work.pollDelaySeconds(now.plusSeconds(4000)));
         assertEquals(3600, work.pollDelaySeconds(now.plusSeconds(90000)));
     }
+
+    @Test
+    void rejectedCardsDoNotBindTransactionOrTerminateLiveSession() {
+        var work = work();
+        for (int i = 0; i < 2; i++) {
+            var effects = PaymentSettlement.settle(work, evidence(work, SettlementStatus.DECLINED, true), context(), now);
+            assertEquals(PaymentStatus.PENDING, work.getStatus());
+            assertNull(work.getBankTransactionId());
+            assertEquals(2L, work.pollDelaySeconds(now));
+            assertDoesNotThrow(() -> work.requireSessionAvailable(now));
+            assertTrue(effects.getNotices().isEmpty());
+            assertTrue(effects.getOutcomes().isEmpty());
+        }
+        var captured = evidence(work, SettlementStatus.CAPTURED, true);
+        var effects = PaymentSettlement.settle(work, captured, context(), now);
+        assertEquals(PaymentStatus.SUCCEEDED, work.getStatus());
+        assertEquals(captured.transactionId(), work.getBankTransactionId());
+        assertTrue(effects.isCharge());
+        assertFalse(PaymentSettlement.settle(work, captured, context(), now).isCharge());
+        PaymentSettlement.settle(work, evidence(work, SettlementStatus.CAPTURED, true), context(), now);
+        assertTrue(work.isReviewRequired());
+    }
+
+    @Test
+    void declinedSessionFailsAtDeadlineAndLaterChargeIsCompensated() {
+        var work = work();
+        var late = now.plusSeconds(61);
+        var failed = PaymentSettlement.settle(work, evidence(work, SettlementStatus.DECLINED, true), context(), late);
+        assertEquals(PaymentStatus.FAILED, work.getStatus());
+        assertEquals(1, failed.getNotices().size());
+        assertNull(work.getBankTransactionId());
+        var replay = PaymentSettlement.settle(work, evidence(work, SettlementStatus.DECLINED, true), context(), late);
+        assertTrue(replay.getNotices().isEmpty());
+        assertTrue(replay.getOutcomes().isEmpty());
+        PaymentSettlement.settle(work, evidence(work, SettlementStatus.CAPTURED, true), context(), late);
+        assertEquals(RefundStatus.REQUESTED, work.getPayment().getRefund().orElseThrow().getStatus());
+    }
+
+    @Test
+    void aDifferentTransactionCannotReplaceAnUncertainCapture() {
+        var work = work();
+        PaymentSettlement.settle(work, evidence(work, SettlementStatus.AUTHORIZED, true), context(), now);
+        var original = work.getBankTransactionId();
+        var effects = PaymentSettlement.settle(work, evidence(work, SettlementStatus.AUTHORIZED, true), context(), now);
+        assertTrue(work.isReviewRequired());
+        assertEquals(original, work.getBankTransactionId());
+        assertNull(effects.getDispatch());
+    }
+
+    @Test
+    void legacyUnchargedFailedTicketCanReconcileDifferentLateChargeWithoutIssuingTickets() {
+        var work = work();
+        work.recordVerifiedTransaction("old-declined-card");
+        work.getPayment().fail("BANK_DECLINED_OR_VOIDED", now);
+        work.confirmOperation();
+        PaymentSettlement.settle(work, evidence(work, SettlementStatus.CAPTURED, true), context(), now);
+        assertEquals(RefundStatus.REQUESTED, work.getPayment().getRefund().orElseThrow().getStatus());
+        assertFalse(work.isReviewRequired());
+    }
+
+    @Test
+    void legacyActivationCanSettleDifferentCardWhileStillEligible() {
+        var work = terms.activation(UUID.randomUUID(), 7, now, "123456", "secret");
+        var activation = EventPaidSalesActivation.request(work.getEventId(), 7L, now);
+        var context = new PaymentSettlement.Context(
+            new PaymentSettlement.EventFacts(true, false, 7, now.plusSeconds(3600)),
+            work.getId(), activation, true
+        );
+        work.recordVerifiedTransaction("old-declined-card");
+        work.getActivationPayment().fail("BANK_DECLINED_OR_VOIDED", now);
+        work.confirmOperation();
+        var captured = evidence(work, SettlementStatus.CAPTURED, true);
+        var effects = PaymentSettlement.settle(work, captured, context, now.plusSeconds(5));
+        assertTrue(activation.permitsPaidSales());
+        assertEquals(PaymentStatus.SUCCEEDED, work.getStatus());
+        assertEquals(captured.transactionId(), work.getBankTransactionId());
+        assertEquals(java.util.List.of(PaymentNoticeKind.ACTIVATION_FEE_SUCCEEDED), effects.getNotices());
+        assertTrue(PaymentSettlement.settle(work, captured, context, now.plusSeconds(6)).getNotices().isEmpty());
+    }
+
+    @Test
+    void alreadyFlaggedLegacyAttemptRequiresExplicitReviewResolution() {
+        var work = work();
+        work.recordVerifiedTransaction("old-declined-card");
+        work.getPayment().fail("BANK_DECLINED_OR_VOIDED", now);
+        work.confirmOperation();
+        work.requireReview();
+        var effects = PaymentSettlement.settle(work, evidence(work, SettlementStatus.CAPTURED, true), context(), now);
+        assertTrue(work.isReviewRequired());
+        assertFalse(work.hasBeenCharged());
+        assertFalse(effects.isCharge());
+        assertEquals("old-declined-card", work.getBankTransactionId());
+    }
 }
+

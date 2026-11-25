@@ -2,6 +2,8 @@ package com.biletflow.biletflow.ticketinventory.rest;
 
 import com.biletflow.biletflow.common.domain.Money;
 import com.biletflow.biletflow.ticketinventory.application.tickettype.TicketTypeService;
+import com.biletflow.biletflow.ticketinventory.application.tickettype.PublicTicketTypeService;
+import com.biletflow.biletflow.ticketinventory.application.tickettype.view.PublicTicketTypeView;
 import com.biletflow.biletflow.ticketinventory.application.tickettype.command.CreateAssignedSeatingTicketTypeCommand;
 import com.biletflow.biletflow.ticketinventory.application.tickettype.command.CreateGeneralAdmissionTicketTypeCommand;
 import com.biletflow.biletflow.ticketinventory.application.tickettype.command.HideTicketTypeCommand;
@@ -45,28 +47,31 @@ public class TicketTypeResource {
 
     private final TicketTypeService ticketTypeService;
 
-    public TicketTypeResource(TicketTypeService ticketTypeService) {
+    private final PublicTicketTypeService publicTicketTypes;
+
+    public TicketTypeResource(TicketTypeService ticketTypeService, PublicTicketTypeService publicTicketTypes) {
         this.ticketTypeService = Objects.requireNonNull(ticketTypeService, "ticketTypeService cannot be null");
+        this.publicTicketTypes = Objects.requireNonNull(publicTicketTypes);
     }
 
     @GetMapping("/events/{eventId}/ticket-types")
     @Operation(
         summary = "List public ticket types",
-        description = "Returns ticket types visible to attendees. Hidden ticket types are excluded."
+        description = "Returns visible ticket types with current purchasing eligibility. Hidden ticket types are excluded."
     )
     @ApiResponse(
         responseCode = "200",
         description = "Public ticket types returned",
-        content = @Content(array = @ArraySchema(schema = @Schema(implementation = TicketTypeView.class)))
+        content = @Content(array = @ArraySchema(schema = @Schema(implementation = PublicTicketTypeView.class)))
     )
-    public List<TicketTypeView> listPublicForEvent(
+    public List<PublicTicketTypeView> listPublicForEvent(
         @Parameter(
             description = "Event identifier",
             required = true,
             example = "550e8400-e29b-41d4-a716-446655440000"
         ) @PathVariable UUID eventId
     ) {
-        return ticketTypeService.listPublicForEvent(eventId);
+        return publicTicketTypes.list(eventId);
     }
 
     @GetMapping("/events/{eventId}/ticket-types/manage")
@@ -473,3 +478,4 @@ public class TicketTypeResource {
         @Schema(description = "UTC instant when sales close", example = "2026-10-10T16:00:00Z") @NotNull Instant salesEndAt
     ) {}
 }
+

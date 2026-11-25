@@ -17,7 +17,7 @@ class SmtpPaymentNoticeSenderTest {
 
     @ParameterizedTest
     @EnumSource(PaymentNoticeKind.class)
-    void failureEmailNamesTheEventAmountAndReferenceAndIsLabelledSandbox(PaymentNoticeKind kind) {
+    void paymentEmailNamesTheEventAmountAndReferenceAndIsLabelledSandbox(PaymentNoticeKind kind) {
         var emails = mock(EmailSender.class);
         var notice = new PaymentNotice(
             UUID.randomUUID(),
@@ -39,6 +39,11 @@ class SmtpPaymentNoticeSenderTest {
         assertTrue(sent.getValue().text().contains("1000.00 KZT"));
         assertTrue(sent.getValue().text().contains(notice.paymentId().toString()));
         assertTrue(sent.getValue().text().contains("No real money moved"));
+        if (kind == PaymentNoticeKind.ACTIVATION_FEE_SUCCEEDED) {
+            assertTrue(sent.getValue().text().contains("Paid sales are now active"));
+            assertFalse(sent.getValue().text().contains("declined"));
+        }
         assertNull(sent.getValue().attachment());
     }
 }
+

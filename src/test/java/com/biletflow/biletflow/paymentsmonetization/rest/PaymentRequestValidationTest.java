@@ -43,7 +43,7 @@ class PaymentRequestValidationTest {
     void operatorEvidenceAndActivationConsentAreRequired() {
         try (var factory = Validation.buildDefaultValidatorFactory()) {
             var validator = factory.getValidator();
-            assertFalse(validator.validate(new PaymentsResource.Resolution(null, null, " ")).isEmpty());
+            assertFalse(validator.validate(new PaymentsResource.Resolution(null, null, null, " ")).isEmpty());
             assertFalse(validator.validate(new PaymentsResource.ActivationRequest(false, true)).isEmpty());
             assertTrue(validator.validate(new PaymentsResource.ActivationRequest(true, true)).isEmpty());
         }

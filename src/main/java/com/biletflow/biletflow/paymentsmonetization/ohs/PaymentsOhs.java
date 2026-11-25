@@ -13,6 +13,8 @@ public interface PaymentsOhs {
 
     PaymentView initiate(StartPaymentCommand command);
     PaymentView get(UUID paymentId);
+    /** Checks the payment under its reconciliation lock before a direct administrative order refund. */
+    void requireReadyForAdministrativeRefund(UUID paymentId);
     void abandon(UUID paymentId);
     UUID refund(UUID paymentId, String reason);
 }

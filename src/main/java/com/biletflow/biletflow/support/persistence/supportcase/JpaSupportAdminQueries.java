@@ -19,16 +19,17 @@ public class JpaSupportAdminQueries implements SupportAdminQueries {
     }
 
     @Override
-    public List<Summary> search(CaseStatus status, UUID eventId, boolean escalatedOnly, QueryPage page) {
+    public List<Summary> search(CaseStatus status, UUID eventId, UUID orderId, boolean escalatedOnly, QueryPage page) {
         return entities
             .createQuery(
                 """
                 select c.id, c.type, c.requesterUserId, c.subject, c.category, c.eventId, c.orderId, c.ticketId, c.status,
                        c.assignedSupportUserId, c.createdAt, c.updatedAt, c.resolvedAt, c.escalatedAt
                 from SupportCaseJpaEntity c
-                where (c.escalatedAt is not null or (:escalatedOnly = false and c.type = :platform))
+                where (c.escalatedAt is not null or (:escalatedOnly = false and (c.type = :platform or :allOrders = false)))
                   and c.status = coalesce(:status, c.status)
                   and (:allEvents = true or c.eventId = :eventId)
+                  and (:allOrders = true or c.orderId = :orderId)
                 order by c.updatedAt desc, c.id desc
                 """,
                 Summary.class
@@ -38,6 +39,8 @@ public class JpaSupportAdminQueries implements SupportAdminQueries {
             .setParameter("status", status)
             .setParameter("allEvents", eventId == null)
             .setParameter("eventId", eventId)
+            .setParameter("allOrders", orderId == null)
+            .setParameter("orderId", orderId)
             .setFirstResult(page.offset())
             .setMaxResults(page.limit())
             .getResultList();

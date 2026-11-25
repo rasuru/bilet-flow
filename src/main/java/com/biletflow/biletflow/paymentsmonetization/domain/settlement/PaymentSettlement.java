@@ -168,11 +168,31 @@ public final class PaymentSettlement {
             review(w, "SETTLEMENT_REGRESSED_AFTER_REFUND");
             return null;
         }
-        if (w.getBankTransactionId() != null && !w.getBankTransactionId().equals(o.transactionId())) {
+        // Older versions pinned a declined/voided transaction even when no bank mutation was dispatched.
+        // Only that conclusively uncharged legacy state may accept a replacement transaction. An existing
+        // review is never cleared here: its cause could be unrelated to a card retry.
+        boolean noBankMutation = w.getOperation() == null && w.getOperationId() == null && !w.isMutationUncertain();
+        String failureReason = w.isTicket() ? w.getPayment().getFailureReason() : w.getActivationPayment().getFailureReason();
+        boolean legacyFailedAttempt =
+            w.getStatus() == PaymentStatus.FAILED &&
+            "BANK_DECLINED_OR_VOIDED".equals(failureReason) &&
+            reference == null &&
+            !w.hasBeenCharged() &&
+            !w.isReviewRequired() &&
+            noBankMutation &&
+            w.getOperationState() == PaymentOperationState.CONFIRMED;
+        if (w.getBankTransactionId() != null && !w.getBankTransactionId().equals(o.transactionId()) && !legacyFailedAttempt) {
             review(w, "CONFLICTING_PROVIDER_ATTEMPT");
             return null;
         }
-        w.recordVerifiedTransaction(o.transactionId());
+        // A hosted form can retry a rejected card on the same invoice, with a different transaction ID.
+        // Do not pin an uncharged, unmutated decline to the invoice or release its checkout prematurely.
+        boolean unboundDecline =
+            o.status() == SettlementStatus.DECLINED &&
+            !w.hasBeenCharged() &&
+            noBankMutation &&
+            (w.getBankTransactionId() == null || legacyFailedAttempt);
+        if (!unboundDecline) w.recordVerifiedTransaction(o.transactionId());
         if (o.contradictsFullRefundOf(w.getAmount())) {
             review(w, "BANK_REFUND_AMOUNT_CONFLICT");
             return null;
@@ -189,6 +209,10 @@ public final class PaymentSettlement {
         // Explicit operator review is required before any further bank mutation.
         if (w.isTicket() && o.status() == SettlementStatus.AUTHORIZED && !w.hasBeenCharged() && !context.registrationOpen()) w.abandon();
         boolean expired = !now.isBefore(w.getDeadline());
+        if (unboundDecline && !expired && !w.isAbandoned()) return null;
+        // A legacy failed ticket checkout has already released its holds. Never capture a fresh
+        // authorization for it; compensate any independently verified charge instead.
+        if (w.isTicket() && w.getStatus() == PaymentStatus.FAILED) w.abandon();
         boolean wantsRefund = w.isTicket()
             ? w
                   .getPayment()
@@ -324,6 +348,7 @@ public final class PaymentSettlement {
             ) {
                 activation.activation().activate(w.getActivationPayment(), activation.verificationSimulated());
                 effects.activationChanged = true;
+                effects.notices.add(PaymentNoticeKind.ACTIVATION_FEE_SUCCEEDED);
             } else {
                 w.getActivationPayment().requestCompensatingRefund();
                 w.prepareActivationCompensation();
@@ -351,3 +376,4 @@ public final class PaymentSettlement {
         effects.audit.add(reason);
     }
 }
+

@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.ticketinventory.application.eventmanagement.port;
 
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -14,9 +15,14 @@ import java.util.UUID;
 public interface EventManagementPort {
     EventTicketingConfiguration getTicketingConfiguration(UUID eventId);
 
+    record PublicSalesScope(boolean registrationOpen, boolean publiclyReadable) {}
+
+    PublicSalesScope publicSalesScope(UUID eventId, Instant now);
+
     boolean canManageTicketing(UUID eventId, Long userId);
 
     boolean canCheckIn(UUID eventId, Long userId);
 
     TicketEventDetails ticketDetails(UUID eventId, UUID seatId);
 }
+

@@ -1,5 +1,6 @@
 package com.biletflow.biletflow.support.persistence.audit;
 
+import com.biletflow.biletflow.support.application.audit.SupportAuditRepository.SupportAuditRecord;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -34,6 +35,11 @@ public class SupportAuditJpaEntity {
 
     protected SupportAuditJpaEntity() {}
 
+    SupportAuditRecord toRecord() {
+        return new SupportAuditRecord(
+            id, caseId, eventId, occurredAt, actorUserId, action, details);
+    }
+
     public SupportAuditJpaEntity(UUID id, UUID caseId, UUID eventId, Instant occurredAt,
                                  Long actorUserId, String action, String details) {
         this.id = id;
@@ -45,3 +51,4 @@ public class SupportAuditJpaEntity {
         this.details = details;
     }
 }
+

@@ -4,6 +4,7 @@ import com.biletflow.biletflow.common.config.Constants;
 import com.biletflow.biletflow.iam.application.MailService;
 import com.biletflow.biletflow.iam.application.UserService;
 import com.biletflow.biletflow.iam.application.dto.AdminUserDTO;
+import com.biletflow.biletflow.iam.application.dto.UserDTO;
 import com.biletflow.biletflow.iam.domain.User;
 import com.biletflow.biletflow.iam.persistence.UserRepository;
 import com.biletflow.biletflow.iam.rest.errors.BadRequestAlertException;
@@ -12,6 +13,7 @@ import com.biletflow.biletflow.iam.rest.errors.LoginAlreadyUsedException;
 import com.biletflow.biletflow.iam.security.AuthoritiesConstants;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.*;
@@ -21,6 +23,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -163,15 +166,28 @@ public class UserResource {
      */
     @GetMapping("/users")
     @PreAuthorize("hasAuthority(\"" + AuthoritiesConstants.ADMIN + "\")")
-    public ResponseEntity<List<AdminUserDTO>> getAllUsers(@org.springdoc.core.annotations.ParameterObject Pageable pageable) {
+    public ResponseEntity<List<AdminUserDTO>> getAllUsers(
+        @org.springdoc.core.annotations.ParameterObject Pageable pageable,
+        @RequestParam(required = false) @Size(max = 254) String q
+    ) {
         LOG.debug("REST request to get all User for an admin");
         if (!onlyContainsAllowedProperties(pageable)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported sort field");
         }
 
-        final Page<AdminUserDTO> page = userService.getAllManagedUsers(pageable);
+        final Page<AdminUserDTO> page =
+            q == null || q.isBlank() ? userService.getAllManagedUsers(pageable) : userService.searchManagedUsers(q.strip(), pageable);
         HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
         return new ResponseEntity<>(page.getContent(), headers, HttpStatus.OK);
+    }
+
+    @GetMapping("/user-identities")
+    @PreAuthorize("hasAuthority(\"" + AuthoritiesConstants.ADMIN + "\")")
+    public ResponseEntity<List<UserDTO>> userIdentities(@RequestParam List<Long> ids) {
+        if (ids.isEmpty() || ids.size() > 100 || ids.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Supply between 1 and 100 valid user IDs");
+        }
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(userService.findManagedUserIdentities(ids));
     }
 
     private boolean onlyContainsAllowedProperties(Pageable pageable) {

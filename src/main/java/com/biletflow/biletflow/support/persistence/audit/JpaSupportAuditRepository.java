@@ -2,7 +2,9 @@ package com.biletflow.biletflow.support.persistence.audit;
 
 import com.biletflow.biletflow.support.application.audit.SupportAuditRepository;
 import jakarta.persistence.EntityManager;
+import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +19,13 @@ public class JpaSupportAuditRepository implements SupportAuditRepository {
     }
 
     @Override
+    public List<SupportAuditRecord> findByCaseId(UUID caseId) {
+        return entities.createQuery("select a from SupportAuditJpaEntity a where a.caseId = :caseId order by a.occurredAt, a.id",
+            SupportAuditJpaEntity.class).setParameter("caseId", caseId).getResultList().stream()
+            .map(SupportAuditJpaEntity::toRecord).toList();
+    }
+
+    @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void append(SupportAuditRecord record) {
         Objects.requireNonNull(record, "record cannot be null");
@@ -26,3 +35,4 @@ public class JpaSupportAuditRepository implements SupportAuditRepository {
         ));
     }
 }
+

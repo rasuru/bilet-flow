@@ -185,6 +185,15 @@ public class DefaultEventManagementOhs implements EventManagementOhs {
         );
     }
 
+    @Override
+    public SupportEvent supportEvent(UUID eventId) {
+        var event = requireEvent(eventId);
+        var venue = event.getVenue().orElse(null);
+        return new SupportEvent(event.getTitle(), event.getDateRange().startAt(), event.getDateRange().endAt(),
+            venue == null ? null : venue.getName(), venue == null ? null : venue.getAddress(),
+            event.getStatus() == SocialEventStatus.CANCELLED, event.getStatus() == SocialEventStatus.SUSPENDED);
+    }
+
     private SocialEvent requireEvent(UUID eventId) {
         Objects.requireNonNull(eventId, "eventId cannot be null");
 

@@ -6,6 +6,7 @@ import com.biletflow.biletflow.eventmanagement.ohs.EventManagementOhs;
 import com.biletflow.biletflow.paymentsmonetization.domain.settlement.*;
 import com.biletflow.biletflow.paymentsmonetization.ohs.PaymentOutcome;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -79,8 +80,12 @@ public class PaymentTransitions {
         return effects.getDispatch();
     }
 
-    public void resolve(UUID id, UUID expectedOperation, OperationResolution resolution) {
+    public void resolve(UUID id, UUID expectedOperation, Instant expectedOperationAt, OperationResolution resolution) {
         var work = locked(id);
+        // A retried ticket refund reuses the refund ID. Its dispatch timestamp identifies the attempt.
+        if (expectedOperationAt != null && !expectedOperationAt.equals(work.getOperationAt())) {
+            throw new IllegalStateException("Operation changed; reload before resolving");
+        }
         var activation = work.isTicket() ? null : activations.find(work.getEventId()).orElseThrow();
         var effects = PaymentSettlement.resolve(work, expectedOperation, resolution, context(work, activation, false), clock.instant());
         persist(work, activation, effects);

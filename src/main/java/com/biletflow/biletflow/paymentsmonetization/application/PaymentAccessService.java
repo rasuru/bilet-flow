@@ -56,7 +56,7 @@ public class PaymentAccessService {
         UUID expectedOperation = command.expectedOperationId();
         var resolution = command.resolution();
         String evidence = command.bankSupportReference();
-        transitions.resolve(id, expectedOperation, resolution);
+        transitions.resolve(id, expectedOperation, command.expectedOperationAt(), resolution);
         works.wake(id, clock.instant());
         audit.recordDetails("payments", id, actor, "OPERATOR_" + resolution, evidence);
     }

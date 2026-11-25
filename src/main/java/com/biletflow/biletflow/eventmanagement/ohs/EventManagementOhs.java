@@ -16,6 +16,16 @@ public interface EventManagementOhs {
     SalesScope salesScope(UUID eventId, Instant now);
     com.biletflow.biletflow.eventmanagement.ohs.dto.TicketEventDetailsView ticketDetails(UUID eventId, UUID seatId);
 
+    record SupportEvent(String title, Instant startsAt, Instant endsAt, String venue, String address,
+                        boolean cancelled, boolean suspended) {}
+
+    /** Support can also inspect an event draft whose venue has not been configured. */
+    default SupportEvent supportEvent(UUID eventId) {
+        var details = ticketDetails(eventId, null);
+        return new SupportEvent(details.title(), details.startsAt(), details.endsAt(), details.venue(),
+            details.address(), details.cancelled(), details.suspended());
+    }
+
     /** Whether an organizer or assigned EVENT_ADMIN may handle attendee support for the event. */
     boolean canHandleAttendeeSupport(UUID eventId, Long userId);
 
@@ -43,3 +53,4 @@ public interface EventManagementOhs {
         }
     }
 }
+

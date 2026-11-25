@@ -7,6 +7,7 @@ import com.biletflow.biletflow.ticketinventory.application.common.InventoryKind;
 import com.biletflow.biletflow.ticketinventory.application.eventmanagement.port.EventManagementPort;
 import com.biletflow.biletflow.ticketinventory.application.eventmanagement.port.EventTicketingConfiguration;
 import com.biletflow.biletflow.ticketinventory.application.eventmanagement.port.TicketEventDetails;
+import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -38,6 +39,16 @@ public class EventManagementAcl implements EventManagementPort {
                 .stream()
                 .collect(Collectors.toUnmodifiableMap(seat -> seat.seatId(), seat -> seat.priceCategory()))
         );
+    }
+
+    @Override
+    public PublicSalesScope publicSalesScope(UUID eventId, Instant now) {
+        try {
+            var scope = eventManagementOhs.salesScope(eventId, now);
+            return new PublicSalesScope(scope.registrationOpen(), scope.publiclyReadable());
+        } catch (SocialEventNotFoundException exception) {
+            throw new EntityNotFoundException("Event not found: " + eventId);
+        }
     }
 
     @Override
@@ -73,3 +84,4 @@ public class EventManagementAcl implements EventManagementPort {
         }
     }
 }
+
